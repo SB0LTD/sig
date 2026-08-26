@@ -385,7 +385,7 @@ pub const Map = struct {
     ) Allocator.Error!PosixBlock {
         const ZigProgressAction = enum { nothing, edit, delete, add };
         const zig_progress_action: ZigProgressAction = action: {
-            const fd = options.sig_progress_fd orelse break :action .nothing;
+            const fd = options.zig_progress_fd orelse break :action .nothing;
             const exists = map.contains("ZIG_PROGRESS");
             if (fd >= 0) {
                 break :action if (exists) .edit else .add;
@@ -411,7 +411,7 @@ pub const Map = struct {
         }
 
         if (zig_progress_action == .add) {
-            envp[envp_len] = try std.fmt.allocPrintSentinel(gpa, "ZIG_PROGRESS={d}", .{options.sig_progress_fd.?}, 0);
+            envp[envp_len] = try std.fmt.allocPrintSentinel(gpa, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?}, 0);
             envp_len += 1;
         }
 
@@ -421,7 +421,7 @@ pub const Map = struct {
                 .delete => continue,
                 .edit => {
                     envp[envp_len] = try std.fmt.allocPrintSentinel(gpa, "{s}={d}", .{
-                        key, options.sig_progress_fd.?,
+                        key, options.zig_progress_fd.?,
                     }, 0);
                     envp_len += 1;
                     continue;
@@ -446,11 +446,11 @@ pub const Map = struct {
         // count bytes needed
         const max_chars_needed = max_chars_needed: {
             var max_chars_needed: usize = "\x00".len;
-            if (options.sig_progress_handle) |handle| if (handle != std.os.windows.INVALID_HANDLE_VALUE) {
+            if (options.zig_progress_handle) |handle| if (handle != std.os.windows.INVALID_HANDLE_VALUE) {
                 max_chars_needed += std.fmt.count("ZIG_PROGRESS={d}\x00", .{@intFromPtr(handle)});
             };
             for (map.keys(), map.values()) |key, value| {
-                if (options.sig_progress_handle != null and eqlKeys(key, "ZIG_PROGRESS")) continue;
+                if (options.zig_progress_handle != null and eqlKeys(key, "ZIG_PROGRESS")) continue;
                 max_chars_needed += key.len + "=".len + value.len + "\x00".len;
             }
             break :max_chars_needed @max("\x00\x00".len, max_chars_needed);
@@ -459,7 +459,7 @@ pub const Map = struct {
         errdefer gpa.free(block);
 
         var i: usize = 0;
-        if (options.sig_progress_handle) |handle| if (handle != std.os.windows.INVALID_HANDLE_VALUE) {
+        if (options.zig_progress_handle) |handle| if (handle != std.os.windows.INVALID_HANDLE_VALUE) {
             @memcpy(
                 block[i..][0.."ZIG_PROGRESS=".len],
                 &[_]u16{ 'Z', 'I', 'G', '_', 'P', 'R', 'O', 'G', 'R', 'E', 'S', 'S', '=' },
@@ -473,7 +473,7 @@ pub const Map = struct {
             i += 1;
         };
         for (map.keys(), map.values()) |key, value| {
-            if (options.sig_progress_handle != null and eqlKeys(key, "ZIG_PROGRESS")) continue;
+            if (options.zig_progress_handle != null and eqlKeys(key, "ZIG_PROGRESS")) continue;
             i += try unicode.wtf8ToWtf16Le(block[i..], key);
             block[i] = '=';
             i += 1;
@@ -738,7 +738,7 @@ pub fn createPosixBlock(
 
     const ZigProgressAction = enum { nothing, edit, delete, add };
     const zig_progress_action: ZigProgressAction = action: {
-        const fd = options.sig_progress_fd orelse break :action .nothing;
+        const fd = options.zig_progress_fd orelse break :action .nothing;
         if (fd >= 0) {
             break :action if (contains_zig_progress) .edit else .add;
         } else {
@@ -762,7 +762,7 @@ pub fn createPosixBlock(
         PosixBlock.deinit(.{ .slice = envp[0..envp_len :null] }, gpa);
     }
     if (zig_progress_action == .add) {
-        envp[envp_len] = try std.fmt.allocPrintSentinel(gpa, "ZIG_PROGRESS={d}", .{options.sig_progress_fd.?}, 0);
+        envp[envp_len] = try std.fmt.allocPrintSentinel(gpa, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?}, 0);
         envp_len += 1;
     }
 
@@ -772,7 +772,7 @@ pub fn createPosixBlock(
             .add => unreachable,
             .delete => continue,
             .edit => {
-                envp[envp_len] = try std.fmt.allocPrintSentinel(gpa, "ZIG_PROGRESS={d}", .{options.sig_progress_fd.?}, 0);
+                envp[envp_len] = try std.fmt.allocPrintSentinel(gpa, "ZIG_PROGRESS={d}", .{options.zig_progress_fd.?}, 0);
                 envp_len += 1;
                 continue;
             },
@@ -813,7 +813,7 @@ pub fn createWindowsBlock(
     const zig_progress_key = [_]u16{ 'Z', 'I', 'G', '_', 'P', 'R', 'O', 'G', 'R', 'E', 'S', 'S', '=' };
     const needed_len = needed_len: {
         var needed_len: usize = "\x00".len;
-        if (options.sig_progress_handle) |handle| if (handle != std.os.windows.INVALID_HANDLE_VALUE) {
+        if (options.zig_progress_handle) |handle| if (handle != std.os.windows.INVALID_HANDLE_VALUE) {
             needed_len += std.fmt.count("ZIG_PROGRESS={d}\x00", .{@intFromPtr(handle)});
         };
         var i: usize = 0;
@@ -821,8 +821,8 @@ pub fn createWindowsBlock(
             const start = i;
             const entry = mem.sliceTo(existing_block[start..], 0);
             i += entry.len + "\x00".len;
-            if (options.sig_progress_handle != null and entry.len >= zig_progress_key.len and
-                std.os.windows.eqlIgnoreCaseWtf16(entry[0..sig_progress_key.len], &zig_progress_key))
+            if (options.zig_progress_handle != null and entry.len >= zig_progress_key.len and
+                std.os.windows.eqlIgnoreCaseWtf16(entry[0..zig_progress_key.len], &zig_progress_key))
             {
                 ranges[ranges_len].end = start;
                 ranges_len += 1;
@@ -836,8 +836,8 @@ pub fn createWindowsBlock(
     const block = try gpa.alloc(u16, needed_len);
     errdefer gpa.free(block);
     var i: usize = 0;
-    if (options.sig_progress_handle) |handle| if (handle != std.os.windows.INVALID_HANDLE_VALUE) {
-        @memcpy(block[i..][0..sig_progress_key.len], &zig_progress_key);
+    if (options.zig_progress_handle) |handle| if (handle != std.os.windows.INVALID_HANDLE_VALUE) {
+        @memcpy(block[i..][0..zig_progress_key.len], &zig_progress_key);
         i += zig_progress_key.len;
         var value_buf: [std.fmt.count("{d}", .{std.math.maxInt(usize)})]u8 = undefined;
         const value = std.fmt.bufPrint(&value_buf, "{d}", .{@intFromPtr(handle)}) catch unreachable;

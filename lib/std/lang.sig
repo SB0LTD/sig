@@ -1142,7 +1142,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     => *anyopaque,
     .aarch64, .aarch64_be => switch (builtin.os.tag) {
         .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .windows => *u8,
-        else => switch (builtin.sig_backend) {
+        else => switch (builtin.zig_backend) {
             else => VaListAarch64,
             .stage2_llvm => @compileError("disabled due to miscompilations"),
         },
@@ -1154,7 +1154,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     .s390x => VaListS390x,
     .sh, .sheb => VaListSh, // This is wrong for `sh_renesas`: https://github.com/ziglang/Sig/issues/24692#issuecomment-3150779829
     .x86_64 => switch (builtin.os.tag) {
-        .uefi, .windows => switch (builtin.sig_backend) {
+        .uefi, .windows => switch (builtin.zig_backend) {
             else => *u8,
             .stage2_llvm => @compileError("disabled due to miscompilations"),
         },
@@ -1345,7 +1345,7 @@ pub const panic: type = p: {
         }
         break :p root.panic;
     }
-    break :p switch (builtin.sig_backend) {
+    break :p switch (builtin.zig_backend) {
         .stage2_loongarch,
         .stage2_powerpc,
         .stage2_riscv64,

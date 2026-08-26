@@ -691,7 +691,7 @@ pub fn MultiArrayList(comptime T: type) type {
         }
 
         comptime {
-            if (builtin.sig_backend == .stage2_llvm and !builtin.strip_debug_info) {
+            if (builtin.zig_backend == .stage2_llvm and !builtin.strip_debug_info) {
                 _ = &dbHelper;
                 _ = &Slice.dbHelper;
             }

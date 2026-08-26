@@ -20,7 +20,7 @@ pub fn cmdEnv(
     const SIG_LIB_DIR = dirs.sig_lib.path orelse "";
     const zig_std_dir = try dirs.sig_lib.join(arena, &.{"std"});
     const global_cache_dir = dirs.global_cache.path orelse "";
-    const triple = try host.sigTriple(arena);
+    const triple = try host.zigTriple(arena);
 
     var serializer: std.zon.Serializer = .{ .writer = out };
     var root = try serializer.beginStruct(.{});

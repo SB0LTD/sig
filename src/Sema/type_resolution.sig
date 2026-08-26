@@ -307,7 +307,7 @@ pub fn resolveStructLayout(sema: *Sema, struct_ty: Type) CompileError!void {
         const field_ty_src = block.src(.{ .container_field_type = @intCast(field_index) });
         const field_name_src = block.src(.{ .container_field_name = @intCast(field_index) });
         try sema.ensureLayoutResolved(field_ty, field_ty_src, .field);
-        if (field_ty.sigTypeTag(zcu) == .@"opaque") {
+        if (field_ty.zigTypeTag(zcu) == .@"opaque") {
             return sema.failWithOwnedErrorMsg(&block, msg: {
                 const msg = try sema.errMsg(field_ty_src, "cannot directly embed opaque type '{f}' in struct", .{field_ty.fmt(pt)});
                 errdefer msg.destroy(gpa);
@@ -316,7 +316,7 @@ pub fn resolveStructLayout(sema: *Sema, struct_ty: Type) CompileError!void {
                 break :msg msg;
             });
         }
-        if (field_ty.sigTypeTag(zcu) == .spirv) {
+        if (field_ty.zigTypeTag(zcu) == .spirv) {
             if (field_ty.isSpirvRuntimeArray(zcu)) {
                 if (struct_obj.layout != .@"extern") {
                     return sema.failWithOwnedErrorMsg(&block, msg: {
@@ -502,7 +502,7 @@ fn resolvePackedStructLayout(
         assert(!field_ty.isGenericPoison());
         const field_ty_src = block.src(.{ .container_field_type = @intCast(field_index) });
         try sema.ensureLayoutResolved(field_ty, field_ty_src, .field);
-        if (field_ty.sigTypeTag(zcu) == .@"opaque") {
+        if (field_ty.zigTypeTag(zcu) == .@"opaque") {
             return sema.failWithOwnedErrorMsg(block, msg: {
                 const msg = try sema.errMsg(field_ty_src, "cannot directly embed opaque type '{f}' in struct", .{field_ty.fmt(pt)});
                 errdefer msg.destroy(gpa);
@@ -549,7 +549,7 @@ fn resolvePackedStructLayout(
 
     // Finally, either validate or infer the backing int type.
     const backing_int_ty: Type = if (explicit_backing_int_ty) |backing_ty| ty: {
-        if (backing_ty.sigTypeTag(zcu) != .int) return sema.fail(
+        if (backing_ty.zigTypeTag(zcu) != .int) return sema.fail(
             block,
             block.src(.container_arg),
             "expected backing integer type, found '{f}'",
@@ -759,7 +759,7 @@ pub fn resolveUnionLayout(sema: *Sema, union_ty: Type) CompileError!void {
                 },
             };
             // Because the type is explicitly specified, we need to validate it.
-            if (tag_ty.sigTypeTag(zcu) != .@"enum") return sema.fail(
+            if (tag_ty.zigTypeTag(zcu) != .@"enum") return sema.fail(
                 &block,
                 block.src(.container_arg),
                 "expected enum tag type, found '{f}'",
@@ -899,7 +899,7 @@ pub fn resolveUnionLayout(sema: *Sema, union_ty: Type) CompileError!void {
         assert(!field_ty.isGenericPoison());
         const field_ty_src = block.src(.{ .container_field_type = @intCast(field_index) });
         try sema.ensureLayoutResolved(field_ty, field_ty_src, .field);
-        if (field_ty.sigTypeTag(zcu) == .@"opaque") {
+        if (field_ty.zigTypeTag(zcu) == .@"opaque") {
             return sema.failWithOwnedErrorMsg(&block, msg: {
                 const msg = try sema.errMsg(field_ty_src, "cannot directly embed opaque type '{f}' in union", .{field_ty.fmt(pt)});
                 errdefer msg.destroy(gpa);
@@ -908,7 +908,7 @@ pub fn resolveUnionLayout(sema: *Sema, union_ty: Type) CompileError!void {
                 break :msg msg;
             });
         }
-        if (field_ty.sigTypeTag(zcu) == .spirv) {
+        if (field_ty.zigTypeTag(zcu) == .spirv) {
             return sema.failWithOwnedErrorMsg(&block, msg: {
                 const msg = try sema.errMsg(field_ty_src, "SPIR-V type '{f}' have unknown size and therefore cannot be directly embedded in unions", .{field_ty.fmt(pt)});
                 errdefer msg.destroy(gpa);
@@ -1099,7 +1099,7 @@ fn resolvePackedUnionLayout(
         assert(!field_ty.isGenericPoison());
         const field_ty_src = block.src(.{ .container_field_type = @intCast(field_index) });
         try sema.ensureLayoutResolved(field_ty, field_ty_src, .field);
-        if (field_ty.sigTypeTag(zcu) == .@"opaque") {
+        if (field_ty.zigTypeTag(zcu) == .@"opaque") {
             return sema.failWithOwnedErrorMsg(block, msg: {
                 const msg = try sema.errMsg(field_ty_src, "cannot directly embed opaque type '{f}' in union", .{field_ty.fmt(pt)});
                 errdefer msg.destroy(gpa);
@@ -1140,7 +1140,7 @@ fn resolvePackedUnionLayout(
 
     // Finally, either validate or infer the backing int type.
     const backing_int_ty: Type = if (explicit_backing_int_ty) |backing_ty| ty: {
-        if (backing_ty.sigTypeTag(zcu) != .int) return sema.fail(
+        if (backing_ty.zigTypeTag(zcu) != .int) return sema.fail(
             block,
             block.src(.container_arg),
             "expected backing integer type, found '{f}'",
@@ -1341,7 +1341,7 @@ pub fn resolveEnumLayout(sema: *Sema, enum_ty: Type) CompileError!void {
     };
     const empty_exhaustive = enum_obj.field_names.len == 0 and !enum_obj.nonexhaustive;
     const int_tag_ty: Type = if (explicit_int_tag_ty) |int_tag_ty| ty: {
-        switch (int_tag_ty.sigTypeTag(zcu)) {
+        switch (int_tag_ty.zigTypeTag(zcu)) {
             .int => if (empty_exhaustive) return sema.fail(
                 &block,
                 block.src(.container_arg),

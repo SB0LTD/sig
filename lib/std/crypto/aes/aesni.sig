@@ -4,7 +4,7 @@ const mem = std.mem;
 const debug = std.debug;
 
 const has_vaes = builtin.cpu.arch == .x86_64 and builtin.cpu.has(.x86, .vaes);
-const has_avx512f = builtin.cpu.arch == .x86_64 and builtin.sig_backend != .stage2_x86_64 and builtin.cpu.has(.x86, .avx512f);
+const has_avx512f = builtin.cpu.arch == .x86_64 and builtin.zig_backend != .stage2_x86_64 and builtin.cpu.has(.x86, .avx512f);
 
 /// A single AES block.
 pub const Block = struct {

@@ -332,7 +332,7 @@ pub const Section = struct {
 
     fn off(sec: Section, dwarf: *Dwarf) u64 {
         if (dwarf.bin_file.cast(.elf)) |elf_file| {
-            const zo = elf_file.sigObjectPtr().?;
+            const zo = elf_file.zigObjectPtr().?;
             const atom = zo.symbol(sec.index).atom(elf_file).?;
             return atom.offset(elf_file);
         } else if (dwarf.bin_file.cast(.macho)) |macho_file| {
@@ -464,7 +464,7 @@ pub const Section = struct {
     fn resize(sec: *Section, dwarf: *Dwarf, len: u64) UpdateError!void {
         if (len <= sec.len) return;
         if (dwarf.bin_file.cast(.elf)) |elf_file| {
-            const zo = elf_file.sigObjectPtr().?;
+            const zo = elf_file.zigObjectPtr().?;
             const atom = zo.symbol(sec.index).atom(elf_file).?;
             atom.size = len;
             atom.alignment = sec.alignment;
@@ -488,7 +488,7 @@ pub const Section = struct {
         for (sec.units.items) |*unit| unit.off -= len;
         sec.len -= len;
         if (dwarf.bin_file.cast(.elf)) |elf_file| {
-            const zo = elf_file.sigObjectPtr().?;
+            const zo = elf_file.zigObjectPtr().?;
             const atom = zo.symbol(sec.index).atom(elf_file).?;
             if (atom.prevAtom(elf_file)) |_| {
                 atom.value += len;
@@ -1019,7 +1019,7 @@ const Entry = struct {
             log.err("missing {} from {s}", .{
                 @as(Entry.Index, @fromBackingInt(@intCast(entry - unit.entries.items.ptr))),
                 std.mem.sliceTo(if (dwarf.bin_file.cast(.elf)) |elf_file|
-                    elf_file.sigObjectPtr().?.symbol(sec.index).name(elf_file)
+                    elf_file.zigObjectPtr().?.symbol(sec.index).name(elf_file)
                 else if (dwarf.bin_file.cast(.macho)) |macho_file|
                     if (macho_file.d_sym) |*d_sym|
                         &d_sym.sections.items[sec.index].segname
@@ -1086,7 +1086,7 @@ const Entry = struct {
         if (sec == &dwarf.debug_frame.section) switch (DebugFrame.format(dwarf)) {
             .none, .debug_frame => {},
             .eh_frame => return if (dwarf.bin_file.cast(.elf)) |elf_file| {
-                const zo = elf_file.sigObjectPtr().?;
+                const zo = elf_file.zigObjectPtr().?;
                 const shndx = zo.symbol(sec.index).atom(elf_file).?.output_section_index;
                 const entry_addr: i64 = @intCast(entry_off - sec.off(dwarf) + elf_file.shdrs.items[shndx].sh_addr);
                 for (entry.external_relocs.items) |reloc| {
@@ -1101,7 +1101,7 @@ const Entry = struct {
             } else unreachable,
         };
         if (dwarf.bin_file.cast(.elf)) |elf_file| {
-            const zo = elf_file.sigObjectPtr().?;
+            const zo = elf_file.zigObjectPtr().?;
             for (entry.external_relocs.items) |reloc| {
                 const symbol = zo.symbol(reloc.target_sym);
                 try dwarf.resolveReloc(
@@ -1835,7 +1835,7 @@ pub const WipNav = struct {
 
             try dlw.writeByte(DW.LNS.extended_op);
             try dlw.writeUleb128(1 + dwarf.sectionOffsetBytes());
-            try dlw.writeByte(DW.LNE.sig_set_decl);
+            try dlw.writeByte(DW.LNE.ZIG_set_decl);
             try dwarf.debug_line.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).cross_section_relocs.append(dwarf.gpa, .{
                 .source_off = @intCast(dlw.end),
                 .target_sec = .debug_info,
@@ -2407,7 +2407,7 @@ pub fn reloadSectionMetadata(dwarf: *Dwarf) void {
 
 pub fn initMetadata(dwarf: *Dwarf) UpdateError!void {
     if (dwarf.bin_file.cast(.elf)) |elf_file| {
-        const zo = elf_file.sigObjectPtr().?;
+        const zo = elf_file.zigObjectPtr().?;
         for ([_]*Section{
             &dwarf.debug_abbrev.section,
             &dwarf.debug_aranges.section,
@@ -2762,7 +2762,7 @@ fn initWipNavInner(
             try dlw.writeByte(DW.LNS.extended_op);
             if (dwarf.incremental()) {
                 try dlw.writeUleb128(1 + dwarf.sectionOffsetBytes());
-                try dlw.writeByte(DW.LNE.sig_set_decl);
+                try dlw.writeByte(DW.LNE.ZIG_set_decl);
                 try dwarf.debug_line.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).cross_section_relocs.append(dwarf.gpa, .{
                     .source_off = @intCast(dlw.end),
                     .target_sec = .debug_info,
@@ -4849,7 +4849,7 @@ fn flushWriterError(dwarf: *Dwarf, pt: Zcu.PerThread) (UpdateError || Writer.Err
             hw.splatByteAll(0, dwarf.sectionOffsetBytes()) catch unreachable;
             const compile_unit_off: u32 = @intCast(hw.end);
             hw.writeUleb128(try dwarf.refAbbrevCode(.compile_unit)) catch unreachable;
-            hw.writeByte(DW.LANG.sig) catch unreachable;
+            hw.writeByte(DW.LANG.Sig) catch unreachable;
             unit_ptr.cross_section_relocs.appendAssumeCapacity(.{
                 .source_off = @intCast(hw.end),
                 .target_sec = .debug_line_str,
@@ -5251,7 +5251,7 @@ const AbbrevCode = enum {
         DeclValEnum(DW.FORM),
     };
     const decl_abbrev_common_attrs = &[_]Attr{
-        .{ .sig_parent, .ref_addr },
+        .{ .ZIG_parent, .ref_addr },
         .{ .decl_line, .data4 },
         .{ .decl_column, .udata },
         .{ .accessibility, .data1 },
@@ -5261,7 +5261,7 @@ const AbbrevCode = enum {
         .{ .declaration, .flag_present },
     };
     const decl_instance_abbrev_common_attrs = &[_]Attr{
-        .{ .sig_parent, .ref_addr },
+        .{ .ZIG_parent, .ref_addr },
         .{ .abstract_origin, .ref_addr },
     };
     const abbrevs = std.EnumArray(AbbrevCode, struct {
@@ -5270,12 +5270,12 @@ const AbbrevCode = enum {
         attrs: []const Attr = &.{},
     }).init(.{
         .pad_1 = .{
-            .tag = .sig_padding,
+            .tag = .ZIG_padding,
         },
         .pad_n = .{
-            .tag = .sig_padding,
+            .tag = .ZIG_padding,
             .attrs = &.{
-                .{ .sig_padding, .block },
+                .{ .ZIG_padding, .block },
             },
         },
         .decl_alias = .{
@@ -5369,7 +5369,7 @@ const AbbrevCode = enum {
                 .{ .type, .ref_addr },
                 .{ .alignment, .udata },
                 .{ .external, .flag },
-                .{ .sig_comptime_value, .ref_addr },
+                .{ .ZIG_comptime_value, .ref_addr },
             },
         },
         .decl_const_runtime_bits_comptime_state = .{
@@ -5380,7 +5380,7 @@ const AbbrevCode = enum {
                 .{ .alignment, .udata },
                 .{ .external, .flag },
                 .{ .const_value, .block },
-                .{ .sig_comptime_value, .ref_addr },
+                .{ .ZIG_comptime_value, .ref_addr },
             },
         },
         .decl_nullary_func = .{
@@ -5545,7 +5545,7 @@ const AbbrevCode = enum {
                 .{ .type, .ref_addr },
                 .{ .alignment, .udata },
                 .{ .external, .flag },
-                .{ .sig_comptime_value, .ref_addr },
+                .{ .ZIG_comptime_value, .ref_addr },
             },
         },
         .decl_instance_const_runtime_bits_comptime_state = .{
@@ -5556,7 +5556,7 @@ const AbbrevCode = enum {
                 .{ .alignment, .udata },
                 .{ .external, .flag },
                 .{ .const_value, .block },
-                .{ .sig_comptime_value, .ref_addr },
+                .{ .ZIG_comptime_value, .ref_addr },
             },
         },
         .decl_instance_nullary_func = .{
@@ -5705,7 +5705,7 @@ const AbbrevCode = enum {
                 .{ .type, .ref_addr },
                 .{ .data_member_location, .udata },
                 .{ .alignment, .udata },
-                .{ .sig_comptime_value, .ref_addr },
+                .{ .ZIG_comptime_value, .ref_addr },
             },
         },
         .field_comptime = .{
@@ -5731,7 +5731,7 @@ const AbbrevCode = enum {
                 .{ .const_expr, .flag_present },
                 .{ .name, .strp },
                 .{ .type, .ref_addr },
-                .{ .sig_comptime_value, .ref_addr },
+                .{ .ZIG_comptime_value, .ref_addr },
             },
         },
         .packed_field = .{
@@ -5796,7 +5796,7 @@ const AbbrevCode = enum {
             .tag = .pointer_type,
             .attrs = &.{
                 .{ .name, .strp },
-                .{ .sig_sentinel, .block },
+                .{ .ZIG_sentinel, .block },
                 .{ .address_class, .data1 },
                 .{ .type, .ref_addr },
             },
@@ -5814,7 +5814,7 @@ const AbbrevCode = enum {
             .tag = .pointer_type,
             .attrs = &.{
                 .{ .name, .strp },
-                .{ .sig_sentinel, .block },
+                .{ .ZIG_sentinel, .block },
                 .{ .alignment, .udata },
                 .{ .address_class, .data1 },
                 .{ .type, .ref_addr },
@@ -5845,7 +5845,7 @@ const AbbrevCode = enum {
             .children = true,
             .attrs = &.{
                 .{ .name, .strp },
-                .{ .sig_sentinel, .block },
+                .{ .ZIG_sentinel, .block },
                 .{ .type, .ref_addr },
             },
         },
@@ -6028,7 +6028,7 @@ const AbbrevCode = enum {
         .builtin_extern_nullary_func = .{
             .tag = .subprogram,
             .attrs = &.{
-                .{ .sig_parent, .ref_addr },
+                .{ .ZIG_parent, .ref_addr },
                 .{ .linkage_name, .strp },
                 .{ .type, .ref_addr },
                 .{ .low_pc, .addr },
@@ -6040,7 +6040,7 @@ const AbbrevCode = enum {
             .tag = .subprogram,
             .children = true,
             .attrs = &.{
-                .{ .sig_parent, .ref_addr },
+                .{ .ZIG_parent, .ref_addr },
                 .{ .linkage_name, .strp },
                 .{ .type, .ref_addr },
                 .{ .low_pc, .addr },
@@ -6051,7 +6051,7 @@ const AbbrevCode = enum {
         .builtin_extern_var = .{
             .tag = .variable,
             .attrs = &.{
-                .{ .sig_parent, .ref_addr },
+                .{ .ZIG_parent, .ref_addr },
                 .{ .linkage_name, .strp },
                 .{ .type, .ref_addr },
                 .{ .location, .exprloc },
@@ -6147,7 +6147,7 @@ const AbbrevCode = enum {
                 .{ .const_expr, .flag_present },
                 .{ .name, .strp },
                 .{ .type, .ref_addr },
-                .{ .sig_comptime_value, .ref_addr },
+                .{ .ZIG_comptime_value, .ref_addr },
             },
         },
         .unnamed_comptime_arg_comptime_state = .{
@@ -6155,7 +6155,7 @@ const AbbrevCode = enum {
             .attrs = &.{
                 .{ .const_expr, .flag_present },
                 .{ .type, .ref_addr },
-                .{ .sig_comptime_value, .ref_addr },
+                .{ .ZIG_comptime_value, .ref_addr },
             },
         },
         .comptime_arg_runtime_bits_comptime_state = .{
@@ -6165,7 +6165,7 @@ const AbbrevCode = enum {
                 .{ .name, .strp },
                 .{ .type, .ref_addr },
                 .{ .const_value, .block },
-                .{ .sig_comptime_value, .ref_addr },
+                .{ .ZIG_comptime_value, .ref_addr },
             },
         },
         .unnamed_comptime_arg_runtime_bits_comptime_state = .{
@@ -6174,7 +6174,7 @@ const AbbrevCode = enum {
                 .{ .const_expr, .flag_present },
                 .{ .type, .ref_addr },
                 .{ .const_value, .block },
-                .{ .sig_comptime_value, .ref_addr },
+                .{ .ZIG_comptime_value, .ref_addr },
             },
         },
         .extern_param = .{
@@ -6211,7 +6211,7 @@ const AbbrevCode = enum {
             .attrs = &.{
                 .{ .name, .strp },
                 .{ .type, .ref_addr },
-                .{ .sig_comptime_value, .ref_addr },
+                .{ .ZIG_comptime_value, .ref_addr },
             },
         },
         .local_const_runtime_bits_comptime_state = .{
@@ -6220,31 +6220,31 @@ const AbbrevCode = enum {
                 .{ .name, .strp },
                 .{ .type, .ref_addr },
                 .{ .const_value, .block },
-                .{ .sig_comptime_value, .ref_addr },
+                .{ .ZIG_comptime_value, .ref_addr },
             },
         },
         .undefined_comptime_value = .{
-            .tag = .sig_comptime_value,
+            .tag = .ZIG_comptime_value,
             .attrs = &.{
                 .{ .type, .ref_addr },
             },
         },
         .aggregate_undefined_comptime_value = .{
-            .tag = .sig_comptime_value,
+            .tag = .ZIG_comptime_value,
             .children = true,
             .attrs = &.{
                 .{ .type, .ref_addr },
             },
         },
         .comptime_value = .{
-            .tag = .sig_comptime_value,
+            .tag = .ZIG_comptime_value,
             .attrs = &.{
                 .{ .type, .ref_addr },
                 .{ .const_value, .indirect },
             },
         },
         .aggregate_comptime_value = .{
-            .tag = .sig_comptime_value,
+            .tag = .ZIG_comptime_value,
             .children = true,
             .attrs = &.{
                 .{ .type, .ref_addr },
@@ -6252,14 +6252,14 @@ const AbbrevCode = enum {
             },
         },
         .location_comptime_value = .{
-            .tag = .sig_comptime_value,
+            .tag = .ZIG_comptime_value,
             .attrs = &.{
                 .{ .type, .ref_addr },
                 .{ .location, .exprloc },
             },
         },
         .aggregate_location_comptime_value = .{
-            .tag = .sig_comptime_value,
+            .tag = .ZIG_comptime_value,
             .children = true,
             .attrs = &.{
                 .{ .type, .ref_addr },
@@ -6277,7 +6277,7 @@ const AbbrevCode = enum {
             .tag = .member,
             .attrs = &.{
                 .{ .name, .strp },
-                .{ .sig_comptime_value, .ref_addr },
+                .{ .ZIG_comptime_value, .ref_addr },
             },
         },
         .comptime_value_elem_runtime_bits = .{
@@ -6289,7 +6289,7 @@ const AbbrevCode = enum {
         .comptime_value_elem_comptime_state = .{
             .tag = .member,
             .attrs = &.{
-                .{ .sig_comptime_value, .ref_addr },
+                .{ .ZIG_comptime_value, .ref_addr },
             },
         },
         .null = undefined,

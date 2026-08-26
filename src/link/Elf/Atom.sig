@@ -92,7 +92,7 @@ pub fn thunk(self: Atom, elf_file: *Elf) *Thunk {
 pub fn inputShdr(self: Atom, elf_file: *Elf) elf.Elf64_Shdr {
     return switch (self.file(elf_file).?) {
         .object => |x| x.shdrs.items[self.input_section_index],
-        .sig_object => |x| x.inputShdr(self.atom_index, elf_file),
+        .zig_object => |x| x.inputShdr(self.atom_index, elf_file),
         else => unreachable,
     };
 }
@@ -197,11 +197,11 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
     }
 
     switch (self.file(elf_file).?) {
-        .sig_object => |zo| {
+        .zig_object => |zo| {
             // TODO create relocs free list
             self.freeRelocs(zo);
             // TODO figure out how to free input section mappind in ZigModule
-            // const zig_object = elf_file.sigObjectPtr().?
+            // const zig_object = elf_file.zigObjectPtr().?
             // assert(zig_object.atoms.swapRemove(self.atom_index));
         },
         else => {},
@@ -212,7 +212,7 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
 pub fn relocs(self: Atom, elf_file: *Elf) []const elf.Elf64_Rela {
     const shndx = self.relocsShndx() orelse return &[0]elf.Elf64_Rela{};
     switch (self.file(elf_file).?) {
-        .sig_object => |x| return x.relocs.items[shndx].items,
+        .zig_object => |x| return x.relocs.items[shndx].items,
         .object => |x| {
             const extras = self.extra(elf_file);
             return x.relocs.items[extras.rel_index..][0..extras.rel_count];
@@ -311,7 +311,7 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
         const symbol_ref = file_ptr.resolveSymbol(rel.r_sym(), elf_file);
         const symbol = elf_file.symbol(symbol_ref) orelse {
             const sym_name = switch (file_ptr) {
-                .sig_object => |x| x.symbol(rel.r_sym()).name(elf_file),
+                .zig_object => |x| x.symbol(rel.r_sym()).name(elf_file),
                 inline else => |x| x.symbols.items[rel.r_sym()].name(elf_file),
             };
             // Violation of One Definition Rule for COMDATs.
@@ -325,7 +325,7 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
         };
 
         const is_synthetic_symbol = switch (file_ptr) {
-            .sig_object => false, // TODO: implement this once we support merge sections in ZigObject
+            .zig_object => false, // TODO: implement this once we support merge sections in ZigObject
             .object => |x| rel.r_sym() >= x.symtab.items.len,
             else => unreachable,
         };
@@ -589,7 +589,7 @@ fn reportUndefined(
     const gpa = comp.gpa;
     const file_ptr = self.file(elf_file).?;
     const rel_esym = switch (file_ptr) {
-        .sig_object => |x| x.symbol(rel.r_sym()).elfSym(elf_file),
+        .zig_object => |x| x.symbol(rel.r_sym()).elfSym(elf_file),
         .shared_object => |so| so.parsed.symtab[rel.r_sym()],
         inline else => |x| x.symtab.items[rel.r_sym()],
     };
@@ -601,7 +601,7 @@ fn reportUndefined(
         esym.st_shndx == elf.SHN_UNDEF)
     {
         const idx = switch (file_ptr) {
-            .sig_object => |x| x.symbols_resolver.items[rel.r_sym() & ZigObject.symbol_mask],
+            .zig_object => |x| x.symbols_resolver.items[rel.r_sym() & ZigObject.symbol_mask],
             .object => |x| x.symbols_resolver.items[rel.r_sym() - x.first_global.?],
             inline else => |x| x.symbols_resolver.items[rel.r_sym()],
         };
@@ -810,7 +810,7 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
         const target_ref = file_ptr.resolveSymbol(rel.r_sym(), elf_file);
         const target = elf_file.symbol(target_ref) orelse {
             const sym_name = switch (file_ptr) {
-                .sig_object => |x| x.symbol(rel.r_sym()).name(elf_file),
+                .zig_object => |x| x.symbol(rel.r_sym()).name(elf_file),
                 inline else => |x| x.symbols.items[rel.r_sym()].name(elf_file),
             };
             // Violation of One Definition Rule for COMDATs.
@@ -823,7 +823,7 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
             continue;
         };
         const is_synthetic_symbol = switch (file_ptr) {
-            .sig_object => false, // TODO: implement this once we support merge sections in ZigObject
+            .zig_object => false, // TODO: implement this once we support merge sections in ZigObject
             .object => |x| rel.r_sym() >= x.symtab.items.len,
             else => unreachable,
         };

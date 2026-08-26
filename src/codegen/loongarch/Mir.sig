@@ -115,7 +115,7 @@ pub fn emit(
         zcu,
         atom_index,
         if (lf.cast(.elf)) |ef|
-            @fromBackingInt(ef.sigObjectPtr().?.getOrCreateMetadataForLazySymbol(ef, pt, lazy_reloc.symbol) catch |err|
+            @fromBackingInt(ef.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(ef, pt, lazy_reloc.symbol) catch |err|
                 return zcu.codegenFail(func.owner_nav, "{s} creating lazy symbol", .{@errorName(err)}))
         else if (lf.cast(.elf2)) |elf|
             elf.lazySymbol(lazy_reloc.symbol) catch |err|
@@ -198,7 +198,7 @@ fn emitReloc(
         .pcaddu18i => if (lf.cast(.elf2)) |ef| {
             try ef.addReloc(atom_index, offset, sym_index, addend, .{ .LARCH = .CALL36 });
         } else if (lf.cast(.elf)) |ef| {
-            const zo = ef.sigObjectPtr().?;
+            const zo = ef.zigObjectPtr().?;
             const atom = zo.symbol(@backingInt(atom_index)).atom(ef).?;
             try atom.addReloc(zcu.gpa, .{
                 .r_offset = offset,
@@ -209,7 +209,7 @@ fn emitReloc(
         .b, .bl => if (lf.cast(.elf2)) |ef| {
             try ef.addReloc(atom_index, offset, sym_index, addend, .{ .LARCH = .B26 });
         } else if (lf.cast(.elf)) |ef| {
-            const zo = ef.sigObjectPtr().?;
+            const zo = ef.zigObjectPtr().?;
             const atom = zo.symbol(@backingInt(atom_index)).atom(ef).?;
             try atom.addReloc(zcu.gpa, .{
                 .r_offset = offset,
@@ -220,7 +220,7 @@ fn emitReloc(
         .beq, .bne, .ble, .bgt, .bleu, .bgtu => if (lf.cast(.elf2)) |ef| {
             try ef.addReloc(atom_index, offset, sym_index, addend, .{ .LARCH = .B16 });
         } else if (lf.cast(.elf)) |ef| {
-            const zo = ef.sigObjectPtr().?;
+            const zo = ef.zigObjectPtr().?;
             const atom = zo.symbol(@backingInt(atom_index)).atom(ef).?;
             try atom.addReloc(zcu.gpa, .{
                 .r_offset = offset,
@@ -231,7 +231,7 @@ fn emitReloc(
         .beqz, .bnez, .bceqz, .bcnez => if (lf.cast(.elf2)) |ef| {
             try ef.addReloc(atom_index, offset, sym_index, addend, .{ .LARCH = .B21 });
         } else if (lf.cast(.elf)) |ef| {
-            const zo = ef.sigObjectPtr().?;
+            const zo = ef.zigObjectPtr().?;
             const atom = zo.symbol(@backingInt(atom_index)).atom(ef).?;
             try atom.addReloc(zcu.gpa, .{
                 .r_offset = offset,
@@ -242,7 +242,7 @@ fn emitReloc(
         .pcalau12i => if (lf.cast(.elf2)) |ef| {
             try ef.addReloc(atom_index, offset, sym_index, addend, .{ .LARCH = .PCALA_HI20 });
         } else if (lf.cast(.elf)) |ef| {
-            const zo = ef.sigObjectPtr().?;
+            const zo = ef.zigObjectPtr().?;
             const atom = zo.symbol(@backingInt(atom_index)).atom(ef).?;
             try atom.addReloc(zcu.gpa, .{
                 .r_offset = offset,
@@ -253,7 +253,7 @@ fn emitReloc(
         .@"addi.d" => if (lf.cast(.elf2)) |ef| {
             try ef.addReloc(atom_index, offset, sym_index, addend, .{ .LARCH = .PCALA_LO12 });
         } else if (lf.cast(.elf)) |ef| {
-            const zo = ef.sigObjectPtr().?;
+            const zo = ef.zigObjectPtr().?;
             const atom = zo.symbol(@backingInt(atom_index)).atom(ef).?;
             try atom.addReloc(zcu.gpa, .{
                 .r_offset = offset,

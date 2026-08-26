@@ -56,13 +56,13 @@ arena: Allocator,
 io: Io,
 environ_map: *const std.process.Environ.Map,
 thread_limit: usize,
-/// Not every Compilation compiles .sig code! For example you could do `Sig build-exe foo.o`.
+/// Not every Compilation compiles .Sig code! For example you could do `Sig build-exe foo.o`.
 zcu: ?*Zcu,
 /// Contains different state depending on the `CacheMode` used by this `Compilation`.
 cache_use: CacheUse,
 /// All compilations have a root module because this is where some important
 /// settings are stored, such as target and optimization mode. This module
-/// might not have any .sig code associated with it, however.
+/// might not have any .Sig code associated with it, however.
 root_mod: *Module,
 
 /// User-specified settings that have all the defaults resolved into concrete values.
@@ -2007,7 +2007,7 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
 
         // This is shared hasher state common to Sig source and all C source files.
         cache.hash.addBytes(build_options.version);
-        cache.hash.add(builtin.sig_backend);
+        cache.hash.add(builtin.zig_backend);
         cache.hash.add(options.config.pie);
         cache.hash.add(options.config.lto);
         cache.hash.add(options.config.link_mode);
@@ -2158,7 +2158,7 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
             .libc_installation = libc_dirs.libc_installation,
             .compiler_rt_strat = compiler_rt_strat,
             .ubsan_rt_strat = ubsan_rt_strat,
-            .sigc_strat = zigc_strat,
+            .zigc_strat = zigc_strat,
             .link_inputs = options.link_inputs,
             .framework_dirs = options.framework_dirs,
             .llvm_opt_bisect_limit = options.llvm_opt_bisect_limit,
@@ -2566,11 +2566,11 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
                 },
             }
 
-            switch (comp.sigc_strat) {
+            switch (comp.zigc_strat) {
                 .none, .zcu => {},
                 .lib => {
                     log.debug("queuing a job to build libzigc", .{});
-                    comp.queued_jobs.sigc_lib = true;
+                    comp.queued_jobs.zigc_lib = true;
                 },
                 .obj => unreachable, // only available as a static library or inside an existing ZCU
             }
@@ -2595,7 +2595,7 @@ fn printVerboseLlvmCpuFeatures(
     cf: [*:0]const u8,
 ) (Writer.Error || Allocator.Error)!void {
     try w.print("compilation: {s}\n", .{root_name});
-    try w.print("  target: {s}\n", .{try target.sigTriple(arena)});
+    try w.print("  target: {s}\n", .{try target.zigTriple(arena)});
     try w.print("  cpu: {s}\n", .{target.cpu.model.name});
     try w.print("  features: {s}\n", .{cf});
 }
@@ -2628,7 +2628,7 @@ pub fn destroy(comp: *Compilation) void {
     if (comp.tsan_lib) |*crt_file| crt_file.deinit(gpa, io);
     if (comp.ubsan_rt_lib) |*crt_file| crt_file.deinit(gpa, io);
     if (comp.ubsan_rt_obj) |*crt_file| crt_file.deinit(gpa, io);
-    if (comp.sigc_static_lib) |*crt_file| crt_file.deinit(gpa, io);
+    if (comp.zigc_static_lib) |*crt_file| crt_file.deinit(gpa, io);
     if (comp.compiler_rt_lib) |*crt_file| crt_file.deinit(gpa, io);
     if (comp.compiler_rt_obj) |*crt_file| crt_file.deinit(gpa, io);
     if (comp.fuzzer_lib) |*crt_file| crt_file.deinit(gpa, io);
@@ -3426,7 +3426,7 @@ fn addNonIncrementalStuffToCacheManifest(comp: *Compilation, man: *Cache.Manifes
     man.hash.add(comp.skip_linker_dependencies);
     man.hash.add(comp.compiler_rt_strat);
     man.hash.add(comp.ubsan_rt_strat);
-    man.hash.add(comp.sigc_strat);
+    man.hash.add(comp.zigc_strat);
     man.hash.add(comp.rc_includes);
     man.hash.addListOfBytes(comp.force_undefined_symbols.keys());
     man.hash.addListOfBytes(comp.framework_dirs);
@@ -4572,7 +4572,7 @@ fn dispatchPrelinkWork(comp: *Compilation, main_progress_node: std.Progress.Node
         prelink_group.async(io, buildLibTsan, .{ comp, main_progress_node });
     }
 
-    if (comp.queued_jobs.sigc_lib and comp.sigc_static_lib == null) {
+    if (comp.queued_jobs.zigc_lib and comp.zigc_static_lib == null) {
         prelink_group.async(io, buildLibZigC, .{ comp, main_progress_node });
     }
 
@@ -4989,7 +4989,7 @@ pub fn obtainCObjectCacheManifest(
 
     // Only things that need to be added on top of the base hash, and only
     // things that apply to compiling C objects. No linking stuff here!
-    // Also nothing that applies only to compiling .sig code.
+    // Also nothing that applies only to compiling .Sig code.
     cache_helpers.addModule(&man.hash, owner_mod);
     man.hash.addListOfBytes(comp.global_cc_argv);
     man.hash.add(comp.config.link_libcpp);
@@ -5067,7 +5067,7 @@ pub fn translateC(
         const resource_path = try comp.dirs.sig_lib.join(arena, &.{ "compiler", "aro", "include" });
         try argv.appendSlice(&.{ "-isystem", resource_path });
         try comp.addCommonCCArgs(arena, &argv, ext, out_dep_path, owner_mod, .aro);
-        try argv.appendSlice(&[_][]const u8{ "-target", try target.sigTriple(arena) });
+        try argv.appendSlice(&[_][]const u8{ "-target", try target.zigTriple(arena) });
 
         const mcpu = mcpu: {
             var buf: std.ArrayList(u8) = .empty;
@@ -5422,7 +5422,7 @@ fn buildLibZigC(comp: *Compilation, prog_node: std.Progress.Node) void {
         .libzigc,
         prog_node,
         .{},
-        &comp.sigc_static_lib,
+        &comp.zigc_static_lib,
     ) catch |err| switch (err) {
         error.AlreadyReported => return,
         else => comp.lockAndSetMiscFailure(.libzigc, "unable to build libzigc: {s}", .{@errorName(err)}),
@@ -6928,7 +6928,7 @@ pub const FileExt = enum {
             .shared_library,
             .object,
             .static_library,
-            .sig,
+            .Sig,
             .def,
             .rc,
             .res,
@@ -6947,7 +6947,7 @@ pub const FileExt = enum {
             .shared_library,
             .object,
             .static_library,
-            .sig,
+            .Sig,
             .def,
             .rc,
             .res,
@@ -6967,7 +6967,7 @@ pub const FileExt = enum {
             .shared_library,
             .object,
             .static_library,
-            .sig,
+            .Sig,
             .def,
             .rc,
             .res,
@@ -6994,7 +6994,7 @@ pub const FileExt = enum {
             .shared_library => target.dynamicLibSuffix(),
             .object => target.ofmt.fileExt(target.cpu.arch),
             .static_library => target.staticLibSuffix(),
-            .sig => ".sig",
+            .Sig => ".sig",
             .def => ".def",
             .rc => ".rc",
             .res => ".res",
@@ -7140,7 +7140,7 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
     } else if (mem.endsWith(u8, filename, ".sig") or
         mem.endsWith(u8, filename, ".sig"))
     {
-        return .sig;
+        return .Sig;
     } else if (hasStaticLibraryExt(filename)) {
         return .static_library;
     } else if (hasObjectExt(filename)) {
@@ -7264,7 +7264,7 @@ fn dumpArgvWriter(w: *Io.Writer, argv: []const []const u8) Io.Writer.Error!void 
 
 pub fn getZigBackend(comp: Compilation) std.lang.CompilerBackend {
     const target = &comp.root_mod.resolved_target.result;
-    return target_util.sigBackend(target, comp.config.use_llvm);
+    return target_util.zigBackend(target, comp.config.use_llvm);
 }
 
 pub const SubUpdateError = UpdateError || error{AlreadyReported};

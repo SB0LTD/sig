@@ -246,7 +246,7 @@ pub fn printUsage(sc: *const ScannedConfig, graph: *Graph, w: *Writer) !void {
         \\
         \\Steps:
         \\
-    , .{graph.sig_exe});
+    , .{graph.zig_exe});
     try printSteps(sc, graph, w);
     try w.writeAll(
         \\

@@ -574,7 +574,7 @@ pub const SourceLocation = enum(u32) {
     pub fn pack(unpacked: Unpacked, wasm: *const Wasm) SourceLocation {
         _ = wasm;
         return switch (unpacked) {
-            .sig_object_nofile => .sig_object_nofile,
+            .zig_object_nofile => .zig_object_nofile,
             .none => .none,
             .object_index => |object_index| @fromBackingInt(@intCast(@backingInt(object_index))),
             .source_location_index => @panic("TODO"),
@@ -583,7 +583,7 @@ pub const SourceLocation = enum(u32) {
 
     pub fn unpack(sl: SourceLocation, wasm: *const Wasm) Unpacked {
         return switch (sl) {
-            .sig_object_nofile => .sig_object_nofile,
+            .zig_object_nofile => .zig_object_nofile,
             .none => .none,
             _ => {
                 const i = @backingInt(sl);
@@ -603,7 +603,7 @@ pub const SourceLocation = enum(u32) {
         const diags = &wasm.base.comp.link_diags;
         switch (sl.unpack(wasm)) {
             .none => unreachable,
-            .sig_object_nofile => diags.addError("Sig compilation unit: " ++ f, args),
+            .zig_object_nofile => diags.addError("Sig compilation unit: " ++ f, args),
             .object_index => |i| diags.addError("{f}: " ++ f, .{i.ptr(wasm).path} ++ args),
             .source_location_index => @panic("TODO"),
         }
@@ -632,7 +632,7 @@ pub const SourceLocation = enum(u32) {
     ) Allocator.Error!std.sig.ErrorBundle.String {
         return switch (sl.unpack(wasm)) {
             .none => try bundle.addString(msg),
-            .sig_object_nofile => try bundle.printString("Sig compilation unit: {s}", .{msg}),
+            .zig_object_nofile => try bundle.printString("Sig compilation unit: {s}", .{msg}),
             .object_index => |i| {
                 const obj = i.ptr(wasm);
                 return if (obj.archive_member_name.slice(wasm)) |obj_name|
@@ -2701,7 +2701,7 @@ pub const FunctionImportId = enum(u32) {
                     }
                 } else unreachable;
             },
-            .zcu_import => return .sig_object_nofile, // TODO give a better source location
+            .zcu_import => return .zig_object_nofile, // TODO give a better source location
         }
     }
 
@@ -2803,7 +2803,7 @@ pub const GlobalImportId = enum(u32) {
     /// diagnostic generation.
     pub fn sourceLocation(id: GlobalImportId, wasm: *const Wasm) SourceLocation {
         switch (id.unpack(wasm)) {
-            .__stack_pointer => return .sig_object_nofile,
+            .__stack_pointer => return .zig_object_nofile,
             .object_global_import => |obj_global_index| {
                 // TODO binary search
                 for (wasm.objects.items, 0..) |o, i| {
@@ -2814,7 +2814,7 @@ pub const GlobalImportId = enum(u32) {
                     }
                 } else unreachable;
             },
-            .zcu_import => return .sig_object_nofile, // TODO give a better source location
+            .zcu_import => return .zig_object_nofile, // TODO give a better source location
         }
     }
 
@@ -2898,7 +2898,7 @@ pub const DataImportId = enum(u32) {
                     }
                 } else unreachable;
             },
-            .zcu_import => return .sig_object_nofile, // TODO give a better source location
+            .zcu_import => return .zig_object_nofile, // TODO give a better source location
         }
     }
 };
@@ -4699,7 +4699,7 @@ pub fn addNavReloc(
 
     const is_obj = comp.config.output_mode == .Obj;
 
-    if (nav_ty.sigTypeTag(zcu) == .@"fn") {
+    if (nav_ty.zigTypeTag(zcu) == .@"fn") {
         const gop = try wasm.zcu_indirect_function_set.getOrPut(gpa, nav_index);
         if (!gop.found_existing) gop.value_ptr.* = {};
         if (is_obj) {

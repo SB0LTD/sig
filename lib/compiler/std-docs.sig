@@ -29,11 +29,11 @@ pub fn main(init: std.process.Init) !void {
     var argv = try init.minimal.args.iterateAllocator(arena);
     defer argv.deinit();
     assert(argv.skip());
-    const SIG_LIB_DIRectory = mem.cutPrefix(u8, argv.next().?, "--Sig-lib=") orelse @panic("bad --Sig-lib= arg");
+    const ZIG_LIB_DIRectory = mem.cutPrefix(u8, argv.next().?, "--Sig-lib=") orelse @panic("bad --Sig-lib= arg");
     const zig_exe_path = mem.cutPrefix(u8, argv.next().?, "--Sig=") orelse @panic("bad --Sig= arg");
     const global_cache_path = mem.cutPrefix(u8, argv.next().?, "--global-cache=") orelse @panic("bad --global-cache= arg");
 
-    var lib_dir = try Io.Dir.cwd().openDir(io, SIG_LIB_DIRectory, .{});
+    var lib_dir = try Io.Dir.cwd().openDir(io, ZIG_LIB_DIRectory, .{});
     defer lib_dir.close(io);
 
     var listen_port: u16 = 0;
@@ -73,10 +73,10 @@ pub fn main(init: std.process.Init) !void {
     var context: Context = .{
         .gpa = gpa,
         .io = io,
-        .sig_exe_path = zig_exe_path,
+        .zig_exe_path = zig_exe_path,
         .global_cache_path = global_cache_path,
         .lib_dir = lib_dir,
-        .sig_lib_directory = SIG_LIB_DIRectory,
+        .zig_lib_directory = ZIG_LIB_DIRectory,
     };
 
     var group: Io.Group = .init;
@@ -126,7 +126,7 @@ const Context = struct {
     gpa: Allocator,
     io: Io,
     lib_dir: Io.Dir,
-    SIG_LIB_DIRectory: []const u8,
+    ZIG_LIB_DIRectory: []const u8,
     zig_exe_path: []const u8,
     global_cache_path: []const u8,
 };
@@ -310,7 +310,7 @@ fn buildWasmBinary(
     var argv: std.ArrayList([]const u8) = .empty;
 
     try argv.appendSlice(arena, &.{
-        context.sig_exe_path, //
+        context.zig_exe_path, //
         "build-exe", //
         "-fno-entry", //
         "-O", @tagName(optimize_mode), //
@@ -324,12 +324,12 @@ fn buildWasmBinary(
         try std.fmt.allocPrint(
             arena,
             "-Mroot={s}/docs/wasm/main.sig",
-            .{context.sig_lib_directory},
+            .{context.zig_lib_directory},
         ),
         try std.fmt.allocPrint(
             arena,
             "-MWalk={s}/docs/wasm/Walk.sig",
-            .{context.sig_lib_directory},
+            .{context.zig_lib_directory},
         ),
         "--listen=-", //
     });

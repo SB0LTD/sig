@@ -725,7 +725,7 @@ const LDR = windows.LDR;
 
 const builtin = @import("builtin");
 const native_endian = builtin.target.cpu.arch.endian();
-const load_dll_notification_procs = builtin.abi == .msvc and switch (builtin.sig_backend) {
+const load_dll_notification_procs = builtin.abi == .msvc and switch (builtin.zig_backend) {
     .stage2_c => true,
     else => switch (builtin.output_mode) {
         .Exe => false,

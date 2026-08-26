@@ -1,9 +1,9 @@
 const std = @import("std");
-const sig_diag = @import("sig_diagnostics");
+const zig_diag = @import("zig_diagnostics");
 const Writer = std.Io.Writer;
 
-pub const Mode = sig_diag.Mode;
-pub const DiagnosticEntry = sig_diag.DiagnosticEntry;
+pub const Mode = zig_diag.Mode;
+pub const DiagnosticEntry = zig_diag.DiagnosticEntry;
 
 /// Exit codes returned by the CLI.
 pub const ExitCode = enum(u8) {
@@ -20,7 +20,7 @@ pub fn parseMode(value: []const u8) Mode {
 
 /// Runs diagnostics on a single source string and writes formatted output.
 /// Returns the number of diagnostics emitted.
-/// Per-file mode resolution: .sig files always get strict mode regardless of global_mode.
+/// Per-file mode resolution: .Sig files always get strict mode regardless of global_mode.
 pub fn runDiagnostics(
     gpa: std.mem.Allocator,
     w: *Writer,
@@ -28,13 +28,13 @@ pub fn runDiagnostics(
     file_path: []const u8,
     global_mode: Mode,
 ) !usize {
-    // Per-file mode resolution: .sig files always get strict mode
+    // Per-file mode resolution: .Sig files always get strict mode
     const effective_mode: Mode = if (std.mem.endsWith(u8, file_path, ".sig")) .strict else global_mode;
-    const entries = try sig_diag.analyzeSource(gpa, source, file_path, effective_mode);
-    defer sig_diag.freeEntries(gpa, entries);
+    const entries = try zig_diag.analyzeSource(gpa, source, file_path, effective_mode);
+    defer zig_diag.freeEntries(gpa, entries);
 
     for (entries) |entry| {
-        const msg = try sig_diag.formatDiagnostic(gpa, entry, effective_mode);
+        const msg = try zig_diag.formatDiagnostic(gpa, entry, effective_mode);
         defer gpa.free(msg);
         try w.writeAll(msg);
         try w.writeAll("\n");
@@ -98,7 +98,7 @@ pub fn main(init: std.process.Init) !void {
 
     try stdout.flush();
 
-    // Exit non-zero if any errors were produced (strict mode globally or .sig files)
+    // Exit non-zero if any errors were produced (strict mode globally or .Sig files)
     if (has_errors) {
         std.process.exit(@intFromEnum(ExitCode.diagnostics_found));
     }

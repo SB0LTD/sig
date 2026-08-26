@@ -1,5 +1,5 @@
 target: std.Target,
-zig_backend: std.lang.CompilerBackend,
+sig_backend: std.lang.CompilerBackend,
 output_mode: std.lang.OutputMode,
 link_mode: std.lang.LinkMode,
 unwind_tables: std.lang.UnwindTables,
@@ -56,6 +56,7 @@ pub fn append(opts: @This(), buffer: *std.array_list.Managed(u8)) Allocator.Erro
         \\pub const zig_version = std.SemanticVersion.parse(zig_version_string) catch unreachable;
         \\pub const zig_version_string = "{s}";
         \\pub const zig_backend = std.lang.CompilerBackend.{f};
+        \\pub const sig_backend = zig_backend;
         \\
         \\pub const output_mode: std.lang.OutputMode = .{f};
         \\pub const link_mode: std.lang.LinkMode = .{f};

@@ -79,7 +79,7 @@ pub fn make(
     var argv: std.ArrayList([]const u8) = .empty;
     try argv.ensureUnusedCapacity(arena, 11);
 
-    argv.addManyAsArrayAssumeCapacity(2).* = .{ graph.sig_exe, "objcopy" };
+    argv.addManyAsArrayAssumeCapacity(2).* = .{ graph.zig_exe, "objcopy" };
 
     if (only_section) |s| argv.addManyAsArrayAssumeCapacity(2).* = .{ "-j", s };
 

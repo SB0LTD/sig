@@ -122,7 +122,7 @@ pub fn emit(
         zcu,
         atom_index,
         if (lf.cast(.elf)) |ef|
-            @fromBackingInt(@intCast(ef.sigObjectPtr().?.getOrCreateMetadataForLazySymbol(ef, pt, lazy_reloc.symbol) catch |err|
+            @fromBackingInt(@intCast(ef.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(ef, pt, lazy_reloc.symbol) catch |err|
                 return zcu.codegenFail(func.owner_nav, "{s} creating lazy symbol", .{@errorName(err)})))
         else if (lf.cast(.macho)) |mf|
             @fromBackingInt(@intCast(mf.getZigObject().?.getOrCreateMetadataForLazySymbol(mf, pt, lazy_reloc.symbol) catch |err|
@@ -188,7 +188,7 @@ fn emitReloc(
     switch (instruction.decode()) {
         else => unreachable,
         .data_processing_immediate => |decoded| if (lf.cast(.elf)) |ef| {
-            const zo = ef.sigObjectPtr().?;
+            const zo = ef.zigObjectPtr().?;
             const atom = zo.symbol(@backingInt(atom_index)).atom(ef).?;
             const r_type: std.elf.R_AARCH64 = switch (decoded.decode()) {
                 else => unreachable,
@@ -261,7 +261,7 @@ fn emitReloc(
             }
         },
         .branch_exception_generating_system => |decoded| if (lf.cast(.elf)) |ef| {
-            const zo = ef.sigObjectPtr().?;
+            const zo = ef.zigObjectPtr().?;
             const atom = zo.symbol(@backingInt(atom_index)).atom(ef).?;
             const r_type: std.elf.R_AARCH64 = switch (decoded.decode().unconditional_branch_immediate.group.op) {
                 .b => .JUMP26,
@@ -290,7 +290,7 @@ fn emitReloc(
             });
         },
         .load_store => |decoded| if (lf.cast(.elf)) |ef| {
-            const zo = ef.sigObjectPtr().?;
+            const zo = ef.zigObjectPtr().?;
             const atom = zo.symbol(@backingInt(atom_index)).atom(ef).?;
             const r_type: std.elf.R_AARCH64 = switch (decoded.decode().register_unsigned_immediate.decode()) {
                 .integer => |integer| switch (integer.decode()) {

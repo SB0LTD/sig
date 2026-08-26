@@ -4094,10 +4094,10 @@ fn processReplace(userdata: ?*anyopaque, options: process.ReplaceOptions) proces
     const env_block = env_block: {
         const prog_fd: i32 = -1;
         if (options.environ_map) |environ_map| break :env_block try environ_map.createPosixBlock(arena, .{
-            .sig_progress_fd = prog_fd,
+            .zig_progress_fd = prog_fd,
         });
         break :env_block try ev.environ.process_environ.createPosixBlock(arena, .{
-            .sig_progress_fd = prog_fd,
+            .zig_progress_fd = prog_fd,
         });
     };
 
@@ -4230,10 +4230,10 @@ fn spawn(ev: *Evented, options: process.SpawnOptions) process.SpawnError!Spawned
     const env_block = env_block: {
         const prog_fd: i32 = if (prog_pipe[1] == -1) -1 else prog_fileno;
         if (options.environ_map) |environ_map| break :env_block try environ_map.createPosixBlock(arena, .{
-            .sig_progress_fd = prog_fd,
+            .zig_progress_fd = prog_fd,
         });
         break :env_block try ev.environ.process_environ.createPosixBlock(arena, .{
-            .sig_progress_fd = prog_fd,
+            .zig_progress_fd = prog_fd,
         });
     };
 
@@ -4633,7 +4633,7 @@ fn childCleanup(ev: *Evented, child: *process.Child) void {
 fn progressParentFile(userdata: ?*anyopaque) std.Progress.ParentFileError!File {
     const ev: *Evented = @ptrCast(@alignCast(userdata));
     ev.scan_environ.once(ev, &scanEnviron);
-    return ev.environ.sig_progress_file;
+    return ev.environ.zig_progress_file;
 }
 
 fn scanEnviron(context: ?*anyopaque) callconv(.c) void {

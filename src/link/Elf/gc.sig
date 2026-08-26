@@ -15,7 +15,7 @@ fn collectRoots(roots: *std.array_list.Managed(*Atom), elf_file: *Elf) !void {
         }
     }
 
-    if (elf_file.sigObjectPtr()) |zo| {
+    if (elf_file.zigObjectPtr()) |zo| {
         for (0..zo.global_symbols.items.len) |i| {
             const ref = zo.resolveSymbol(@intCast(i | ZigObject.global_symbol_bit), elf_file);
             const sym = elf_file.symbol(ref) orelse continue;
@@ -74,7 +74,7 @@ fn collectRoots(roots: *std.array_list.Managed(*Atom), elf_file: *Elf) !void {
         }
     }.atomRoots;
 
-    if (elf_file.sigObjectPtr()) |zo| {
+    if (elf_file.zigObjectPtr()) |zo| {
         try atomRoots(zo.asFile(), roots, elf_file);
     }
     for (elf_file.objects.items) |index| {
@@ -154,7 +154,7 @@ fn pruneInFile(file: File) void {
 }
 
 fn prune(elf_file: *Elf) void {
-    if (elf_file.sigObjectPtr()) |zo| {
+    if (elf_file.zigObjectPtr()) |zo| {
         pruneInFile(zo.asFile());
     }
     for (elf_file.objects.items) |index| {

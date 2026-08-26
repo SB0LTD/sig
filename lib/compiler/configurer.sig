@@ -52,7 +52,7 @@ pub fn main(init: process.Init.Minimal) !void {
             .result = try std.sig.system.resolveTargetQuery(io, .{}),
         },
         .generated_files = .empty,
-        .sig_exe = zig_exe,
+        .zig_exe = zig_exe,
 
         // Created before running the user's configure script so that some things
         // can be added during script execution such as strings.

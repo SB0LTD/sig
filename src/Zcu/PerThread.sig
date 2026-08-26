@@ -380,7 +380,7 @@ fn workerUpdateFile(
     };
 
     switch (file.getMode()) {
-        .sig => {}, // continue to logic below
+        .Sig => {}, // continue to logic below
         .zon => return, // ZON can't import anything so we're done
     }
 
@@ -487,7 +487,7 @@ pub fn updateFile(
         // As well as the file path, we also include the compiler version in case of backwards-incompatible ZIR changes.
         file.path.addToHasher(&h.hasher);
         h.addBytes(build_options.version);
-        h.add(builtin.sig_backend);
+        h.add(builtin.zig_backend);
         break :d h.final();
     };
 
@@ -648,7 +648,7 @@ pub fn updateFile(
 
         timer = comp.startTimer();
         switch (file.getMode()) {
-            .sig => {
+            .Sig => {
                 file.zir = try AstGen.generate(gpa, file.tree.?);
                 Zcu.saveZirCache(gpa, &cache_file_writer, stat, file.zir.?) catch |err| switch (err) {
                     error.OutOfMemory => |e| return e,
@@ -691,7 +691,7 @@ pub fn updateFile(
     // Mark file successes/failures as needed.
 
     switch (file.getMode()) {
-        .sig => {
+        .Sig => {
             if (file.zir.?.hasCompileErrors()) {
                 comp.mutex.lockUncancelable(io);
                 defer comp.mutex.unlock(io);
@@ -735,7 +735,7 @@ fn loadZirZoirCache(
     const io = zcu.comp.io;
 
     const Header = switch (mode) {
-        .sig => Zir.Header,
+        .Sig => Zir.Header,
         .zon => Zoir.Header,
     };
 
@@ -763,7 +763,7 @@ fn loadZirZoirCache(
     }
 
     switch (mode) {
-        .sig => file.zir = Zcu.loadZirCacheBody(gpa, header, cache_br) catch |err| switch (err) {
+        .Sig => file.zir = Zcu.loadZirCacheBody(gpa, header, cache_br) catch |err| switch (err) {
             error.ReadFailed => return cache_fr.err.?,
             error.EndOfStream => return .truncated,
             else => |e| return e,
@@ -817,7 +817,7 @@ fn updateZirRefs(pt: Zcu.PerThread) (Io.Cancelable || Allocator.Error)!void {
             continue;
         }
         switch (file.getMode()) {
-            .sig => {}, // logic below
+            .Sig => {}, // logic below
             .zon => {
                 if (file.zoir_invalidated) {
                     try zcu.markDependeeOutdated(.not_marked_po, .{ .source_file = file_index });
@@ -999,7 +999,7 @@ pub fn ensureFilePopulated(pt: Zcu.PerThread, file_index: Zcu.File.Index) (Alloc
     if (zcu.comp.time_report) |*tr| tr.stats.n_imported_files += 1;
 
     const file = zcu.fileByIndex(file_index);
-    assert(file.getMode() == .sig);
+    assert(file.getMode() == .Sig);
     const struct_decl = file.zir.?.getStructDecl(.main_struct_inst);
     const tracked_inst = try ip.trackZir(gpa, io, pt.tid, .{
         .file = file_index,
@@ -1382,7 +1382,7 @@ pub fn ensureTypeLayoutUpToDate(
 
     log.debug("ensureTypeLayoutUpToDate {f} (out of date, resolving)", .{zcu.fmtAnalUnit(anal_unit)});
 
-    const result = switch (ty.sigTypeTag(zcu)) {
+    const result = switch (ty.zigTypeTag(zcu)) {
         .@"enum" => Sema.type_resolution.resolveEnumLayout(&sema, ty),
         .@"struct" => Sema.type_resolution.resolveStructLayout(&sema, ty),
         .@"union" => Sema.type_resolution.resolveUnionLayout(&sema, ty),
@@ -1716,7 +1716,7 @@ fn analyzeNavVal(
     const is_const = is_const: switch (zir_decl.kind) {
         .@"comptime" => unreachable, // this is not a Nav
         .unnamed_test, .@"test", .decltest => {
-            assert(nav_ty.sigTypeTag(zcu) == .@"fn");
+            assert(nav_ty.zigTypeTag(zcu) == .@"fn");
             break :is_const true;
         },
         .@"const" => true,
@@ -1793,7 +1793,7 @@ fn analyzeNavVal(
 
     const queue_linker_work, const is_owned_fn = switch (ip.indexToKey(nav_val.toIntern())) {
         .func => |f| .{ true, f.owner_nav == nav_id }, // note that this lets function aliases reach codegen
-        .@"extern" => .{ false, nav_ty.sigTypeTag(zcu) == .@"fn" and zir_decl.linkage == .@"extern" },
+        .@"extern" => .{ false, nav_ty.zigTypeTag(zcu) == .@"fn" and zir_decl.linkage == .@"extern" },
         else => .{ true, false },
     };
 
@@ -2581,7 +2581,7 @@ fn computeAliveFiles(pt: Zcu.PerThread) Allocator.Error!bool {
         try comp.appendFileSystemInput(file.path);
 
         switch (file.getMode()) {
-            .sig => {}, // continue to logic below
+            .Sig => {}, // continue to logic below
             .zon => continue, // ZON can't import anything
         }
 
@@ -3517,7 +3517,7 @@ fn lockAndClearFileCompileError(pt: Zcu.PerThread, file_index: Zcu.File.Index, f
         .retryable_failure => true,
         .astgen_failure => true,
         .success => switch (file.getMode()) {
-            .sig => has_error: {
+            .Sig => has_error: {
                 const zir = file.zir orelse break :has_error false;
                 break :has_error zir.hasCompileErrors();
             },
@@ -3964,7 +3964,7 @@ pub fn errorSetFromUnsortedNames(
 /// Supports only pointers, not pointer-like optionals.
 pub fn ptrIntValue(pt: Zcu.PerThread, ty: Type, x: u64) Allocator.Error!Value {
     const zcu = pt.zcu;
-    assert(ty.sigTypeTag(zcu) == .pointer and !ty.isSlice(zcu));
+    assert(ty.zigTypeTag(zcu) == .pointer and !ty.isSlice(zcu));
     assert(x != 0 or ty.isAllowzeroPtr(zcu));
     return .fromInterned(try pt.intern(.{ .ptr = .{
         .ty = ty.toIntern(),
@@ -3975,7 +3975,7 @@ pub fn ptrIntValue(pt: Zcu.PerThread, ty: Type, x: u64) Allocator.Error!Value {
 
 /// Creates an enum tag value based on the integer tag value.
 pub fn enumValue(pt: Zcu.PerThread, ty: Type, tag_int: Value) Allocator.Error!Value {
-    if (std.debug.runtime_safety) assert(ty.sigTypeTag(pt.zcu) == .@"enum");
+    if (std.debug.runtime_safety) assert(ty.zigTypeTag(pt.zcu) == .@"enum");
     return .fromInterned(try pt.intern(.{ .enum_tag = .{
         .ty = ty.toIntern(),
         .int = tag_int.toIntern(),
@@ -4121,7 +4121,7 @@ pub fn aggregateValue(pt: Zcu.PerThread, ty: Type, elems: []const InternPool.Ind
 
 /// Asserts that `ty` is either an array or a vector.
 pub fn aggregateSplatValue(pt: Zcu.PerThread, ty: Type, repeated_elem: Value) Allocator.Error!Value {
-    switch (ty.sigTypeTag(pt.zcu)) {
+    switch (ty.zigTypeTag(pt.zcu)) {
         .array, .vector => {},
         else => unreachable,
     }
@@ -4170,7 +4170,7 @@ pub fn nullValue(pt: Zcu.PerThread, opt_ty: Type) Allocator.Error!Value {
 pub fn overflowArithmeticTupleType(pt: Zcu.PerThread, ty: Type) !Type {
     const zcu = pt.zcu;
     const comp = zcu.comp;
-    const ov_ty: Type = if (ty.sigTypeTag(zcu) == .vector) try pt.vectorType(.{
+    const ov_ty: Type = if (ty.zigTypeTag(zcu) == .vector) try pt.vectorType(.{
         .len = ty.vectorLen(zcu),
         .child = .u1_type,
     }) else .u1;
@@ -4402,7 +4402,7 @@ pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) Ru
             error.OutOfMemory => comp.setAllocFailure(),
             error.AlreadyReported => {},
             error.NoLinkFile => assert(comp.bin_file == null),
-            error.BackendDoesNotProduceMir => switch (target_util.sigBackend(
+            error.BackendDoesNotProduceMir => switch (target_util.zigBackend(
                 &zcu.root_mod.resolved_target.result,
                 comp.config.use_llvm,
             )) {

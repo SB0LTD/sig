@@ -459,11 +459,11 @@ fn addPackageOptionFromArg(
     map.ensureUnusedCapacity(arena, 2) catch @panic("OOM");
     switch (T) {
         Target.Query => return if (maybe_value) |v| {
-            map.putAssumeCapacity(field_name, .{ .scalar = v.sigTriple(arena) catch @panic("OOM") });
+            map.putAssumeCapacity(field_name, .{ .scalar = v.zigTriple(arena) catch @panic("OOM") });
             map.putAssumeCapacity("cpu", .{ .scalar = v.serializeCpuAlloc(arena) catch @panic("OOM") });
         },
         ResolvedTarget => return if (maybe_value) |v| {
-            map.putAssumeCapacity(field_name, .{ .scalar = v.query.sigTriple(arena) catch @panic("OOM") });
+            map.putAssumeCapacity(field_name, .{ .scalar = v.query.zigTriple(arena) catch @panic("OOM") });
             map.putAssumeCapacity("cpu", .{ .scalar = v.query.serializeCpuAlloc(arena) catch @panic("OOM") });
         },
         std.sig.BuildId => return if (maybe_value) |v| {
@@ -1337,12 +1337,12 @@ pub fn standardTargetOptionsQueryOnly(b: *Build, args: StandardTargetOptionsArgs
 
     for (whitelist) |q| {
         log.info("allowed target: -Dtarget={s} -Dcpu={s}", .{
-            q.sigTriple(arena) catch @panic("OOM"),
+            q.zigTriple(arena) catch @panic("OOM"),
             q.serializeCpuAlloc(arena) catch @panic("OOM"),
         });
     }
     log.err("chosen target {q} does not match one of the allowed targets", .{
-        selected_target.sigTriple(arena) catch @panic("OOM"),
+        selected_target.zigTriple(arena) catch @panic("OOM"),
     });
     b.markInvalidUserInput();
     return args.default_target;

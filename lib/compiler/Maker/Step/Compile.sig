@@ -166,7 +166,7 @@ fn lowerZigArgs(
     const conf_comp = conf_step.extended.get(conf.extra).compile;
     const root_module_target = conf_comp.rootModuleTarget(conf);
 
-    try zig_args.append(gpa, graph.sig_exe);
+    try zig_args.append(gpa, graph.zig_exe);
 
     const cmd = switch (conf_comp.flags3.kind) {
         .lib => "build-lib",
@@ -812,15 +812,15 @@ fn lowerZigArgs(
         });
     }
 
-    const opt_SIG_LIB_DIR: ?[]const u8 = if (conf_comp.sig_lib_dir.value) |dir|
+    const opt_ZIG_LIB_DIR: ?[]const u8 = if (conf_comp.zig_lib_dir.value) |dir|
         try maker.resolveLazyPathIndexAbs(arena, dir, compile_index)
-    else if (graph.sig_lib_directory.path) |_|
-        try arena.print("{f}", .{graph.sig_lib_directory})
+    else if (graph.zig_lib_directory.path) |_|
+        try arena.print("{f}", .{graph.zig_lib_directory})
     else
         null;
 
-    if (opt_SIG_LIB_DIR) |SIG_LIB_DIR| (try zig_args.addManyAsArray(gpa, 2)).* = .{
-        "--Sig-lib-dir", SIG_LIB_DIR,
+    if (opt_ZIG_LIB_DIR) |ZIG_LIB_DIR| (try zig_args.addManyAsArray(gpa, 2)).* = .{
+        "--Sig-lib-dir", ZIG_LIB_DIR,
     };
 
     try addFlag(gpa, zig_args, "PIE", conf_comp.flags2.pie.toBool());
@@ -1285,7 +1285,7 @@ fn appendModuleFlags(
             try zig_args.ensureUnusedCapacity(gpa, 6);
 
             zig_args.appendAssumeCapacity("-target");
-            zig_args.appendAssumeCapacity(try query.sigTriple(arena));
+            zig_args.appendAssumeCapacity(try query.zigTriple(arena));
 
             zig_args.appendAssumeCapacity("-mcpu");
             zig_args.appendAssumeCapacity(try query.serializeCpuAlloc(arena));

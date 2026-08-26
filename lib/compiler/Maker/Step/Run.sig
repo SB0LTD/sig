@@ -1904,8 +1904,8 @@ fn runCommand(
                     .bad_os_or_cpu => {
                         if (allow_skip) return error.MakeSkipped;
 
-                        const host_name = try host.sigTriple(arena);
-                        const foreign_name = try root_target.sigTriple(arena);
+                        const host_name = try host.zigTriple(arena);
+                        const foreign_name = try root_target.zigTriple(arena);
 
                         return step.fail(maker, "the host system ({s}) is unable to execute binaries from the target ({s})", .{
                             host_name, foreign_name,
@@ -2461,8 +2461,8 @@ fn failForeign(
         .check, .sig_test => {
             if (conf_run.flags.skip_foreign_checks) return error.MakeSkipped;
 
-            const host_name = try host_target.sigTriple(arena);
-            const foreign_name = try artifact_target.sigTriple(arena);
+            const host_name = try host_target.zigTriple(arena);
+            const foreign_name = try artifact_target.zigTriple(arena);
 
             return step.fail(maker,
                 \\unable to spawn foreign binary '{s}' ({s}) on host system ({s})

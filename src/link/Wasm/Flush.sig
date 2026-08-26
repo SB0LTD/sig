@@ -636,7 +636,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 },
                 .module_name = wasm.preloaded_strings.env,
                 .name = name,
-                .source_location = .sig_object_nofile,
+                .source_location = .zig_object_nofile,
                 .resolution = .unresolved,
                 .limits_min = 1,
                 .limits_max = 0,

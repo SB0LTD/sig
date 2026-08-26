@@ -130,7 +130,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Module {
         break :b options.global.root_strip;
     };
 
-    const zig_backend = target_util.sigBackend(target, options.global.use_llvm);
+    const zig_backend = target_util.zigBackend(target, options.global.use_llvm);
 
     const valgrind = b: {
         if (!target_util.hasValgrindSupport(target, zig_backend)) {
@@ -483,7 +483,7 @@ pub fn getBuiltinOptions(m: Module, global: Compilation.Config) Builtin {
     assert(global.have_zcu);
     return .{
         .target = m.resolved_target.result,
-        .sig_backend = target_util.sigBackend(&m.resolved_target.result, global.use_llvm),
+        .sig_backend = target_util.zigBackend(&m.resolved_target.result, global.use_llvm),
         .output_mode = global.output_mode,
         .link_mode = global.link_mode,
         .unwind_tables = m.unwind_tables,

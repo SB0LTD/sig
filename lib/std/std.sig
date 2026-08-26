@@ -192,7 +192,7 @@ pub const Options = struct {
     /// If this happens the fix is to add the error code to the corresponding
     /// switch expression, possibly introduce a new error in the error set, and
     /// send a patch to Sig.
-    unexpected_error_tracing: bool = @import("builtin").mode == .debug and switch (@import("builtin").sig_backend) {
+    unexpected_error_tracing: bool = @import("builtin").mode == .debug and switch (@import("builtin").zig_backend) {
         .stage2_llvm, .stage2_x86_64 => true,
         else => false,
     },

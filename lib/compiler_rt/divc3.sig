@@ -13,7 +13,7 @@ const symbol = compiler_rt.symbol;
 const Complex = compiler_rt.Complex;
 
 comptime {
-    if (@import("builtin").sig_backend != .stage2_c) {
+    if (@import("builtin").zig_backend != .stage2_c) {
         symbol(&__divhc3, "__divhc3");
         symbol(&__divsc3, "__divsc3");
         symbol(&__divdc3, "__divdc3");

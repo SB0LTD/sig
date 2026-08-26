@@ -28,7 +28,7 @@ pub const LlvmClass = union(enum) {
 };
 
 pub fn classifyType(ty: Type, zcu: *const Zcu, target: *const Target) Class {
-    if (ty.sigTypeTag(zcu) == .vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         if (!(ty.bitSize(zcu) == 128 and target.cpu.has(.wasm, .simd128))) {
             const elem_type = ty.childType(zcu);
             return .{ .unrolled = .{
@@ -51,7 +51,7 @@ pub fn classifyType(ty: Type, zcu: *const Zcu, target: *const Target) Class {
 pub fn classifyTypeForLlvm(ty: Type, zcu: *const Zcu) LlvmClass {
     const ip = &zcu.intern_pool;
     assert(ty.hasRuntimeBits(zcu));
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .int, .@"enum", .error_set => return .{ .direct = ty },
         .float => return switch (ty.floatBits(zcu.getTarget())) {
             else => unreachable,
@@ -92,7 +92,7 @@ pub fn classifyTypeForLlvm(ty: Type, zcu: *const Zcu) LlvmClass {
                 opt_single_field_ty = field_ty;
             }
             const single_field_ty = opt_single_field_ty.?;
-            if (single_field_ty.sigTypeTag(zcu) == .array) {
+            if (single_field_ty.zigTypeTag(zcu) == .array) {
                 switch (single_field_ty.arrayLenIncludingSentinel(zcu)) {
                     0 => unreachable,
                     1 => return classifyTypeForLlvm(single_field_ty.childType(zcu), zcu),
@@ -110,7 +110,7 @@ pub fn classifyTypeForLlvm(ty: Type, zcu: *const Zcu) LlvmClass {
             assert(layout.tag_size == 0);
             if (union_obj.field_types.len > 1) return .indirect;
             const first_field_ty = Type.fromInterned(union_obj.field_types.get(ip)[0]);
-            if (first_field_ty.sigTypeTag(zcu) == .array) {
+            if (first_field_ty.zigTypeTag(zcu) == .array) {
                 switch (first_field_ty.arrayLenIncludingSentinel(zcu)) {
                     0 => unreachable,
                     1 => return classifyTypeForLlvm(first_field_ty.childType(zcu), zcu),

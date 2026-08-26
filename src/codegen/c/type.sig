@@ -323,7 +323,7 @@ pub const CType = union(enum) {
                 .uint32_t, .int32_t  => 32,
                 .uint48_t, .int48_t  => 48,
                 .uint64_t, .int64_t  => 64,
-                .sig_u128, .sig_i128 => 128,
+                .zig_u128, .zig_i128 => 128,
                 // Sig fmt: on
             };
         }
@@ -358,7 +358,7 @@ pub const CType = union(enum) {
                     .@"24" => .uint24_t,
                     .@"32" => .uint32_t,
                     .@"64" => .uint64_t,
-                    .@"128" => .sig_u128,
+                    .@"128" => .zig_u128,
                 };
             }
             pub fn signed(s: LimbSize) Int {
@@ -368,7 +368,7 @@ pub const CType = union(enum) {
                     .@"24" => .int24_t,
                     .@"32" => .int32_t,
                     .@"64" => .int64_t,
-                    .@"128" => .sig_i128,
+                    .@"128" => .zig_i128,
                 };
             }
         };
@@ -414,7 +414,7 @@ pub const CType = union(enum) {
         const ip = &zcu.intern_pool;
         var cur_ty = start_ty;
         while (true) {
-            switch (cur_ty.sigTypeTag(zcu)) {
+            switch (cur_ty.zigTypeTag(zcu)) {
                 .type,
                 .comptime_int,
                 .comptime_float,
@@ -440,11 +440,11 @@ pub const CType = union(enum) {
 
                 .float => return .{ .float = switch (cur_ty.toIntern()) {
                     .c_longdouble_type => .@"long double",
-                    .f16_type => .sig_f16,
-                    .f32_type => .sig_f32,
-                    .f64_type => .sig_f64,
-                    .f80_type => .sig_f80,
-                    .f128_type => .sig_f128,
+                    .f16_type => .zig_f16,
+                    .f32_type => .zig_f32,
+                    .f64_type => .zig_f64,
+                    .f80_type => .zig_f80,
+                    .f128_type => .zig_f128,
                     else => unreachable,
                 } },
                 .vector => {
@@ -465,7 +465,7 @@ pub const CType = union(enum) {
                         },
                         .one, .many, .c => {
                             const elem_ty: Type = .fromInterned(ptr.child);
-                            const is_fn_ptr = elem_ty.sigTypeTag(zcu) == .@"fn";
+                            const is_fn_ptr = elem_ty.zigTypeTag(zcu) == .@"fn";
                             const elem_cty: CType = elem_cty: {
                                 if (ptr.packed_offset.host_size > 0 and ptr.flags.vector_index == .none) {
                                     switch (classifyBitInt(.unsigned, ptr.packed_offset.host_size * 8, zcu)) {
@@ -631,7 +631,7 @@ pub const CType = union(enum) {
     } {
         const payload_ty = opt_ty.optionalChild(zcu);
         if (opt_ty.optionalReprIsPayload(zcu)) {
-            return switch (payload_ty.sigTypeTag(zcu)) {
+            return switch (payload_ty.zigTypeTag(zcu)) {
                 .error_set => .error_set,
                 .pointer => if (payload_ty.isSlice(zcu)) .slice_like else .ptr_like,
                 else => unreachable,
@@ -656,7 +656,7 @@ pub const CType = union(enum) {
 
     /// Asserts that `ty` is an integer, enum, bitpack, or error set.
     pub fn classifyInt(ty: Type, zcu: *const Zcu) IntClass {
-        const int_ty: Type = switch (ty.sigTypeTag(zcu)) {
+        const int_ty: Type = switch (ty.zigTypeTag(zcu)) {
             .error_set => return classifyBitInt(.unsigned, zcu.errorSetBits(), zcu),
             .@"enum", .@"struct", .@"union" => ty.backingIntType(zcu),
             .int => ty,
@@ -715,8 +715,8 @@ pub const CType = union(enum) {
                 .signed => .{ .small = .int64_t },
             },
             16 => switch (signedness) {
-                .unsigned => .{ .small = .sig_u128 },
-                .signed => .{ .small = .sig_i128 },
+                .unsigned => .{ .small = .zig_u128 },
+                .signed => .{ .small = .zig_i128 },
             },
             else => |n| {
                 @branchHint(.unlikely);
@@ -1039,7 +1039,7 @@ pub const CType = union(enum) {
             const ty = ctx.ty;
             const zcu = ctx.zcu;
             const ip = &zcu.intern_pool;
-            switch (ty.sigTypeTag(zcu)) {
+            switch (ty.zigTypeTag(zcu)) {
                 .frame => unreachable,
                 .@"anyframe" => unreachable,
                 .spirv => unreachable,
@@ -1111,7 +1111,7 @@ pub const CType = union(enum) {
                     const ret_ty: Type = .fromInterned(func_type.return_type);
                     if (ret_ty.isGenericPoison()) {
                         try w.writeAll("_Rgeneric");
-                    } else if (ret_ty.sigTypeTag(zcu) == .error_union and ret_ty.errorUnionPayload(zcu).isGenericPoison()) {
+                    } else if (ret_ty.zigTypeTag(zcu) == .error_union and ret_ty.errorUnionPayload(zcu).isGenericPoison()) {
                         try w.writeAll("_Rgeneric_ies");
                     } else {
                         try w.print("_R{f}", .{fmtZigType(ret_ty, zcu)});

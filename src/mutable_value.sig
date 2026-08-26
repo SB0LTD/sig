@@ -206,7 +206,7 @@ pub const MutableValue = union(enum) {
                         }
                     },
                 },
-                .undef => |ty_ip| switch (Type.fromInterned(ty_ip).sigTypeTag(zcu)) {
+                .undef => |ty_ip| switch (Type.fromInterned(ty_ip).zigTypeTag(zcu)) {
                     .@"struct", .array, .vector => |type_tag| {
                         const ty = Type.fromInterned(ty_ip);
                         if (type_tag == .@"struct" and ty.containerLayout(zcu) == .@"packed") return;
@@ -376,7 +376,7 @@ pub const MutableValue = union(enum) {
                 if (field_val.eqlTrivial(r.child.*)) return;
                 // We must switch to either the `aggregate` or the `bytes` representation.
                 const len_inc_sent = ip.aggregateTypeLenIncludingSentinel(r.ty);
-                if (Type.fromInterned(r.ty).sigTypeTag(zcu) != .@"struct" and
+                if (Type.fromInterned(r.ty).zigTypeTag(zcu) != .@"struct" and
                     is_trivial_int and
                     Type.fromInterned(r.ty).childType(zcu).toIntern() == .u8_type and
                     r.child.isTrivialInt(zcu))
@@ -403,7 +403,7 @@ pub const MutableValue = union(enum) {
             },
             .aggregate => |a| {
                 a.elems[field_idx] = field_val;
-                const is_struct = Type.fromInterned(a.ty).sigTypeTag(zcu) == .@"struct";
+                const is_struct = Type.fromInterned(a.ty).zigTypeTag(zcu) == .@"struct";
                 // Attempt to switch to a more efficient representation.
                 const is_repeated = for (a.elems) |e| {
                     if (!e.eqlTrivial(field_val)) break false;
@@ -448,7 +448,7 @@ pub const MutableValue = union(enum) {
             => unreachable,
             .interned => |ip_index| {
                 const ty = Type.fromInterned(pt.zcu.intern_pool.typeOf(ip_index));
-                switch (ty.sigTypeTag(pt.zcu)) {
+                switch (ty.zigTypeTag(pt.zcu)) {
                     .array, .vector => return .{ .interned = (try Value.fromInterned(ip_index).elemValue(pt, field_idx)).toIntern() },
                     .@"struct", .@"union" => return .{ .interned = (try Value.fromInterned(ip_index).fieldValue(pt, field_idx)).toIntern() },
                     .pointer => {

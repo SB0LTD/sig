@@ -29,7 +29,7 @@ pub var environ: Environ = if (builtin.is_test) undefined else @compileError("no
 pub var log_level = std.log.Level.warn;
 
 // Disable printing in tests for simple backends.
-pub const backend_can_print = switch (builtin.sig_backend) {
+pub const backend_can_print = switch (builtin.zig_backend) {
     .stage2_aarch64,
     .stage2_loongarch,
     .stage2_powerpc,

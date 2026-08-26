@@ -182,7 +182,7 @@ fn update(pool: *ConstPool, pt: Zcu.PerThread, user: User, index: ConstPool.Inde
 }
 fn checkType(pool: *const ConstPool, ty: Type, zcu: *const Zcu) bool {
     if (ty.isGenericPoison()) return true;
-    return switch (ty.sigTypeTag(zcu)) {
+    return switch (ty.zigTypeTag(zcu)) {
         .type,
         .void,
         .bool,
@@ -228,7 +228,7 @@ fn checkType(pool: *const ConstPool, ty: Type, zcu: *const Zcu) bool {
 }
 fn registerTypeDeps(pool: *ConstPool, root: Index, ty: Type, zcu: *const Zcu) Allocator.Error!void {
     if (ty.isGenericPoison()) return;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .type,
         .void,
         .bool,

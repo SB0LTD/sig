@@ -144,11 +144,11 @@ const Owner = union(enum) {
         switch (owner) {
             .nav_index => |nav_index| {
                 const elf_file = func.bin_file.cast(.elf).?;
-                return elf_file.sigObjectPtr().?.getOrCreateMetadataForNav(pt.zcu, nav_index);
+                return elf_file.zigObjectPtr().?.getOrCreateMetadataForNav(pt.zcu, nav_index);
             },
             .lazy_sym => |lazy_sym| {
                 const elf_file = func.bin_file.cast(.elf).?;
-                return elf_file.sigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, pt, lazy_sym) catch |err|
+                return elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, pt, lazy_sym) catch |err|
                     func.fail("{s} creating lazy symbol", .{@errorName(err)});
             },
         }
@@ -1277,7 +1277,7 @@ fn genLazy(func: *Func, lazy_sym: link.File.LazySymbol) InnerError!void {
     const pt = func.pt;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
-    switch (Type.fromInterned(lazy_sym.ty).sigTypeTag(zcu)) {
+    switch (Type.fromInterned(lazy_sym.ty).zigTypeTag(zcu)) {
         .@"enum" => {
             const enum_ty = Type.fromInterned(lazy_sym.ty);
             wip_mir_log.debug("{f}.@tagName:", .{enum_ty.fmt(pt)});
@@ -1293,7 +1293,7 @@ fn genLazy(func: *Func, lazy_sym: link.File.LazySymbol) InnerError!void {
             defer func.register_manager.unlockReg(data_lock);
 
             const elf_file = func.bin_file.cast(.elf).?;
-            const zo = elf_file.sigObjectPtr().?;
+            const zo = elf_file.zigObjectPtr().?;
             const sym_index = zo.getOrCreateMetadataForLazySymbol(elf_file, pt, .{
                 .kind = .const_data,
                 .ty = enum_ty.toIntern(),
@@ -1873,7 +1873,7 @@ fn ensureProcessDeathCapacity(func: *Func, additional_count: usize) !void {
 fn memSize(func: *Func, ty: Type) Memory.Size {
     const pt = func.pt;
     const zcu = pt.zcu;
-    return switch (ty.sigTypeTag(zcu)) {
+    return switch (ty.zigTypeTag(zcu)) {
         .float => Memory.Size.fromBitSize(ty.floatBits(func.target)),
         else => Memory.Size.fromByteSize(ty.abiSize(zcu)),
     };
@@ -2022,7 +2022,7 @@ fn allocMemPtr(func: *Func, inst: Air.Inst.Index) !FrameIndex {
 fn typeRegClass(func: *Func, ty: Type) abi.RegisterClass {
     const pt = func.pt;
     const zcu = pt.zcu;
-    return switch (ty.sigTypeTag(zcu)) {
+    return switch (ty.zigTypeTag(zcu)) {
         .float => .float,
         .vector => .vector,
         else => .int,
@@ -2030,7 +2030,7 @@ fn typeRegClass(func: *Func, ty: Type) abi.RegisterClass {
 }
 
 fn regGeneralClassForType(func: *Func, ty: Type) RegisterManager.RegisterBitSet {
-    return switch (ty.sigTypeTag(func.pt.zcu)) {
+    return switch (ty.zigTypeTag(func.pt.zcu)) {
         .float => abi.Registers.Float.general_purpose,
         .vector => abi.Registers.Vector.general_purpose,
         else => abi.Registers.Integer.general_purpose,
@@ -2038,7 +2038,7 @@ fn regGeneralClassForType(func: *Func, ty: Type) RegisterManager.RegisterBitSet 
 }
 
 fn regTempClassForType(func: *Func, ty: Type) RegisterManager.RegisterBitSet {
-    return switch (ty.sigTypeTag(func.pt.zcu)) {
+    return switch (ty.zigTypeTag(func.pt.zcu)) {
         .float => abi.Registers.Float.temporary,
         .vector => abi.Registers.Vector.general_purpose, // there are no temporary vector registers
         else => abi.Registers.Integer.temporary,
@@ -2050,7 +2050,7 @@ fn allocRegOrMem(func: *Func, elem_ty: Type, inst: ?Air.Inst.Index, reg_ok: bool
     const zcu = pt.zcu;
 
     const bit_size = elem_ty.bitSize(zcu);
-    const min_size: u64 = switch (elem_ty.sigTypeTag(zcu)) {
+    const min_size: u64 = switch (elem_ty.zigTypeTag(zcu)) {
         .float => if (func.hasFeature(.d)) 64 else 32,
         .vector => 256, // TODO: calculate it from avl * vsew
         else => 64,
@@ -2060,7 +2060,7 @@ fn allocRegOrMem(func: *Func, elem_ty: Type, inst: ?Air.Inst.Index, reg_ok: bool
         if (func.register_manager.tryAllocReg(inst, func.regGeneralClassForType(elem_ty))) |reg| {
             return .{ .register = reg };
         }
-    } else if (reg_ok and elem_ty.sigTypeTag(zcu) == .vector) {
+    } else if (reg_ok and elem_ty.zigTypeTag(zcu) == .vector) {
         return func.fail("did you forget to extend vector registers before allocating", .{});
     }
 
@@ -2278,7 +2278,7 @@ fn airNot(func: *Func, inst: Air.Inst.Index) !void {
             else
                 (try func.allocRegOrMem(func.typeOfIndex(inst), inst, true)).register;
 
-        switch (ty.sigTypeTag(zcu)) {
+        switch (ty.zigTypeTag(zcu)) {
             .bool => {
                 _ = try func.addInst(.{
                     .tag = .pseudo_not,
@@ -2405,7 +2405,7 @@ fn binOp(
     }
 
     // don't have support for certain sizes of addition
-    switch (lhs_ty.sigTypeTag(zcu)) {
+    switch (lhs_ty.zigTypeTag(zcu)) {
         .vector => {}, // works differently and fails in a different place
         else => if (lhs_ty.bitSize(zcu) > 64) return func.fail("TODO: binOp >= 64 bits", .{}),
     }
@@ -2498,7 +2498,7 @@ fn genBinOp(
                 },
             }
 
-            switch (lhs_ty.sigTypeTag(zcu)) {
+            switch (lhs_ty.zigTypeTag(zcu)) {
                 .int => {
                     const mnem: Mnemonic = switch (tag) {
                         .add, .add_wrap => switch (bit_size) {
@@ -2576,17 +2576,17 @@ fn genBinOp(
                     const child_ty = lhs_ty.childType(zcu);
 
                     const mir_tag: Mnemonic = switch (tag) {
-                        .add => switch (child_ty.sigTypeTag(zcu)) {
+                        .add => switch (child_ty.zigTypeTag(zcu)) {
                             .int => .vaddvv,
                             .float => .vfaddvv,
                             else => unreachable,
                         },
-                        .sub => switch (child_ty.sigTypeTag(zcu)) {
+                        .sub => switch (child_ty.zigTypeTag(zcu)) {
                             .int => .vsubvv,
                             .float => .vfsubvv,
                             else => unreachable,
                         },
-                        .mul => switch (child_ty.sigTypeTag(zcu)) {
+                        .mul => switch (child_ty.zigTypeTag(zcu)) {
                             .int => .vmulvv,
                             .float => .vfmulvv,
                             else => unreachable,
@@ -2817,7 +2817,7 @@ fn genBinOp(
         // a1, s0 was -1, flipping all the bits in a2 and effectively restoring a0. If a0 was greater than or equal to a1,
         // s0 was 0, leaving a2 unchanged as a0.
         .min, .max => {
-            switch (lhs_ty.sigTypeTag(zcu)) {
+            switch (lhs_ty.zigTypeTag(zcu)) {
                 .int => {
                     const int_info = lhs_ty.intInfo(zcu);
 
@@ -2893,7 +2893,7 @@ fn airAddWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
     const lhs_ty = func.typeOf(extra.lhs);
 
     const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
-        switch (lhs_ty.sigTypeTag(zcu)) {
+        switch (lhs_ty.zigTypeTag(zcu)) {
             .vector => return func.fail("TODO implement add with overflow for Vector type", .{}),
             .int => {
                 const int_info = lhs_ty.intInfo(zcu);
@@ -3174,7 +3174,7 @@ fn airMulWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
             .{ .register = dest_reg },
         );
 
-        switch (lhs_ty.sigTypeTag(zcu)) {
+        switch (lhs_ty.zigTypeTag(zcu)) {
             else => |x| return func.fail("TODO: airMulWithOverflow {s}", .{@tagName(x)}),
             .int => {
                 if (std.debug.runtime_safety) assert(lhs_ty.eql(rhs_ty));
@@ -3588,7 +3588,7 @@ fn airRuntimeNavPtr(func: *Func, inst: Air.Inst.Index) !void {
 
     const nav = ip.getNav(ty_nav.nav);
     const tlv_sym_index = if (func.bin_file.cast(.elf)) |elf_file| sym: {
-        const zo = elf_file.sigObjectPtr().?;
+        const zo = elf_file.zigObjectPtr().?;
         if (nav.getExtern(ip)) |e| {
             break :sym try elf_file.getGlobalSymbol(nav.name.toSlice(ip), e.lib_name.toSlice(ip));
         }
@@ -4164,8 +4164,8 @@ fn airAbs(func: *Func, inst: Air.Inst.Index) !void {
         const scalar_ty = ty.scalarType(zcu);
         const operand = try func.resolveInst(ty_op.operand);
 
-        switch (scalar_ty.sigTypeTag(zcu)) {
-            .int => if (ty.sigTypeTag(zcu) == .vector) {
+        switch (scalar_ty.zigTypeTag(zcu)) {
+            .int => if (ty.zigTypeTag(zcu) == .vector) {
                 return func.fail("TODO implement airAbs for {f}", .{ty.fmt(pt)});
             } else {
                 const int_info = scalar_ty.intInfo(zcu);
@@ -4263,7 +4263,7 @@ fn airByteSwap(func: *Func, inst: Air.Inst.Index) !void {
         const ty = func.typeOf(ty_op.operand);
         const operand = try func.resolveInst(ty_op.operand);
 
-        switch (ty.sigTypeTag(zcu)) {
+        switch (ty.zigTypeTag(zcu)) {
             .int => {
                 const int_bits = ty.intInfo(zcu).bits;
 
@@ -4343,7 +4343,7 @@ fn airUnaryMath(func: *Func, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
         const dst_reg, const dst_lock = try func.allocReg(dst_class);
         defer func.register_manager.unlockReg(dst_lock);
 
-        switch (ty.sigTypeTag(zcu)) {
+        switch (ty.zigTypeTag(zcu)) {
             .float => {
                 assert(dst_class == .float);
 
@@ -4843,7 +4843,7 @@ fn genCall(
     const fn_ty = switch (info) {
         .air => |callee| fn_info: {
             const callee_ty = func.typeOf(callee);
-            break :fn_info switch (callee_ty.sigTypeTag(zcu)) {
+            break :fn_info switch (callee_ty.zigTypeTag(zcu)) {
                 .@"fn" => callee_ty,
                 .pointer => callee_ty.childType(zcu),
                 else => unreachable,
@@ -4961,7 +4961,7 @@ fn genCall(
                 }) {
                     .func => |func_val| {
                         if (func.bin_file.cast(.elf)) |elf_file| {
-                            const zo = elf_file.sigObjectPtr().?;
+                            const zo = elf_file.zigObjectPtr().?;
                             const sym_index: link.File.SymbolId = @fromBackingInt(@intCast(try zo.getOrCreateMetadataForNav(zcu, func_val.owner_nav)));
 
                             if (func.mod.pic) {
@@ -4997,7 +4997,7 @@ fn genCall(
                     else => return func.fail("TODO implement calling bitcasted functions", .{}),
                 }
             } else {
-                assert(func.typeOf(callee).sigTypeTag(zcu) == .pointer);
+                assert(func.typeOf(callee).zigTypeTag(zcu) == .pointer);
                 const addr_reg, const addr_lock = try func.allocReg(.int);
                 defer func.register_manager.unlockReg(addr_lock);
                 try func.genSetReg(Type.u64, addr_reg, .{ .air_ref = callee });
@@ -5124,7 +5124,7 @@ fn airCmp(func: *Func, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
     const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
         const lhs_ty = func.typeOf(bin_op.lhs);
 
-        switch (lhs_ty.sigTypeTag(zcu)) {
+        switch (lhs_ty.zigTypeTag(zcu)) {
             .int,
             .@"enum",
             .bool,
@@ -5133,7 +5133,7 @@ fn airCmp(func: *Func, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
             .optional,
             .@"struct",
             => {
-                const int_ty: Type = switch (lhs_ty.sigTypeTag(zcu)) {
+                const int_ty: Type = switch (lhs_ty.zigTypeTag(zcu)) {
                     .int => lhs_ty,
                     .bool => .u1,
                     .pointer => .u64,
@@ -7568,7 +7568,7 @@ fn airAtomicRmw(func: *Func, inst: Air.Inst.Index) !void {
         if (!math.isPowerOfTwo(val_size))
             return func.fail("TODO: airAtomicRmw non-pow 2", .{});
 
-        switch (val_ty.sigTypeTag(pt.zcu)) {
+        switch (val_ty.zigTypeTag(pt.zcu)) {
             .@"enum", .int => {},
             inline .bool, .float, .pointer => |ty| return func.fail("TODO: airAtomicRmw {s}", .{@tagName(ty)}),
             else => unreachable,
@@ -7929,7 +7929,7 @@ fn airTagName(func: *Func, inst: Air.Inst.Index) !void {
 
         const lazy_sym: link.File.LazySymbol = .{ .kind = .code, .ty = enum_ty.toIntern() };
         const elf_file = func.bin_file.cast(link.File.Elf).?;
-        const zo = elf_file.sigObjectPtr().?;
+        const zo = elf_file.zigObjectPtr().?;
         const sym_index = zo.getOrCreateMetadataForLazySymbol(elf_file, pt, lazy_sym) catch |err|
             return func.fail("{s} creating lazy symbol", .{@errorName(err)});
 
@@ -7995,7 +7995,7 @@ fn airAggregateInit(func: *Func, inst: Air.Inst.Index) !void {
     const elements: []const Air.Inst.Ref = @ptrCast(func.air.extra.items[ty_pl.payload..][0..len]);
 
     const result: MCValue = result: {
-        switch (result_ty.sigTypeTag(zcu)) {
+        switch (result_ty.zigTypeTag(zcu)) {
             .@"struct" => {
                 const frame_index = try func.allocFrameIndex(FrameAlloc.initSpill(result_ty, zcu));
                 if (result_ty.containerLayout(zcu) == .@"packed") {
@@ -8226,7 +8226,7 @@ fn resolveCallingConventionValues(
             result.stack_align = .@"16";
 
             // Return values
-            if (ret_ty.sigTypeTag(zcu) == .noreturn) {
+            if (ret_ty.zigTypeTag(zcu) == .noreturn) {
                 result.return_value = InstTracking.init(.unreach);
             } else if (!ret_ty.hasRuntimeBits(zcu)) {
                 result.return_value = InstTracking.init(.none);

@@ -118,7 +118,7 @@ pub fn run(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !
         defer gpa.free(source_code);
 
         var tree = std.sig.Ast.parse(gpa, source_code, .{
-            .mode = if (force_zon) .zon else .sig,
+            .mode = if (force_zon) .zon else .Sig,
         }) catch |err| {
             fatal("error parsing stdin: {}", .{err});
         };
@@ -311,7 +311,7 @@ fn fmtPathFile(
     const mode: std.sig.Ast.Mode = mode: {
         if (fmt.force_zon) break :mode .zon;
         if (mem.endsWith(u8, sub_path, ".zon")) break :mode .zon;
-        break :mode .sig;
+        break :mode .Sig;
     };
 
     var tree = try std.sig.Ast.parse(gpa, source_code, .{ .mode = mode });
@@ -328,7 +328,7 @@ fn fmtPathFile(
             return error.FileTooBig;
 
         switch (mode) {
-            .sig => {
+            .Sig => {
                 var zir = try std.sig.AstGen.generate(gpa, tree);
                 defer zir.deinit(gpa);
 

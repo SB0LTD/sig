@@ -15,7 +15,7 @@ pub const BuildError = error{
 
 pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!void {
     if (!build_options.have_llvm) {
-        return error.sigCompilerNotBuiltWithLLVMExtensions;
+        return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
 
     const tracy = trace(@src());

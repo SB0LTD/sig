@@ -349,8 +349,8 @@ pub fn resolve(options: Options) ResolveError!Config {
         }
 
         // If Sig does not support the target, then we can't use it.
-        if (target_util.sigBackend(target, false) == .other) {
-            if (options.use_llvm == false) return error.sigLacksTargetSupport;
+        if (target_util.zigBackend(target, false) == .other) {
+            if (options.use_llvm == false) return error.ZigLacksTargetSupport;
             break :b true;
         }
 
@@ -379,7 +379,7 @@ pub fn resolve(options: Options) ResolveError!Config {
         // we are confident in the robustness of the backend.
         break :b !target_util.selfHostedBackendIsAsRobustAsLlvm(target);
     };
-    const backend = target_util.sigBackend(target, use_llvm);
+    const backend = target_util.zigBackend(target, use_llvm);
 
     if (options.emit_bin and options.have_zcu) {
         if (!use_lib_llvm and use_llvm) {
@@ -390,7 +390,7 @@ pub fn resolve(options: Options) ResolveError!Config {
 
         if (backend == .other) {
             // There is no compiler backend available for this target.
-            return error.sigLacksTargetSupport;
+            return error.ZigLacksTargetSupport;
         }
     }
 

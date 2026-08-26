@@ -4,6 +4,15 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the sig version and the upstream Sig version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.3.3] — 2026-08-26 — Pure .sig Bootstrap
+
+Full bootstrap cycle from 0.3.2 to 0.3.3. The compiler now emits
+`sig_backend` in generated builtins, the standard library uses `.sig`
+file extensions natively, and all renamed identifiers are resolved
+(EnvVar, FileExt, DWARF constants, LLVM builder targets). The `sb0`
+OS tag and ABI are handled in the LLVM triple builder. Stage1
+(self-hosted backend) compiles cleanly; full LLVM release built on CI.
+
 ## [0.3.2] — 2026-08-11 — First-Class SB0 Target
 
 Patch release making the consolidated native SB0 ABI a production compiler

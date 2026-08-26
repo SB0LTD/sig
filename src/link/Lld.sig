@@ -694,7 +694,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
         }
 
         if (comp.config.link_libc and link_in_crt) {
-            if (comp.sigc_static_lib) |zigc| {
+            if (comp.zigc_static_lib) |zigc| {
                 try argv.append(try zigc.full_object_path.toString(arena));
             }
         }
@@ -1258,7 +1258,7 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
                     diags.flags.missing_libc = true;
                 }
 
-                if (comp.sigc_static_lib) |zigc| {
+                if (comp.zigc_static_lib) |zigc| {
                     try argv.append(try zigc.full_object_path.toString(arena));
                 }
             }
@@ -1567,7 +1567,7 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
                 try argv.append(try comp.crtFileAsString(arena, "libc.a"));
             }
 
-            if (comp.sigc_static_lib) |zigc| {
+            if (comp.zigc_static_lib) |zigc| {
                 try argv.append(try zigc.full_object_path.toString(arena));
             }
 

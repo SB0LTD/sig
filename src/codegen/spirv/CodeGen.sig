@@ -626,7 +626,7 @@ pub fn layoutType(cg: *CodeGen, ty: Type, is_block_root: bool) Error!Id {
     const zcu = cg.zcu;
     const ip = &zcu.intern_pool;
 
-    const result_id: Id = switch (ty.sigTypeTag(zcu)) {
+    const result_id: Id = switch (ty.zigTypeTag(zcu)) {
         .@"struct" => id: {
             const struct_type = ip.loadStructType(ty.toIntern());
             if (struct_type.layout == .@"packed") return cg.resolveType(ty, .indirect);
@@ -862,8 +862,8 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
     const ty = val.typeOf(zcu);
 
     if (!do_codegen and !ty.hasRuntimeBits(zcu)) {
-        const child_ty = if (ty.sigTypeTag(zcu) == .pointer) ty.childType(zcu) else ty;
-        if (child_ty.sigTypeTag(zcu) != .spirv) return;
+        const child_ty = if (ty.zigTypeTag(zcu) == .pointer) ty.childType(zcu) else ty;
+        if (child_ty.zigTypeTag(zcu) != .spirv) return;
     }
 
     const spv_decl_index = try cg.resolveNav(ip, cg.owner_nav);
@@ -1056,8 +1056,8 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
             try cg.sections.globals.emit(gpa, .OpExtInst, .{
                 .id_result_type = ptr_ty_id,
                 .id_result = result_id,
-                .set = try cg.importInstructionSet(.sig),
-                .instruction = .{ .inst = @backingInt(spec.sig.InvocationGlobal) },
+                .set = try cg.importInstructionSet(.Sig),
+                .instruction = .{ .inst = @backingInt(spec.Sig.InvocationGlobal) },
                 .id_ref_4 = &.{initializer_id},
             });
         },
@@ -1069,7 +1069,7 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
 fn decorateLayout(cg: *CodeGen, ty: Type, ty_id: spec.Id) Error!void {
     const zcu = cg.zcu;
     const ip = &zcu.intern_pool;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .array => {
             const elem_ty = ty.childType(zcu);
             if (!elem_ty.hasRuntimeBits(zcu)) return;
@@ -1171,7 +1171,7 @@ fn resolve(cg: *CodeGen, inst: Air.Inst.Ref) !Id {
     const ip = &zcu.intern_pool;
     if (inst.toInterned()) |val_ip_index| {
         const ty = cg.typeOf(inst);
-        if (ty.sigTypeTag(zcu) == .@"fn") {
+        if (ty.zigTypeTag(zcu) == .@"fn") {
             const val_key = zcu.intern_pool.indexToKey(val_ip_index);
             const fn_nav = switch (val_key) {
                 .@"extern" => |@"extern"| @"extern".owner_nav,
@@ -1278,8 +1278,8 @@ fn resolveUav(cg: *CodeGen, val: InternPool.Index) !Id {
         try cg.sections.globals.emit(gpa, .OpExtInst, .{
             .id_result_type = fn_decl_ptr_ty_id,
             .id_result = result_id,
-            .set = try cg.importInstructionSet(.sig),
-            .instruction = .{ .inst = @backingInt(spec.sig.InvocationGlobal) },
+            .set = try cg.importInstructionSet(.Sig),
+            .instruction = .{ .inst = @backingInt(spec.Sig.InvocationGlobal) },
             .id_ref_4 = &.{initializer_id},
         });
     }
@@ -1356,11 +1356,11 @@ fn arithmeticTypeInfo(cg: *CodeGen, ty: Type) ArithmeticTypeInfo {
     const zcu = cg.zcu;
     const target = cg.zcu.getTarget();
     var scalar_ty = ty.scalarType(zcu);
-    if (scalar_ty.sigTypeTag(zcu) == .@"enum") {
+    if (scalar_ty.zigTypeTag(zcu) == .@"enum") {
         scalar_ty = scalar_ty.backingIntType(zcu);
     }
     const vector_len = if (ty.isVector(zcu)) ty.vectorLen(zcu) else null;
-    return switch (scalar_ty.sigTypeTag(zcu)) {
+    return switch (scalar_ty.zigTypeTag(zcu)) {
         .bool => .{
             .bits = 1, // Doesn't matter for this class.
             .backing_bits = cg.backingIntBits(1).@"0",
@@ -1400,13 +1400,13 @@ fn arithmeticTypeInfo(cg: *CodeGen, ty: Type) ArithmeticTypeInfo {
 fn isSpvVector(cg: *CodeGen, ty: Type) bool {
     const zcu = cg.zcu;
     const target = cg.zcu.getTarget();
-    if (ty.sigTypeTag(zcu) != .vector) return false;
+    if (ty.zigTypeTag(zcu) != .vector) return false;
 
     // TODO: This check must be expanded for types that can be represented
     // as integers (enums / packed structs?) and types that are represented
     // by multiple SPIR-V values.
     const scalar_ty = ty.scalarType(zcu);
-    switch (scalar_ty.sigTypeTag(zcu)) {
+    switch (scalar_ty.zigTypeTag(zcu)) {
         .bool,
         .int,
         .float,
@@ -1951,7 +1951,7 @@ fn derivePtr(cg: *CodeGen, derivation: Value.PointerDeriveStep) !Id {
                 },
             }
 
-            if (!nav_ty.hasRuntimeBits(zcu) and nav_ty.sigTypeTag(zcu) != .spirv) {
+            if (!nav_ty.hasRuntimeBits(zcu) and nav_ty.zigTypeTag(zcu) != .spirv) {
                 return cg.constUndef(ty_id);
             }
 
@@ -1963,7 +1963,7 @@ fn derivePtr(cg: *CodeGen, derivation: Value.PointerDeriveStep) !Id {
 
             const nav_ty_id = try cg.resolveType(nav_ty, .indirect);
             const decl_ptr_ty_id = try cg.ptrType(nav_ty_id, storage_class);
-            switch (nav_ty.sigTypeTag(zcu)) {
+            switch (nav_ty.zigTypeTag(zcu)) {
                 .@"struct", .@"union" => {
                     if (cg.needsLayout(nav.resolved.?.@"addrspace", nav_ty)) {
                         try cg.block_var_ids.put(gpa, spv_decl.result_id, {});
@@ -1996,7 +1996,7 @@ fn derivePtr(cg: *CodeGen, derivation: Value.PointerDeriveStep) !Id {
                 else => {},
             }
 
-            if (!uav_ty.hasRuntimeBits(zcu) and uav_ty.sigTypeTag(zcu) != .spirv) {
+            if (!uav_ty.hasRuntimeBits(zcu) and uav_ty.zigTypeTag(zcu) != .spirv) {
                 return cg.constUndef(ty_id);
             }
 
@@ -2045,7 +2045,7 @@ fn derivePtr(cg: *CodeGen, derivation: Value.PointerDeriveStep) !Id {
                 var cur = parent_ptr_ty.childType(zcu);
                 const dst_child = oac.new_ptr_ty.childType(zcu);
                 while (cur.toIntern() != dst_child.toIntern()) {
-                    switch (cur.sigTypeTag(zcu)) {
+                    switch (cur.zigTypeTag(zcu)) {
                         .array => {
                             cur = cur.childType(zcu);
                             depth += 1;
@@ -2192,7 +2192,7 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
 
     log.debug("resolveType: ty = {f}", .{ty.fmt(pt)});
 
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .noreturn => {
             assert(repr == .direct);
             return try cg.voidType();
@@ -3741,7 +3741,7 @@ fn buildSelect(cg: *CodeGen, condition: Temporary, lhs: Temporary, rhs: Temporar
     const op_result_ty_id = try cg.resolveType(op_result_ty, .direct);
     const result_ty = try v.resultType(cg, lhs.ty);
 
-    assert(condition.ty.scalarType(zcu).sigTypeTag(zcu) == .bool);
+    assert(condition.ty.scalarType(zcu).zigTypeTag(zcu) == .bool);
 
     const cond = try v.prepare(cg, condition);
     const object_1 = try v.prepare(cg, lhs);
@@ -4197,7 +4197,7 @@ fn intFromBool(cg: *CodeGen, value: Temporary, result_ty: Type) !Temporary {
 fn convertToDirect(cg: *CodeGen, ty: Type, operand_id: Id) !Id {
     const pt = cg.pt;
     const zcu = cg.zcu;
-    switch (ty.scalarType(zcu).sigTypeTag(zcu)) {
+    switch (ty.scalarType(zcu).zigTypeTag(zcu)) {
         .bool => {
             const false_id = try cg.constBool(false, .indirect);
             const operand_ty = blk: {
@@ -4223,7 +4223,7 @@ fn convertToDirect(cg: *CodeGen, ty: Type, operand_id: Id) !Id {
 /// This converts the argument type from resolveType(ty, .direct) to resolveType(ty, .indirect).
 fn convertToIndirect(cg: *CodeGen, ty: Type, operand_id: Id) !Id {
     const zcu = cg.zcu;
-    switch (ty.scalarType(zcu).sigTypeTag(zcu)) {
+    switch (ty.scalarType(zcu).zigTypeTag(zcu)) {
         .bool => {
             const result = try cg.intFromBool(.init(ty, operand_id), .u1);
             return try result.materialize(cg);
@@ -4275,7 +4275,7 @@ fn needsLayout(cg: *CodeGen, as: std.lang.AddressSpace, pointee_ty: Type) bool {
         .push_constant,
         .storage_buffer,
         .physical_storage_buffer,
-        => switch (pointee_ty.sigTypeTag(cg.zcu)) {
+        => switch (pointee_ty.zigTypeTag(cg.zcu)) {
             .@"struct", .@"union", .array => true,
             .spirv => pointee_ty.isSpirvRuntimeArray(cg.zcu),
             else => false,
@@ -5808,7 +5808,7 @@ fn cmp(
     const scalar_ty = lhs.ty.scalarType(zcu);
     const is_vector = lhs.ty.isVector(zcu);
 
-    switch (scalar_ty.sigTypeTag(zcu)) {
+    switch (scalar_ty.zigTypeTag(zcu)) {
         .int, .bool, .float => {},
         .@"enum" => {
             assert(!is_vector);
@@ -6027,7 +6027,7 @@ fn bitCast(
             defer indices.deinit(gpa);
             var cur = src_child;
             while (cur.toIntern() != dst_child.toIntern()) : (try indices.append(gpa, 0)) {
-                cur = switch (cur.sigTypeTag(zcu)) {
+                cur = switch (cur.zigTypeTag(zcu)) {
                     .array, .vector => cur.childType(zcu),
                     .@"struct" => cur.fieldType(0, zcu),
                     else => unreachable,
@@ -6056,7 +6056,7 @@ fn bitCast(
         // TODO: Some more cases are missing here
         //   See fn bitCast in llvm.sig
 
-        if (src_ty.sigTypeTag(zcu) == .int and dst_ty.isPtrAtRuntime(zcu)) {
+        if (src_ty.zigTypeTag(zcu) == .int and dst_ty.isPtrAtRuntime(zcu)) {
             if (target.os.tag != .opencl) {
                 if (dst_ty.ptrAddressSpace(zcu) != .physical_storage_buffer) {
                     return cg.fail(
@@ -6120,7 +6120,7 @@ fn bitCast(
     // the result here.
     // TODO: This detail could cause stuff like @as(*const i1, @ptrCast(&@as(u1, 1))) to break
     // should we change the representation of strange integers?
-    if (dst_ty.sigTypeTag(zcu) == .int) {
+    if (dst_ty.zigTypeTag(zcu) == .int) {
         const info = cg.arithmeticTypeInfo(dst_ty);
         const result = try cg.normalize(Temporary.init(dst_ty, result_id), info);
         return try result.materialize(cg);
@@ -6138,7 +6138,7 @@ fn airBitCast(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
         const result = try cg.intFromBool(operand, .u1);
         return try result.materialize(cg);
     }
-    if (operand_ty.sigTypeTag(cg.zcu) == .pointer) {
+    if (operand_ty.zigTypeTag(cg.zcu) == .pointer) {
         switch (try cg.resolvePtr(ty_op.operand)) {
             .tracked => |t| return t.id, // TODO
             .id => |operand_id| return try cg.bitCast(result_ty, operand_ty, operand_id),
@@ -6520,7 +6520,7 @@ fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     const len: usize = @intCast(result_ty.arrayLen(zcu));
     const elements: []const Air.Inst.Ref = @ptrCast(cg.air.extra.items[ty_pl.payload..][0..len]);
 
-    switch (result_ty.sigTypeTag(zcu)) {
+    switch (result_ty.zigTypeTag(zcu)) {
         .@"struct" => {
             if (zcu.typeToPackedStruct(result_ty)) |struct_type| {
                 comptime assert(Type.packed_struct_layout_version == 2);
@@ -6967,7 +6967,7 @@ fn airAggFieldVal(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
 
     assert(field_ty.hasRuntimeBits(zcu));
 
-    switch (object_ty.sigTypeTag(zcu)) {
+    switch (object_ty.zigTypeTag(zcu)) {
         .@"struct" => switch (object_ty.containerLayout(zcu)) {
             .@"packed" => {
                 const struct_ty = zcu.typeToPackedStruct(object_ty).?;
@@ -7114,7 +7114,7 @@ fn structFieldPtr(
 
     const zcu = cg.zcu;
     const object_ty = object_ptr_ty.childType(zcu);
-    switch (object_ty.sigTypeTag(zcu)) {
+    switch (object_ty.zigTypeTag(zcu)) {
         .pointer => {
             assert(object_ty.isSlice(zcu));
             return cg.accessChain(result_ty_id, object_ptr, &.{field_index});
@@ -7230,7 +7230,7 @@ fn airAlloc(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
 
     switch (target.os.tag) {
         .vulkan, .opengl => {
-            if (child_ty.sigTypeTag(zcu) == .pointer and !child_ty.isSlice(zcu)) {
+            if (child_ty.zigTypeTag(zcu) == .pointer and !child_ty.isSlice(zcu)) {
                 const as = child_ty.ptrAddressSpace(zcu);
                 if (cg.storageClass(as) == .function) {
                     const result_id = cg.allocId();
@@ -8160,7 +8160,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
     const cond = try cg.resolve(switch_br.operand);
     var cond_indirect = try cg.convertToIndirect(cond_ty, cond);
 
-    const cond_words: u32 = switch (cond_ty.sigTypeTag(zcu)) {
+    const cond_words: u32 = switch (cond_ty.zigTypeTag(zcu)) {
         .bool, .error_set => 1,
         .int => blk: {
             const bits = cond_ty.intInfo(zcu).bits;
@@ -8180,7 +8180,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
             break :blk target.ptrBitWidth() / 32;
         },
         // TODO: Figure out which types apply here, and work around them as we can only do integers.
-        else => return cg.todo("implement switch for type {s}", .{@tagName(cond_ty.sigTypeTag(zcu))}),
+        else => return cg.todo("implement switch for type {s}", .{@tagName(cond_ty.zigTypeTag(zcu))}),
     };
 
     const num_cases = switch_br.cases_len;
@@ -8227,7 +8227,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
 
             for (case.items) |item| {
                 const value: Value = .fromInterned(item.toInterned().?);
-                const int_val: u64 = switch (cond_ty.sigTypeTag(zcu)) {
+                const int_val: u64 = switch (cond_ty.zigTypeTag(zcu)) {
                     .bool, .int => if (cond_ty.isSignedInt(zcu)) @bitCast(value.toSignedInt(zcu)) else value.toUnsignedInt(zcu),
                     .@"enum" => value.backingInt(zcu).toUnsignedInt(zcu),
                     .error_set => value.getErrorInt(zcu),
@@ -8374,7 +8374,7 @@ fn airLoopSwitchBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
     const initial_cond = try cg.resolve(switch_br.operand);
     var initial_cond_indirect = try cg.convertToIndirect(cond_ty, initial_cond);
 
-    const cond_words: u32 = switch (cond_ty.sigTypeTag(zcu)) {
+    const cond_words: u32 = switch (cond_ty.zigTypeTag(zcu)) {
         .bool, .error_set => 1,
         .int => blk: {
             const bits = cond_ty.intInfo(zcu).bits;
@@ -8393,7 +8393,7 @@ fn airLoopSwitchBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
             initial_cond_indirect = try cg.intFromPtr(initial_cond_indirect);
             break :blk target.ptrBitWidth() / 32;
         },
-        else => return cg.todo("implement loop switch for type {s}", .{@tagName(cond_ty.sigTypeTag(zcu))}),
+        else => return cg.todo("implement loop switch for type {s}", .{@tagName(cond_ty.zigTypeTag(zcu))}),
     };
 
     const cond_ty_id = try cg.resolveType(cond_ty, .indirect);
@@ -8467,7 +8467,7 @@ fn airLoopSwitchBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
             const label = case_labels.at(case.idx);
             for (case.items) |item| {
                 const value: Value = .fromInterned(item.toInterned().?);
-                const int_val: u64 = switch (cond_ty.sigTypeTag(zcu)) {
+                const int_val: u64 = switch (cond_ty.zigTypeTag(zcu)) {
                     .bool, .int => if (cond_ty.isSignedInt(zcu)) @bitCast(value.toSignedInt(zcu)) else value.toUnsignedInt(zcu),
                     .@"enum" => value.backingInt(zcu).toUnsignedInt(zcu),
                     .error_set => value.getErrorInt(zcu),
@@ -8715,7 +8715,7 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
             const val: Value = .fromInterned(in.operand.toInterned().?);
             const ip = &zcu.intern_pool;
             const target = cg.pt.zcu.getTarget();
-            switch (input_ty.sigTypeTag(zcu)) {
+            switch (input_ty.zigTypeTag(zcu)) {
                 .int => {
                     const bits: u64 = switch (input_ty.intInfo(zcu).signedness) {
                         .unsigned => val.toUnsignedInt(zcu),
@@ -8734,7 +8734,7 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                 },
                 .vector => {
                     const child_ty = input_ty.childType(zcu);
-                    const child_kind = child_ty.sigTypeTag(zcu);
+                    const child_kind = child_ty.zigTypeTag(zcu);
                     const child_bit_width: u16 = switch (child_kind) {
                         .bool => 0,
                         .int => @intCast(child_ty.intInfo(zcu).bits),
@@ -8777,7 +8777,7 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
             }
         } else if (std.mem.eql(u8, in.constraint, "t")) {
             // type
-            if (input_ty.sigTypeTag(zcu) == .type) {
+            if (input_ty.zigTypeTag(zcu) == .type) {
                 // This assembly input is a type instead of a value.
                 // That's fine for now, just make sure to resolve it as such.
                 const ty_id = try cg.resolveType(in.operand.toType(), .direct);
@@ -8787,7 +8787,7 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                 try ass.value_map.put(gpa, in.name, .{ .ty = ty_id });
             }
         } else {
-            if (input_ty.sigTypeTag(zcu) == .type) {
+            if (input_ty.zigTypeTag(zcu) == .type) {
                 return cg.fail("use the 't' constraint to supply types to SPIR-V inline assembly", .{});
             }
 
@@ -8858,7 +8858,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier) 
     const air_call = cg.air.unwrapCall(inst);
     const args = air_call.args;
     const callee_ty = cg.typeOf(air_call.callee);
-    const zig_fn_ty = switch (callee_ty.sigTypeTag(zcu)) {
+    const zig_fn_ty = switch (callee_ty.zigTypeTag(zcu)) {
         .@"fn" => callee_ty,
         else => unreachable, // rejected by Sema for SPIR-V
     };
@@ -8881,7 +8881,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier) 
         const arg_ty = cg.typeOf(arg);
         if (!arg_ty.hasRuntimeBits(zcu)) continue;
 
-        if (arg_ty.sigTypeTag(zcu) == .pointer and !arg_ty.isSlice(zcu) and
+        if (arg_ty.zigTypeTag(zcu) == .pointer and !arg_ty.isSlice(zcu) and
             !arg_ty.childType(zcu).hasRuntimeBits(zcu) and
             cg.storageClass(arg_ty.ptrAddressSpace(zcu)) == .function)
         {

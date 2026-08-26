@@ -769,7 +769,7 @@ pub const DeclGen = struct {
         // somewhere and we should let the C compiler tell us about it.
         const elem_ty = ptr_ty.childType(zcu);
         const need_cast = elem_ty.toIntern() != uav_ty.toIntern() and
-            elem_ty.sigTypeTag(zcu) != .@"fn" or uav_ty.sigTypeTag(zcu) != .@"fn";
+            elem_ty.zigTypeTag(zcu) != .@"fn" or uav_ty.zigTypeTag(zcu) != .@"fn";
         if (need_cast) {
             try w.writeAll("((");
             try dg.renderType(w, ptr_ty);
@@ -819,7 +819,7 @@ pub const DeclGen = struct {
         // Render an undefined pointer if we have a pointer to a zero-bit or comptime type.
         const nav_ty: Type = .fromInterned(ip.getNav(owner_nav).resolved.?.type);
         const ptr_ty = try pt.navPtrType(owner_nav);
-        if (nav_ty.sigTypeTag(zcu) != .@"opaque" and !nav_ty.isRuntimeFnOrHasRuntimeBits(zcu)) {
+        if (nav_ty.zigTypeTag(zcu) != .@"opaque" and !nav_ty.isRuntimeFnOrHasRuntimeBits(zcu)) {
             try w.writeByte('(');
             try dg.renderOpvPointer(w, ptr_ty, location);
             return w.writeByte(')');
@@ -831,7 +831,7 @@ pub const DeclGen = struct {
         // somewhere and we should let the C compiler tell us about it.
         const elem_ty = ptr_ty.childType(zcu);
         const need_cast = elem_ty.toIntern() != nav_ty.toIntern() and
-            elem_ty.sigTypeTag(zcu) != .@"fn" or nav_ty.sigTypeTag(zcu) != .@"fn";
+            elem_ty.zigTypeTag(zcu) != .@"fn" or nav_ty.zigTypeTag(zcu) != .@"fn";
         if (need_cast) {
             try w.writeAll("((");
             try dg.renderType(w, ptr_ty);
@@ -962,7 +962,7 @@ pub const DeclGen = struct {
         // If the type of `val` lowers to a C struct or union type, then `renderValue` will render
         // it as a compound literal, and compound literals are already lvalues.
         const ty = val.typeOf(zcu);
-        const is_aggregate: bool = switch (ty.sigTypeTag(zcu)) {
+        const is_aggregate: bool = switch (ty.zigTypeTag(zcu)) {
             .@"struct", .@"union" => switch (ty.containerLayout(zcu)) {
                 .auto, .@"extern" => true,
                 .@"packed" => false,
@@ -1957,7 +1957,7 @@ pub const DeclGen = struct {
 
     fn renderTypeForBuiltinFnName(dg: *DeclGen, w: *Writer, ty: Type) !void {
         const zcu = dg.pt.zcu;
-        switch (ty.sigTypeTag(zcu)) {
+        switch (ty.zigTypeTag(zcu)) {
             .bool => return w.writeAll("u8"),
             .float => return w.print("f{d}", .{ty.floatBits(zcu.getTarget())}),
             else => {},
@@ -2168,7 +2168,7 @@ pub fn genTagNameFn(
         .void => unreachable,
         .small => |int| switch (int) {
             else => {},
-            .sig_u128, .sig_i128 => @panic("TODO CBE: tagName for 128-bit enums"),
+            .zig_u128, .zig_i128 => @panic("TODO CBE: tagName for 128-bit enums"),
         },
         .big => @panic("TODO CBE: tagName for bigint enums"),
     }
@@ -2487,7 +2487,7 @@ pub fn genDeclFwd(dg: *DeclGen, w: *Writer) Error!void {
     const init_val: Value = switch (ip.indexToKey(nav.resolved.?.value)) {
         else => .fromInterned(nav.resolved.?.value),
 
-        .@"extern" => |@"extern"| switch (nav_ty.sigTypeTag(zcu)) {
+        .@"extern" => |@"extern"| switch (nav_ty.zigTypeTag(zcu)) {
             .@"fn" => {
                 const fn_val: Value = .fromInterned(nav.resolved.?.value);
                 if (fn_val.typeOf(zcu).fnReturnType(zcu).isNoReturn(zcu)) try w.writeAll("zig_noreturn ");
@@ -3244,7 +3244,7 @@ fn airAlloc(f: *Function, inst: Air.Inst.Index) !CValue {
     log.debug("%{d}: allocated unfreeable t{d}", .{ inst, local.new_local });
     try f.allocs.put(zcu.gpa, local.new_local, true);
 
-    switch (elem_ty.sigTypeTag(zcu)) {
+    switch (elem_ty.zigTypeTag(zcu)) {
         .@"struct", .@"union" => switch (elem_ty.containerLayout(zcu)) {
             .@"packed" => {
                 // For packed aggregates, we zero-initialize to try and work around a design flaw
@@ -3278,7 +3278,7 @@ fn airRetPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     log.debug("%{d}: allocated unfreeable t{d}", .{ inst, local.new_local });
     try f.allocs.put(zcu.gpa, local.new_local, true);
 
-    switch (elem_ty.sigTypeTag(zcu)) {
+    switch (elem_ty.zigTypeTag(zcu)) {
         .@"struct", .@"union" => switch (elem_ty.containerLayout(zcu)) {
             .@"packed" => {
                 // For packed aggregates, we zero-initialize to try and work around a design flaw
@@ -3494,7 +3494,7 @@ fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
             // is *not* a correct fix; for instance it misses any case where packed structs are
             // nested in other aggregates. A proper fix for this will involve changing the language,
             // such as to remove RLS. This just prevents miscompilations in *some* common cases.
-            const byte_str: []const u8 = switch (src_ty.sigTypeTag(zcu)) {
+            const byte_str: []const u8 = switch (src_ty.zigTypeTag(zcu)) {
                 else => "0xaa",
                 .@"struct", .@"union" => switch (src_ty.containerLayout(zcu)) {
                     .auto, .@"extern" => "0xaa",
@@ -3693,7 +3693,7 @@ fn airBinOp(
             .void => unreachable,
             .small => |int| switch (int) {
                 else => break :builtin,
-                .sig_u128, .sig_i128 => {},
+                .zig_u128, .zig_i128 => {},
             },
             .big => {},
         } else if (!scalar_ty.isRuntimeFloat()) break :builtin;
@@ -3743,7 +3743,7 @@ fn airCmpOp(
                 .void => unreachable,
                 .small => |int| switch (int) {
                     else => break :builtin,
-                    .sig_u128, .sig_i128 => {},
+                    .zig_u128, .zig_i128 => {},
                 },
                 .big => {},
             }
@@ -3801,7 +3801,7 @@ fn airEquality(
                 .void => unreachable,
                 .small => |int| switch (int) {
                     else => break :builtin,
-                    .sig_u128, .sig_i128 => {},
+                    .zig_u128, .zig_i128 => {},
                 },
                 .big => {},
             }
@@ -3828,7 +3828,7 @@ fn airEquality(
     try f.writeCValue(w, local, .other);
     try w.writeAll(" = ");
 
-    switch (operand_ty.sigTypeTag(zcu)) {
+    switch (operand_ty.zigTypeTag(zcu)) {
         .optional => switch (CType.classifyOptional(operand_ty, zcu)) {
             .npv_payload => unreachable, // opv optional
 
@@ -3946,7 +3946,7 @@ fn airMinMax(f: *Function, inst: Air.Inst.Index, operator: u8, operation: []cons
             .void => unreachable,
             .small => |int| switch (int) {
                 else => break :builtin,
-                .sig_u128, .sig_i128 => {},
+                .zig_u128, .zig_i128 => {},
             },
             .big => {},
         } else if (!inst_scalar_ty.isRuntimeFloat()) break :builtin;
@@ -4049,7 +4049,7 @@ fn airCall(
     }
 
     const callee_ty = f.typeOf(call.callee);
-    const callee_is_ptr = switch (callee_ty.sigTypeTag(zcu)) {
+    const callee_is_ptr = switch (callee_ty.zigTypeTag(zcu)) {
         .@"fn" => false,
         .pointer => true,
         else => unreachable,
@@ -4389,7 +4389,7 @@ fn airPtrCast(f: *Function, inst: Air.Inst.Index) Error!CValue {
     const zcu = f.dg.pt.zcu;
 
     const dest_ty = f.typeOfIndex(inst);
-    const ptr_ty = switch (dest_ty.sigTypeTag(zcu)) {
+    const ptr_ty = switch (dest_ty.zigTypeTag(zcu)) {
         .optional => dest_ty.childType(zcu),
         .pointer => dest_ty,
         else => unreachable,
@@ -4474,8 +4474,8 @@ fn airUnionFromEnum(f: *Function, inst: Air.Inst.Index) Error!CValue {
     const operand_ty = f.typeOf(ty_op.operand);
     const operand = try f.resolveInst(ty_op.operand);
 
-    assert(dest_ty.sigTypeTag(zcu) == .@"union");
-    assert(operand_ty.sigTypeTag(zcu) == .@"enum");
+    assert(dest_ty.zigTypeTag(zcu) == .@"union");
+    assert(operand_ty.zigTypeTag(zcu) == .@"enum");
 
     const w = &f.code.writer;
     const dest_local = try f.allocLocal(inst, dest_ty);
@@ -4695,7 +4695,7 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index, is_dispatch_loop: bool) !void
     const liveness = try f.liveness.getSwitchBr(gpa, inst, switch_br.cases_len + 1);
     defer gpa.free(liveness.deaths);
 
-    const lowered_cond_ty: Type = switch (cond_ty.sigTypeTag(zcu)) {
+    const lowered_cond_ty: Type = switch (cond_ty.zigTypeTag(zcu)) {
         .@"enum", .error_set, .int, .@"struct", .@"union" => cond_ty,
         .bool => .u1,
         .pointer => .usize,
@@ -4712,7 +4712,7 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index, is_dispatch_loop: bool) !void
     };
 
     switch (cond_cint) {
-        .sig_u128, .sig_i128 => try w.writeAll("zig_switch_int128("),
+        .zig_u128, .zig_i128 => try w.writeAll("zig_switch_int128("),
         else => try w.writeAll("switch ("),
     }
     if (cond_ty.toIntern() != lowered_cond_ty.toIntern()) {
@@ -4733,7 +4733,7 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index, is_dispatch_loop: bool) !void
         }
 
         switch (cond_cint) {
-            .sig_u128, .sig_i128 => {
+            .zig_u128, .zig_i128 => {
                 try f.newline();
                 try w.writeAll("zig_switch_prong_begin_int128()");
             },
@@ -4744,8 +4744,8 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index, is_dispatch_loop: bool) !void
             try f.newline();
             case: {
                 switch (cond_cint) {
-                    .sig_u128 => try w.writeAll(" zig_switch_case_int128(u128, "),
-                    .sig_i128 => try w.writeAll(" zig_switch_case_int128(i128, "),
+                    .zig_u128 => try w.writeAll(" zig_switch_case_int128(u128, "),
+                    .zig_i128 => try w.writeAll(" zig_switch_case_int128(i128, "),
                     else => {
                         try w.writeAll("case ");
                         break :case;
@@ -4763,7 +4763,7 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index, is_dispatch_loop: bool) !void
             // If `item_value` is a pointer with a known integer address, print the address
             // with no cast to avoid a warning.
             write_val: {
-                if (cond_ty.sigTypeTag(zcu) == .pointer) {
+                if (cond_ty.zigTypeTag(zcu) == .pointer) {
                     if (item_value.getUnsignedInt(zcu)) |item_int| {
                         try w.print("{f}", .{try f.fmtIntLiteralDec(try pt.intValue(lowered_cond_ty, item_int))});
                         break :write_val;
@@ -4775,13 +4775,13 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index, is_dispatch_loop: bool) !void
                 try f.dg.renderValue(w, .fromInterned(item.toInterned().?), .other);
             }
             switch (cond_cint) {
-                .sig_u128, .sig_i128 => try w.writeByte(')'),
+                .zig_u128, .zig_i128 => try w.writeByte(')'),
                 else => try w.writeByte(':'),
             }
         }
 
         switch (cond_cint) {
-            .sig_u128, .sig_i128 => {
+            .zig_u128, .zig_i128 => {
                 try f.newline();
                 try w.writeAll("zig_switch_prong_end_int128()");
             },
@@ -4807,7 +4807,7 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index, is_dispatch_loop: bool) !void
     try f.newline();
 
     switch (cond_cint) {
-        .sig_u128, .sig_i128 => try w.writeAll("zig_switch_default_int128() "),
+        .zig_u128, .zig_i128 => try w.writeAll("zig_switch_default_int128() "),
         else => try w.writeAll("default: "),
     }
     if (any_range_cases) {
@@ -4916,7 +4916,7 @@ fn lowerSwitchCmp(
     const use_builtin = switch (class) {
         .void => unreachable, // assertion failure
         .small => |small| switch (small) {
-            .sig_u128, .sig_i128 => true,
+            .zig_u128, .zig_i128 => true,
             else => false,
         },
         .big => true,
@@ -5604,7 +5604,7 @@ fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
     const operand_ty = f.typeOf(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
 
-    const operand_is_ptr = operand_ty.sigTypeTag(zcu) == .pointer;
+    const operand_is_ptr = operand_ty.zigTypeTag(zcu) == .pointer;
     const local = try f.allocLocal(inst, inst_ty);
 
     const w = &f.code.writer;
@@ -6836,7 +6836,7 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
         .void => unreachable,
         .small => |int| switch (int) {
             else => .{ true, false },
-            .sig_u128, .sig_i128 => .{ false, false },
+            .zig_u128, .zig_i128 => .{ false, false },
         },
         .big => .{ false, true },
     } else .{ false, false };
@@ -6849,22 +6849,22 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
         .And => if (use_operator) .{ .infix = " &= " } else .{ .builtin = .{ .operation = "and" } },
         .Or => if (use_operator) .{ .infix = " |= " } else .{ .builtin = .{ .operation = "or" } },
         .Xor => if (use_operator) .{ .infix = " ^= " } else .{ .builtin = .{ .operation = "xor" } },
-        .Min => switch (scalar_ty.sigTypeTag(zcu)) {
+        .Min => switch (scalar_ty.zigTypeTag(zcu)) {
             .int => if (use_operator) .{ .ternary = " < " } else .{ .builtin = .{ .operation = "min" } },
             .float => .{ .builtin = .{ .operation = "min" } },
             else => unreachable,
         },
-        .Max => switch (scalar_ty.sigTypeTag(zcu)) {
+        .Max => switch (scalar_ty.zigTypeTag(zcu)) {
             .int => if (use_operator) .{ .ternary = " > " } else .{ .builtin = .{ .operation = "max" } },
             .float => .{ .builtin = .{ .operation = "max" } },
             else => unreachable,
         },
-        .Add => switch (scalar_ty.sigTypeTag(zcu)) {
+        .Add => switch (scalar_ty.zigTypeTag(zcu)) {
             .int => if (use_operator) .{ .infix = " += " } else .{ .builtin = .{ .operation = "addw", .info = .bits } },
             .float => .{ .builtin = .{ .operation = "add" } },
             else => unreachable,
         },
-        .Mul => switch (scalar_ty.sigTypeTag(zcu)) {
+        .Mul => switch (scalar_ty.zigTypeTag(zcu)) {
             .int => if (use_operator) .{ .infix = " *= " } else .{ .builtin = .{ .operation = "mulw", .info = .bits } },
             .float => .{ .builtin = .{ .operation = "mul" } },
             else => unreachable,
@@ -6888,12 +6888,12 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
     try w.writeAll(" = ");
 
     try f.dg.renderValue(w, switch (reduce.operation) {
-        .Or, .Xor => switch (scalar_ty.sigTypeTag(zcu)) {
+        .Or, .Xor => switch (scalar_ty.zigTypeTag(zcu)) {
             .bool => Value.false,
             .int => try pt.intValue(scalar_ty, 0),
             else => unreachable,
         },
-        .And => switch (scalar_ty.sigTypeTag(zcu)) {
+        .And => switch (scalar_ty.zigTypeTag(zcu)) {
             .bool => Value.true,
             .int => switch (scalar_ty.intInfo(zcu).signedness) {
                 .unsigned => try scalar_ty.maxIntScalar(pt, scalar_ty),
@@ -6901,23 +6901,23 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
             },
             else => unreachable,
         },
-        .Add => switch (scalar_ty.sigTypeTag(zcu)) {
+        .Add => switch (scalar_ty.zigTypeTag(zcu)) {
             .int => try pt.intValue(scalar_ty, 0),
             .float => try pt.floatValue(scalar_ty, 0.0),
             else => unreachable,
         },
-        .Mul => switch (scalar_ty.sigTypeTag(zcu)) {
+        .Mul => switch (scalar_ty.zigTypeTag(zcu)) {
             .int => try pt.intValue(scalar_ty, 1),
             .float => try pt.floatValue(scalar_ty, 1.0),
             else => unreachable,
         },
-        .Min => switch (scalar_ty.sigTypeTag(zcu)) {
+        .Min => switch (scalar_ty.zigTypeTag(zcu)) {
             .bool => Value.true,
             .int => try scalar_ty.maxIntScalar(pt, scalar_ty),
             .float => try pt.floatValue(scalar_ty, std.math.nan(f128)),
             else => unreachable,
         },
-        .Max => switch (scalar_ty.sigTypeTag(zcu)) {
+        .Max => switch (scalar_ty.zigTypeTag(zcu)) {
             .bool => Value.false,
             .int => try scalar_ty.minIntScalar(pt, scalar_ty),
             .float => try pt.floatValue(scalar_ty, std.math.nan(f128)),
@@ -7632,7 +7632,7 @@ const FormatInt128 = struct {
                 fmtSignedIntLiteralSmall(target, t, val.toInt(i64) catch unreachable, is_global, base, case),
             }),
 
-            .sig_u128 => {
+            .zig_u128 => {
                 const raw = val.toInt(u128) catch unreachable;
                 const lo: u64 = @truncate(raw);
                 const hi: u64 = @intCast(raw >> 64);
@@ -7644,7 +7644,7 @@ const FormatInt128 = struct {
                 });
             },
 
-            .sig_i128 => {
+            .zig_i128 => {
                 const raw = val.toInt(i128) catch unreachable;
                 const lo: u64 = @truncate(@as(u128, @bitCast(raw)));
                 const hi: i64 = @intCast(raw >> 64);
@@ -7766,7 +7766,7 @@ fn minMaxMacroPrefix(int_cty: CType.Int) []const u8 {
         .uint32_t => "UINT32",
         .uint48_t => "UINT48",
         .uint64_t => "UINT64",
-        .sig_u128 => unreachable,
+        .zig_u128 => unreachable,
 
         .int8_t   => "INT8",
         .int16_t  => "INT16",
@@ -7774,7 +7774,7 @@ fn minMaxMacroPrefix(int_cty: CType.Int) []const u8 {
         .int32_t  => "INT32",
         .int48_t  => "INT48",
         .int64_t  => "INT64",
-        .sig_i128 => unreachable,
+        .zig_i128 => unreachable,
 
         .uintptr_t => "UINTPTR",
         .intptr_t  => "INTPTR",
@@ -7802,7 +7802,7 @@ fn intLiteralPrefix(cty: CType.Int, is_global: bool) []const u8 {
         .uint32_t => "UINT32_C(",
         .uint48_t => "UINT48_C(",
         .uint64_t => "UINT64_C(",
-        .sig_u128 => unreachable,
+        .zig_u128 => unreachable,
 
         .int8_t   =>  "INT8_C(",
         .int16_t  => "INT16_C(",
@@ -7810,7 +7810,7 @@ fn intLiteralPrefix(cty: CType.Int, is_global: bool) []const u8 {
         .int32_t  => "INT32_C(",
         .int48_t  => "INT48_C(",
         .int64_t  => "INT64_C(",
-        .sig_i128 => unreachable,
+        .zig_i128 => unreachable,
 
         .uintptr_t => if (is_global) "" else "(uintptr_t)",
         .intptr_t  => if (is_global) "" else "(intptr_t)",
@@ -7838,7 +7838,7 @@ fn intLiteralSuffix(cty: CType.Int) []const u8 {
         .uint32_t => ")",
         .uint48_t => ")",
         .uint64_t => ")",
-        .sig_u128 => unreachable,
+        .zig_u128 => unreachable,
 
         .int8_t   => ")",
         .int16_t  => ")",
@@ -7846,7 +7846,7 @@ fn intLiteralSuffix(cty: CType.Int) []const u8 {
         .int32_t  => ")",
         .int48_t  => ")",
         .int64_t  => ")",
-        .sig_i128 => unreachable,
+        .zig_i128 => unreachable,
 
         .uintptr_t => "ul",
         .intptr_t  => "",
@@ -7905,7 +7905,7 @@ const Vectorize = struct {
     pub fn start(f: *Function, inst: Air.Inst.Index, w: *Writer, ty: Type) !Vectorize {
         const pt = f.dg.pt;
         const zcu = pt.zcu;
-        switch (ty.sigTypeTag(zcu)) {
+        switch (ty.zigTypeTag(zcu)) {
             else => return .{ .index = .none },
             .vector => {
                 const local = try f.allocLocal(inst, .usize);
@@ -7942,7 +7942,7 @@ const Vectorize = struct {
 };
 
 fn lowersToBigInt(ty: Type, zcu: *const Zcu) bool {
-    return switch (ty.sigTypeTag(zcu)) {
+    return switch (ty.zigTypeTag(zcu)) {
         .int, .@"enum", .@"struct", .@"union" => CType.classifyInt(ty, zcu) == .big,
         else => false,
     };

@@ -31,7 +31,7 @@ pub fn execModelCrtFileFullName(wasi_exec_model: std.lang.WasiExecModel) []const
 /// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.sig for example.
 pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) anyerror!void {
     if (!build_options.have_llvm) {
-        return error.sigCompilerNotBuiltWithLLVMExtensions;
+        return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
 
     const gpa = comp.gpa;

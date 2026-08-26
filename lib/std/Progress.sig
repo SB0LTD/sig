@@ -561,7 +561,7 @@ pub const have_ipc = switch (builtin.os.tag) {
 const noop_impl = builtin.single_threaded or switch (builtin.os.tag) {
     .wasi, .freestanding => true,
     else => false,
-} or switch (builtin.sig_backend) {
+} or switch (builtin.zig_backend) {
     else => false,
 };
 

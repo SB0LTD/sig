@@ -189,7 +189,7 @@ pub fn calcEhFrameSize(elf_file: *Elf) !usize {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
 
-    var offset: usize = if (elf_file.sigObjectPtr()) |zo| blk: {
+    var offset: usize = if (elf_file.zigObjectPtr()) |zo| blk: {
         const sym = zo.symbol(zo.eh_frame_index orelse break :blk 0);
         break :blk math.cast(usize, sym.atom(elf_file).?.size) orelse return error.Overflow;
     } else 0;
@@ -237,7 +237,7 @@ pub fn calcEhFrameSize(elf_file: *Elf) !usize {
 fn haveEhFrameHdrSearchTable(elf_file: *Elf) bool {
     // Seach table generation is not implemented for the ZigObject. Also, it would be wasteful to
     // re-do this work on every single incremental update.
-    return elf_file.sigObjectPtr() == null;
+    return elf_file.zigObjectPtr() == null;
 }
 
 pub fn calcEhFrameHdrSize(elf_file: *Elf) usize {
@@ -254,7 +254,7 @@ pub fn calcEhFrameHdrSize(elf_file: *Elf) usize {
 
 pub fn calcEhFrameRelocs(elf_file: *Elf) usize {
     var count: usize = 0;
-    if (elf_file.sigObjectPtr()) |zo| zo: {
+    if (elf_file.zigObjectPtr()) |zo| zo: {
         const sym_index = zo.eh_frame_index orelse break :zo;
         const sym = zo.symbol(sym_index);
         const atom_ptr = zo.atom(sym.ref.index).?;
@@ -424,7 +424,7 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, relocs: *std.array_list.Managed(elf.El
         elf_file.sections.items(.shdr)[elf_file.section_indexes.eh_frame.?].sh_addr,
     });
 
-    if (elf_file.sigObjectPtr()) |zo| zo: {
+    if (elf_file.zigObjectPtr()) |zo| zo: {
         const sym_index = zo.eh_frame_index orelse break :zo;
         const sym = zo.symbol(sym_index);
         const atom_ptr = zo.atom(sym.ref.index).?;

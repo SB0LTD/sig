@@ -387,7 +387,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         else
             owner.fmt("{t} {s}", .{ options.kind, name }),
         @tagName(options.root_module.optimize orelse .debug),
-        resolved_target.query.sigTriple(arena) catch @panic("OOM"),
+        resolved_target.query.zigTriple(arena) catch @panic("OOM"),
     });
 
     const out_filename = std.sig.binNameAlloc(arena, .{

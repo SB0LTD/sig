@@ -16,7 +16,7 @@ pub const Class = union(enum) {
 pub fn classifyType(ty: Type, zcu: *Zcu) Class {
     assert(ty.hasRuntimeBits(zcu));
 
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .@"struct" => {
             if (ty.containerLayout(zcu) == .@"packed") return .byval;
             if (countFloats(ty, zcu)) |float| return .{ .float_array = float.count };
@@ -85,7 +85,7 @@ const CountFloatsResult = struct {
 fn countFloats(ty: Type, zcu: *Zcu) ?CountFloatsResult {
     const ip = &zcu.intern_pool;
     if (!ty.hasRuntimeBits(zcu)) return .none;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .@"union" => {
             const loaded_union = zcu.typeToUnion(ty).?;
             var result: CountFloatsResult = .none;
@@ -125,7 +125,7 @@ fn countFloats(ty: Type, zcu: *Zcu) ?CountFloatsResult {
 
 pub fn getFloatArrayType(ty: Type, zcu: *Zcu) ?Type {
     const ip = &zcu.intern_pool;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .@"union" => {
             const loaded_union = zcu.typeToUnion(ty).?;
             for (loaded_union.field_types.get(ip)) |field_ty| {

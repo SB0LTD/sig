@@ -242,7 +242,7 @@ pub const JobQueue = struct {
 
         try w.writeAll("pub const packages = struct {\n");
 
-        // Ensure the generated .sig file is deterministic.
+        // Ensure the generated .Sig file is deterministic.
         jq.table.sortUnstable(@as(struct {
             keys: []const Package.Hash,
             pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {

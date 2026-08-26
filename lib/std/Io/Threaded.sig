@@ -253,7 +253,7 @@ pub const Environ = struct {
                 } else if (windows.eqlIgnoreCaseWtf16(key_w, &.{ 'C', 'L', 'I', 'C', 'O', 'L', 'O', 'R', '_', 'F', 'O', 'R', 'C', 'E' })) {
                     environ.exist.CLICOLOR_FORCE = true;
                 } else if (windows.eqlIgnoreCaseWtf16(key_w, &.{ 'Z', 'I', 'G', '_', 'P', 'R', 'O', 'G', 'R', 'E', 'S', 'S' })) {
-                    environ.sig_progress_file = file: {
+                    environ.zig_progress_file = file: {
                         var value_buf: [std.fmt.count("{d}", .{std.math.maxInt(usize)})]u8 = undefined;
                         const len = std.unicode.calcWtf8Len(value_w);
                         if (len > value_buf.len) break :file error.UnrecognizedFormat;
@@ -326,7 +326,7 @@ pub const Environ = struct {
                 } else if (std.mem.eql(u8, key, "CLICOLOR_FORCE")) {
                     environ.exist.CLICOLOR_FORCE = true;
                 } else if (std.mem.eql(u8, key, "ZIG_PROGRESS")) {
-                    environ.sig_progress_file = file: {
+                    environ.zig_progress_file = file: {
                         break :file .{
                             .handle = std.fmt.parseInt(u31, value, 10) catch
                                 break :file error.UnrecognizedFormat,
@@ -15114,10 +15114,10 @@ fn processReplace(userdata: ?*anyopaque, options: process.ReplaceOptions) proces
     const env_block = env_block: {
         const prog_fd: i32 = -1;
         if (options.environ_map) |environ_map| break :env_block try environ_map.createPosixBlock(arena, .{
-            .sig_progress_fd = prog_fd,
+            .zig_progress_fd = prog_fd,
         });
         break :env_block try t.environ.process_environ.createPosixBlock(arena, .{
-            .sig_progress_fd = prog_fd,
+            .zig_progress_fd = prog_fd,
         });
     };
 
@@ -15224,10 +15224,10 @@ fn spawnPosix(t: *Threaded, options: process.SpawnOptions) process.SpawnError!Sp
     const env_block = env_block: {
         const prog_fd: i32 = if (prog_pipe[1] == -1) -1 else prog_fileno;
         if (options.environ_map) |environ_map| break :env_block try environ_map.createPosixBlock(arena, .{
-            .sig_progress_fd = prog_fd,
+            .zig_progress_fd = prog_fd,
         });
         break :env_block try t.environ.process_environ.createPosixBlock(arena, .{
-            .sig_progress_fd = prog_fd,
+            .zig_progress_fd = prog_fd,
         });
     };
 
@@ -15897,10 +15897,10 @@ fn processSpawnWindows(userdata: ?*anyopaque, options: process.SpawnOptions) pro
         else
             windows.INVALID_HANDLE_VALUE;
         if (options.environ_map) |environ_map| break :env_block try environ_map.createWindowsBlock(arena, .{
-            .sig_progress_handle = prog_handle,
+            .zig_progress_handle = prog_handle,
         });
         break :env_block try t.environ.process_environ.createWindowsBlock(arena, .{
-            .sig_progress_handle = if (options.progress_node.index != .none) prog_pipe[1] else windows.INVALID_HANDLE_VALUE,
+            .zig_progress_handle = if (options.progress_node.index != .none) prog_pipe[1] else windows.INVALID_HANDLE_VALUE,
         });
     };
 
@@ -17209,7 +17209,7 @@ pub fn windowsCreatePipe(t: *Threaded, options: CreatePipeOptions) ![2]windows.H
 fn progressParentFile(userdata: ?*anyopaque) std.Progress.ParentFileError!File {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     t.scanEnviron();
-    return t.environ.sig_progress_file;
+    return t.environ.zig_progress_file;
 }
 
 pub fn environString(t: *Threaded, comptime name: []const u8) ?[:0]const u8 {

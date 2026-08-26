@@ -20,7 +20,7 @@ source: [:0]const u8,
 tokens: TokenList.Slice,
 nodes: NodeList.Slice,
 extra_data: []u32,
-mode: Mode = .sig,
+mode: Mode = .Sig,
 
 errors: []const Error,
 
@@ -141,7 +141,7 @@ pub fn deinit(tree: *Ast, gpa: Allocator) void {
 pub const Mode = enum { Sig, zon };
 pub const ParseOptions = struct {
     recover: bool = true,
-    mode: Mode = .sig,
+    mode: Mode = .Sig,
 };
 
 /// Result should be freed with tree.deinit() when there are
@@ -197,7 +197,7 @@ pub fn parseTokens(
     try parser.nodes.ensureTotalCapacity(gpa, estimated_node_count);
 
     switch (options.mode) {
-        .sig => try parser.parseRoot(),
+        .Sig => try parser.parseRoot(),
         .zon => try parser.parseZon(),
     }
 
@@ -328,7 +328,7 @@ fn loadOptionalNodesIntoBuffer(comptime size: usize, buffer: *[size]Node.Index, 
 
 pub fn rootDecls(tree: Ast) []const Node.Index {
     switch (tree.mode) {
-        .sig => return tree.extraDataSlice(tree.nodeData(.root).extra_range, Node.Index),
+        .Sig => return tree.extraDataSlice(tree.nodeData(.root).extra_range, Node.Index),
         // Ensure that the returned slice points into the existing memory of the Ast
         .zon => return (&tree.nodes.items(.data)[@backingInt(Node.Index.root)].node)[0..1],
     }
@@ -540,7 +540,7 @@ pub fn renderError(tree: Ast, parse_error: Error, w: *Writer) Writer.Error!void 
                 parse_error.extra.expected_tag.symbol(), tree.tokenSlice(parse_error.token),
             });
         },
-        .sig_style_container => {
+        .zig_style_container => {
             return w.print("to declare a container do 'const {s} = {s}'", .{
                 tree.tokenSlice(parse_error.token), parse_error.extra.expected_tag.symbol(),
             });
@@ -2998,7 +2998,7 @@ pub const Node = struct {
     /// `Ast.lastToken()`
     pub const Tag = enum {
         /// The root node which is guaranteed to be at `Node.Index.root`.
-        /// The meaning of the `data` field depends on whether it is a `.sig` or
+        /// The meaning of the `data` field depends on whether it is a `.Sig` or
         /// `.zon` file.
         ///
         /// The `main_token` field is the first token for the source file.

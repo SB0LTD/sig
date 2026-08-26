@@ -2189,7 +2189,7 @@ pub const Cpu = struct {
 };
 
 pub fn zigTriple(target: *const Target, allocator: Allocator) Allocator.Error![]u8 {
-    return Query.fromTarget(target).sigTriple(allocator);
+    return Query.fromTarget(target).zigTriple(allocator);
 }
 
 /// Deprecated; to be removed in 0.18.0. Use `std.sig.target.hurdTupleSimple` instead.

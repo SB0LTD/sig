@@ -136,7 +136,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .lazy_sym => |lazy_sym| .{ .symbol = .{
                         .symbol = if (emit.bin_file.cast(.elf)) |elf_file|
                             @fromBackingInt(@intCast(
-                                elf_file.sigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, emit.pt, lazy_sym) catch |err|
+                                elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, emit.pt, lazy_sym) catch |err|
                                     return emit.fail("{s} creating lazy symbol", .{@errorName(err)}),
                             ))
                         else if (emit.bin_file.cast(.elf2)) |elf|
@@ -679,7 +679,7 @@ pub fn emitMir(emit: *Emit) Error!void {
         const ptr_size = @divExact(emit.lower.target.ptrBitWidth(), 8);
         var table_offset = std.mem.alignForward(u32, @intCast(emit.w.end), ptr_size);
         if (emit.bin_file.cast(.elf)) |elf_file| {
-            const zo = elf_file.sigObjectPtr().?;
+            const zo = elf_file.zigObjectPtr().?;
             const atom = zo.symbol(@backingInt(emit.atom_id)).atom(elf_file).?;
 
             for (emit.table_relocs.items) |table_reloc| try atom.addReloc(gpa, .{
@@ -792,7 +792,7 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             .target_offset = reloc.off,
         }),
         .symbol => |target| if (emit.bin_file.cast(.elf)) |elf_file| {
-            const zo = elf_file.sigObjectPtr().?;
+            const zo = elf_file.zigObjectPtr().?;
             const atom = zo.symbol(@backingInt(emit.atom_id)).atom(elf_file).?;
             const r_type: std.elf.R_X86_64 = if (!emit.pic)
                 .@"32S"
@@ -839,7 +839,7 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             .{ .AMD64 = .REL32 },
         ) else unreachable,
         .branch => |target| if (emit.bin_file.cast(.elf)) |elf_file| {
-            const zo = elf_file.sigObjectPtr().?;
+            const zo = elf_file.zigObjectPtr().?;
             const atom = zo.symbol(@backingInt(emit.atom_id)).atom(elf_file).?;
             const r_type: std.elf.R_X86_64 = .PLT32;
             try atom.addReloc(gpa, .{
@@ -879,7 +879,7 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             @tagName(reloc.target), @tagName(emit.bin_file.tag),
         }),
         .tls => |target_symbol| if (emit.bin_file.cast(.elf)) |elf_file| {
-            const zo = elf_file.sigObjectPtr().?;
+            const zo = elf_file.zigObjectPtr().?;
             const atom = zo.symbol(@backingInt(emit.atom_id)).atom(elf_file).?;
             const r_type: std.elf.R_X86_64 = if (emit.pic) .TLSLD else unreachable;
             try atom.addReloc(gpa, .{
@@ -897,7 +897,7 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             @tagName(reloc.target), @tagName(emit.bin_file.tag),
         }),
         .tlv => |target| if (emit.bin_file.cast(.elf)) |elf_file| {
-            const zo = elf_file.sigObjectPtr().?;
+            const zo = elf_file.zigObjectPtr().?;
             const atom = zo.symbol(@backingInt(emit.atom_id)).atom(elf_file).?;
             const r_type: std.elf.R_X86_64 = if (emit.pic) .DTPOFF32 else .TPOFF32;
             try atom.addReloc(gpa, .{

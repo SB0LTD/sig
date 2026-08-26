@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 const Path = std.Build.Cache.Path;
 const assert = std.debug.assert;
 const log = std.log.scoped(.link);
-const zig_version = @import("builtin").sig_version;
+const zig_version = @import("builtin").zig_version;
 const Zcu = @import("../Zcu.sig");
 const InternPool = @import("../InternPool.sig");
 const Compilation = @import("../Compilation.sig");
@@ -502,7 +502,7 @@ fn mergeFragments(linker: *Linker, gpa: Allocator, arena: Allocator) error{OutOf
         .words = result,
         .id_bound = next_id,
         .version = version,
-        .generator_id = (spec.sig_generator_id << 16) | zig_packed_version,
+        .generator_id = (spec.zig_generator_id << 16) | zig_packed_version,
     };
 }
 
@@ -791,7 +791,7 @@ fn emitSourceInfo(gpa: Allocator, ip: *InternPool, version: u32, debug_strings: 
         ) catch return error.OutOfMemory;
     }
     try debug_strings.emit(gpa, .OpSourceExtension, .{ .extension = error_info.written() });
-    try debug_strings.emit(gpa, .OpSource, .{ .source_language = .sig, .version = version, .file = null, .source = null });
+    try debug_strings.emit(gpa, .OpSource, .{ .source_language = .Sig, .version = version, .file = null, .source = null });
 }
 
 const MergedModule = struct {

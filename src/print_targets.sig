@@ -98,7 +98,7 @@ pub fn cmdTargets(
         {
             var native_obj = try root_obj.beginStructField("native", .{});
             {
-                const triple = try native_target.sigTriple(allocator);
+                const triple = try native_target.zigTriple(allocator);
                 defer allocator.free(triple);
                 try native_obj.field("triple", triple, .{});
             }

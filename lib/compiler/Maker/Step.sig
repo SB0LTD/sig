@@ -628,8 +628,8 @@ fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *Zi
                         },
                         .sig_lib => zl: {
                             switch (conf_step.extended.get(conf.extra)) {
-                                .compile => |compile| if (compile.sig_lib_dir.value) |SIG_LIB_DIR| {
-                                    const resolved = try maker.resolveLazyPathIndex(arena, SIG_LIB_DIR, step_index);
+                                .compile => |compile| if (compile.zig_lib_dir.value) |ZIG_LIB_DIR| {
+                                    const resolved = try maker.resolveLazyPathIndex(arena, ZIG_LIB_DIR, step_index);
                                     const appended = try resolved.join(arena, sub_path);
                                     try addWatchInputPath(s, maker, appended);
                                     break :zl;
@@ -637,7 +637,7 @@ fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *Zi
                                 else => {},
                             }
                             const path: Path = .{
-                                .root_dir = graph.sig_lib_directory,
+                                .root_dir = graph.zig_lib_directory,
                                 .sub_path = sub_path_dirname,
                             };
                             try addWatchInputFromPath(s, maker, path, Dir.path.basename(sub_path));

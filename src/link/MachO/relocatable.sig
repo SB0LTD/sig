@@ -177,7 +177,7 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
         for (files.items) |index| {
             const file = macho_file.getFile(index).?;
             switch (file) {
-                .sig_object => |zo| {
+                .zig_object => |zo| {
                     const state = &zo.output_ar_state;
                     pos = mem.alignForward(usize, pos, 2);
                     state.file_off = pos;
@@ -520,19 +520,19 @@ fn allocateSections(macho_file: *MachO) !void {
 /// pushed to the back. For instance, this is not a problem in ELF linker.
 /// Then, we can create sections with the correct name from the start in `MachO.initMetadata`.
 fn sanitizeZigSections(macho_file: *MachO) void {
-    if (macho_file.sig_text_sect_index) |index| {
+    if (macho_file.zig_text_sect_index) |index| {
         const header = &macho_file.sections.items(.header)[index];
         header.segname = MachO.makeStaticString("__TEXT");
     }
-    if (macho_file.sig_const_sect_index) |index| {
+    if (macho_file.zig_const_sect_index) |index| {
         const header = &macho_file.sections.items(.header)[index];
         header.segname = MachO.makeStaticString("__DATA_CONST");
     }
-    if (macho_file.sig_data_sect_index) |index| {
+    if (macho_file.zig_data_sect_index) |index| {
         const header = &macho_file.sections.items(.header)[index];
         header.segname = MachO.makeStaticString("__DATA");
     }
-    if (macho_file.sig_bss_sect_index) |index| {
+    if (macho_file.zig_bss_sect_index) |index| {
         const header = &macho_file.sections.items(.header)[index];
         header.segname = MachO.makeStaticString("__DATA");
     }

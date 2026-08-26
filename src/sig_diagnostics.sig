@@ -191,7 +191,7 @@ pub fn formatDiagnostic(gpa: std.mem.Allocator, entry: DiagnosticEntry, mode: Mo
         result = try path_buf.toOwnedSlice(gpa);
     }
 
-    // Append .sig annotation when the source file has a .sig extension and mode is strict.
+    // Append .Sig annotation when the source file has a .Sig extension and mode is strict.
     if (mode == .strict and std.mem.endsWith(u8, entry.file_path, ".sig")) {
         var ann_buf: std.ArrayList(u8) = .empty;
         defer ann_buf.deinit(gpa);

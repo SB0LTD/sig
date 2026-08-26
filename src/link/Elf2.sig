@@ -5169,7 +5169,7 @@ fn navMapIndex(elf: *Elf, zcu: *Zcu, nav_index: InternPool.Nav.Index) Error!Node
                 break :section .data_rel_ro; // TODO: it would be better to use `.rodata` if the NAV value doesn't have relocs
             }
         };
-        const alignment: Alignment = switch (Type.fromInterned(nav.resolved.?.type).sigTypeTag(zcu)) {
+        const alignment: Alignment = switch (Type.fromInterned(nav.resolved.?.type).zigTypeTag(zcu)) {
             .@"fn" => a: {
                 const mod = zcu.navFileScope(nav_index).mod.?;
                 const target = &mod.resolved_target.result;
@@ -7739,7 +7739,7 @@ fn genPending(elf: *Elf, pt: Zcu.PerThread) Error!void {
             lazy.value.pending_index += 1;
             const lazy_ty: Type = .fromInterned(lmr.lazySymbol(elf).ty);
             var prog_name_buf: [std.Progress.Node.max_name_len]u8 = undefined;
-            const prog_name: []const u8 = switch (lazy_ty.sigTypeTag(zcu)) {
+            const prog_name: []const u8 = switch (lazy_ty.zigTypeTag(zcu)) {
                 .@"enum" => std.mem.print(&prog_name_buf, "@tagName({f})", .{lazy_ty.fmt(pt)}) catch &prog_name_buf,
                 .error_set => switch (lmr.kind) {
                     .code => std.mem.print(&prog_name_buf, "@errorCast({f})", .{lazy_ty.fmt(pt)}) catch &prog_name_buf,

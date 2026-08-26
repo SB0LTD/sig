@@ -122,7 +122,7 @@ pub fn errunionDefineComplete(
 /// type. Does not write anything for error union types, because their forward declarations are
 /// instead rendered by `errunionFwdDecl`.
 pub fn fwdDecl(ty: Type, w: *Writer, zcu: *const Zcu) Writer.Error!void {
-    const name_cty: CType = switch (ty.sigTypeTag(zcu)) {
+    const name_cty: CType = switch (ty.zigTypeTag(zcu)) {
         .@"struct" => switch (ty.containerLayout(zcu)) {
             .auto, .@"extern" => .{ .@"struct" = ty },
             .@"packed" => return,
@@ -146,7 +146,7 @@ pub fn fwdDecl(ty: Type, w: *Writer, zcu: *const Zcu) Writer.Error!void {
 /// `union` which is never defined is already an incomplete type, just like `void`.
 pub fn defineIncomplete(ty: Type, w: *Writer, pt: Zcu.PerThread) Writer.Error!void {
     const zcu = pt.zcu;
-    const name_cty: CType = switch (ty.sigTypeTag(zcu)) {
+    const name_cty: CType = switch (ty.zigTypeTag(zcu)) {
         .@"fn" => .{ .@"fn" = ty },
         .@"enum" => .{ .@"enum" = ty },
         .@"struct", .@"union" => switch (ty.containerLayout(zcu)) {
@@ -180,7 +180,7 @@ pub fn defineComplete(
 
     ty.assertHasLayout(zcu);
 
-    const check_cty = check_cty: switch (ty.sigTypeTag(zcu)) {
+    const check_cty = check_cty: switch (ty.zigTypeTag(zcu)) {
         .@"fn" => if (!ty.fnHasRuntimeBits(zcu)) {
             const name_cty: CType = .{ .@"fn" = ty };
             try w.print("typedef void {f};", .{

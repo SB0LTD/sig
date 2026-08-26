@@ -141,7 +141,7 @@ fn appendRefsAssumeCapacity(astgen: *AstGen, refs: []const Zir.Inst.Ref) void {
 }
 
 pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
-    assert(tree.mode == .sig);
+    assert(tree.mode == .Sig);
 
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();

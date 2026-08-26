@@ -15,7 +15,7 @@ zig_exe: []const u8,
 environ_map: std.process.Environ.Map,
 global_cache_root: Directory,
 local_cache_root: Directory,
-SIG_LIB_DIRectory: Directory,
+ZIG_LIB_DIRectory: Directory,
 build_root_directory: Directory,
 
 debug_compiler_runtime_libs: ?std.builtin.Optimize = null,

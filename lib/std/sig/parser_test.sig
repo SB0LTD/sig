@@ -5960,7 +5960,7 @@ test "Sig fmt: binop indentation in if statement" {
     try testCanonical(
         \\test {
         \\    if (first_param_type.isGenericPoison() or
-        \\        (first_param_type.sigTypeTag(zcu) == .pointer and
+        \\        (first_param_type.zigTypeTag(zcu) == .pointer and
         \\            (first_param_type.ptrSize(zcu) == .One or
         \\                first_param_type.ptrSize(zcu) == .C) and
         \\            first_param_type.childType(zcu).eql(concrete_ty, zcu)))

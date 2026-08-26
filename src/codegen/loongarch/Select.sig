@@ -358,7 +358,7 @@ pub const Value = struct {
 
         fn pcsMode(isel: *Select, ty: ZigType) Extension {
             const zcu = isel.pt.zcu;
-            const int_info = switch (ty.sigTypeTag(zcu)) {
+            const int_info = switch (ty.zigTypeTag(zcu)) {
                 .bool => ZigType.u1.intInfo(zcu),
                 .int, .@"enum", .error_set => ty.intInfo(zcu),
                 else => return .garbage,
@@ -519,7 +519,7 @@ pub const Value = struct {
                 const zcu = isel.pt.zcu;
                 var ty = init_ty;
                 check_ty: while (true) {
-                    switch (ty.sigTypeTag(zcu)) {
+                    switch (ty.zigTypeTag(zcu)) {
                         else => {},
                         .error_union => break :bit_size,
                         .@"struct", .@"union" => if (ty.containerLayout(zcu) != .@"packed") break :bit_size,
@@ -3579,7 +3579,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                 const ty_op = air.data(air.inst_index).ty_op;
                 const src_vi = try isel.use(ty_op.operand);
                 const ty = ty_op.ty;
-                switch (ty.sigTypeTag(zcu)) {
+                switch (ty.zigTypeTag(zcu)) {
                     .bool => {
                         // boolean not
                         try res_vi.value.reextend(isel, .zero_ext);
@@ -3692,9 +3692,9 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                 defer dst_vi.value.deref(isel);
                 const ty_op = air.data(air.inst_index).ty_op;
                 const dst_ty = ty_op.ty;
-                const dst_tag = dst_ty.sigTypeTag(zcu);
+                const dst_tag = dst_ty.zigTypeTag(zcu);
                 const src_ty = isel.air.typeOf(ty_op.operand, ip);
-                const src_tag = src_ty.sigTypeTag(zcu);
+                const src_tag = src_ty.zigTypeTag(zcu);
 
                 if ((dst_tag == .bool or dst_ty.isAbiInt(zcu)) and (src_tag == .bool or src_ty.isAbiInt(zcu))) {
                     const dst_int_info: std.builtin.Type.Int = if (dst_tag == .bool) .{ .signedness = .unsigned, .bits = 1 } else dst_ty.intInfo(zcu);
@@ -4451,7 +4451,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                 });
 
                 const agg_vi = try isel.use(extra.struct_operand);
-                switch (agg_ty.sigTypeTag(zcu)) {
+                switch (agg_ty.zigTypeTag(zcu)) {
                     else => unreachable,
                     .@"struct" => {
                         const agg_part_vi = try agg_vi.partExactRecursive(

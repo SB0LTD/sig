@@ -267,7 +267,7 @@ pub fn createEmpty(
             .file = null,
             .build_id = options.build_id,
         },
-        .sig_object = null,
+        .zig_object = null,
         .rpath_table = rpath_table,
         .ptr_width = ptr_width,
         .page_size = page_size,
@@ -372,10 +372,10 @@ pub fn createEmpty(
     if (opt_zcu) |zcu| {
         if (!use_llvm) {
             const index: File.Index = @intCast(try self.files.addOne(gpa));
-            self.files.set(index, .sig_object);
-            self.sig_object_index = index;
+            self.files.set(index, .zig_object);
+            self.zig_object_index = index;
             const zig_object = try arena.create(ZigObject);
-            self.sig_object = zig_object;
+            self.zig_object = zig_object;
             zig_object.* = .{
                 .index = index,
                 .basename = try std.fmt.allocPrint(arena, "{s}.o", .{
@@ -414,12 +414,12 @@ pub fn deinit(self: *Elf) void {
     self.file_handles.deinit(gpa);
 
     for (self.files.items(.tags), self.files.items(.data)) |tag, *data| switch (tag) {
-        .null, .sig_object => {},
+        .null, .zig_object => {},
         .linker_defined => data.linker_defined.deinit(gpa),
         .object => data.object.deinit(gpa),
         .shared_object => data.shared_object.deinit(gpa),
     };
-    if (self.sig_object) |zig_object| {
+    if (self.zig_object) |zig_object| {
         zig_object.deinit(gpa);
     }
     self.files.deinit(gpa);
@@ -464,7 +464,7 @@ pub fn deinit(self: *Elf) void {
 }
 
 pub fn getNavVAddr(self: *Elf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index, reloc_info: link.File.RelocInfo) !u64 {
-    return self.sigObjectPtr().?.getNavVAddr(self, pt, nav_index, reloc_info);
+    return self.zigObjectPtr().?.getNavVAddr(self, pt, nav_index, reloc_info);
 }
 
 pub fn lowerUav(
@@ -473,11 +473,11 @@ pub fn lowerUav(
     uav: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
 ) !link.File.SymbolId {
-    return self.sigObjectPtr().?.lowerUav(self, pt, uav, explicit_alignment);
+    return self.zigObjectPtr().?.lowerUav(self, pt, uav, explicit_alignment);
 }
 
 pub fn getUavVAddr(self: *Elf, uav: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
-    return self.sigObjectPtr().?.getUavVAddr(self, uav, reloc_info);
+    return self.zigObjectPtr().?.getUavVAddr(self, uav, reloc_info);
 }
 
 /// Returns end pos of collision, if any.
@@ -590,7 +590,7 @@ pub fn growSection(self: *Elf, shdr_index: u32, needed_size: u64, min_alignment:
 }
 
 fn markDirty(self: *Elf, shdr_index: u32) void {
-    if (self.sigObjectPtr()) |zo| {
+    if (self.zigObjectPtr()) |zo| {
         for ([_]?Symbol.Index{
             zo.debug_info_index,
             zo.debug_abbrev_index,
@@ -767,7 +767,7 @@ fn flushInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
     const gpa = comp.gpa;
     const diags = &comp.link_diags;
 
-    if (self.sigObjectPtr()) |zig_object| try zig_object.flush(self, tid);
+    if (self.zigObjectPtr()) |zig_object| try zig_object.flush(self, tid);
 
     switch (comp.config.output_mode) {
         .Obj => return relocatable.flushObject(self, comp),
@@ -835,7 +835,7 @@ fn flushInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
         self.shstrtab.items,
         self.merge_sections.items,
         self.group_sections.items,
-        self.sigObjectPtr(),
+        self.zigObjectPtr(),
         self.files,
     );
 
@@ -873,7 +873,7 @@ fn flushInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
     self.rela_dyn.clearRetainingCapacity();
     self.rela_plt.clearRetainingCapacity();
 
-    if (self.sigObjectPtr()) |zo| {
+    if (self.zigObjectPtr()) |zo| {
         var undefs: std.array_hash_map.Auto(SymbolResolver.Index, std.array_list.Managed(Ref)) = .empty;
         defer {
             for (undefs.values()) |*refs| refs.deinit();
@@ -1191,7 +1191,7 @@ pub fn resolveSymbols(self: *Elf) !void {
     const shared_objects = &self.shared_objects;
 
     // Resolve symbols in the ZigObject. For now, we assume that it's always live.
-    if (self.sigObjectPtr()) |zo| try zo.asFile().resolveSymbols(self);
+    if (self.zigObjectPtr()) |zo| try zo.asFile().resolveSymbols(self);
     // Resolve symbols on the set of all objects and shared objects (even if some are unneeded).
     for (self.objects.items) |index| try self.file(index).?.resolveSymbols(self);
     for (shared_objects.values()) |index| try self.file(index).?.resolveSymbols(self);
@@ -1237,7 +1237,7 @@ pub fn resolveSymbols(self: *Elf) !void {
     }
 
     // Re-resolve the symbols.
-    if (self.sigObjectPtr()) |zo| try zo.asFile().resolveSymbols(self);
+    if (self.zigObjectPtr()) |zo| try zo.asFile().resolveSymbols(self);
     for (self.objects.items) |index| try self.file(index).?.resolveSymbols(self);
     for (shared_objects.values()) |index| try self.file(index).?.resolveSymbols(self);
     if (self.linkerDefinedPtr()) |obj| try obj.asFile().resolveSymbols(self);
@@ -1249,7 +1249,7 @@ pub fn resolveSymbols(self: *Elf) !void {
 /// unneeded shared objects.
 fn markLive(self: *Elf) void {
     const shared_objects = self.shared_objects.values();
-    if (self.sigObjectPtr()) |zig_object| zig_object.asFile().markLive(self);
+    if (self.zigObjectPtr()) |zig_object| zig_object.asFile().markLive(self);
     for (self.objects.items) |index| {
         const file_ptr = self.file(index).?;
         if (file_ptr.isAlive()) file_ptr.markLive(self);
@@ -1270,7 +1270,7 @@ pub fn markEhFrameAtomsDead(self: *Elf) void {
 
 fn markImportsExports(self: *Elf) void {
     const shared_objects = self.shared_objects.values();
-    if (self.sigObjectPtr()) |zo| {
+    if (self.zigObjectPtr()) |zo| {
         zo.markImportsExports(self);
     }
     for (self.objects.items) |index| {
@@ -1284,7 +1284,7 @@ fn markImportsExports(self: *Elf) void {
 }
 
 fn claimUnresolved(self: *Elf) void {
-    if (self.sigObjectPtr()) |zig_object| {
+    if (self.zigObjectPtr()) |zig_object| {
         zig_object.claimUnresolved(self);
     }
     for (self.objects.items) |index| {
@@ -1307,7 +1307,7 @@ fn scanRelocs(self: *Elf) !void {
     }
 
     var has_reloc_errors = false;
-    if (self.sigObjectPtr()) |zo| {
+    if (self.zigObjectPtr()) |zo| {
         zo.asFile().scanRelocs(self, &undefs) catch |err| switch (err) {
             error.RelaxFailure => unreachable,
             error.UnsupportedCpuArch => {
@@ -1334,7 +1334,7 @@ fn scanRelocs(self: *Elf) !void {
 
     if (has_reloc_errors) return error.AlreadyReported;
 
-    if (self.sigObjectPtr()) |zo| {
+    if (self.zigObjectPtr()) |zo| {
         try zo.asFile().createSymbolIndirection(self);
     }
     for (self.objects.items) |index| {
@@ -1651,7 +1651,7 @@ pub fn writeElfHeader(self: *Elf) !void {
 }
 
 pub fn freeNav(self: *Elf, nav: InternPool.Nav.Index) void {
-    return self.sigObjectPtr().?.freeNav(self, nav);
+    return self.zigObjectPtr().?.freeNav(self, nav);
 }
 
 pub fn updateFunc(
@@ -1660,7 +1660,7 @@ pub fn updateFunc(
     func_index: InternPool.Index,
     mir: *const codegen.AnyMir,
 ) link.Error!void {
-    return self.sigObjectPtr().?.updateFunc(self, pt, func_index, mir);
+    return self.zigObjectPtr().?.updateFunc(self, pt, func_index, mir);
 }
 
 pub fn updateNav(
@@ -1668,7 +1668,7 @@ pub fn updateNav(
     pt: Zcu.PerThread,
     nav: InternPool.Nav.Index,
 ) link.Error!void {
-    return self.sigObjectPtr().?.updateNav(self, pt, nav);
+    return self.zigObjectPtr().?.updateNav(self, pt, nav);
 }
 
 pub fn updateContainerType(
@@ -1677,7 +1677,7 @@ pub fn updateContainerType(
     ty: InternPool.Index,
     success: bool,
 ) link.Error!void {
-    return self.sigObjectPtr().?.updateContainerType(pt, ty, success) catch |err| switch (err) {
+    return self.zigObjectPtr().?.updateContainerType(pt, ty, success) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
     };
 }
@@ -1687,11 +1687,11 @@ pub fn updateExports(
     pt: Zcu.PerThread,
     export_indices: []const Zcu.Export.Index,
 ) link.Error!void {
-    return self.sigObjectPtr().?.updateExports(self, pt, export_indices);
+    return self.zigObjectPtr().?.updateExports(self, pt, export_indices);
 }
 
 pub fn updateLineNumber(self: *Elf, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) link.Error!void {
-    return self.sigObjectPtr().?.updateLineNumber(pt, ti_id);
+    return self.zigObjectPtr().?.updateLineNumber(pt, ti_id);
 }
 
 fn checkDuplicates(self: *Elf) !void {
@@ -1705,7 +1705,7 @@ fn checkDuplicates(self: *Elf) !void {
         dupes.deinit(gpa);
     }
 
-    if (self.sigObjectPtr()) |zig_object| {
+    if (self.zigObjectPtr()) |zig_object| {
         try zig_object.checkDuplicates(&dupes, self);
     }
     for (self.objects.items) |index| {
@@ -1720,7 +1720,7 @@ pub fn addCommentString(self: *Elf) !void {
     if (self.comment_merge_section_index != null) return;
     const msec_index = try self.getOrCreateMergeSection(".comment", elf.SHF_MERGE | elf.SHF_STRINGS, elf.SHT_PROGBITS);
     const msec = self.mergeSection(msec_index);
-    const res = try msec.insertZ(gpa, "Sig " ++ builtin.sig_version_string);
+    const res = try msec.insertZ(gpa, "Sig " ++ builtin.zig_version_string);
     if (res.found_existing) return;
     const msub_index = try msec.addMergeSubsection(gpa);
     const msub = msec.mergeSubsection(msub_index);
@@ -1840,7 +1840,7 @@ fn initSyntheticSections(self: *Elf) !void {
     const have_dynamic_linker = comp.config.link_mode == .dynamic and is_exe_or_dyn_lib;
 
     const needs_eh_frame = blk: {
-        if (self.sigObjectPtr()) |zo|
+        if (self.zigObjectPtr()) |zo|
             if (zo.eh_frame_index != null) break :blk true;
         break :blk for (self.objects.items) |index| {
             if (self.file(index).?.object.cies.items.len > 0) break true;
@@ -1894,7 +1894,7 @@ fn initSyntheticSections(self: *Elf) !void {
     const needs_rela_dyn = blk: {
         if (self.got.flags.needs_rela or self.got.flags.needs_tlsld or self.copy_rel.symbols.items.len > 0)
             break :blk true;
-        if (self.sigObjectPtr()) |zig_object| {
+        if (self.zigObjectPtr()) |zig_object| {
             if (zig_object.num_dynrelocs > 0) break :blk true;
         }
         for (self.objects.items) |index| {
@@ -2559,7 +2559,7 @@ fn updateSectionSizes(self: *Elf) !void {
 
     if (self.section_indexes.rela_dyn) |shndx| {
         var num = self.got.numRela(self) + self.copy_rel.numRela();
-        if (self.sigObjectPtr()) |zig_object| {
+        if (self.zigObjectPtr()) |zig_object| {
             num += zig_object.num_dynrelocs;
         }
         for (self.objects.items) |index| {
@@ -2994,7 +2994,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
     defer files.deinit();
     try files.ensureTotalCapacityPrecise(self.objects.items.len + shared_objects.len + 2);
 
-    if (self.sig_object_index) |index| files.appendAssumeCapacity(index);
+    if (self.zig_object_index) |index| files.appendAssumeCapacity(index);
     for (self.objects.items) |index| files.appendAssumeCapacity(index);
     for (shared_objects) |index| files.appendAssumeCapacity(index);
     if (self.linker_defined_index) |index| files.appendAssumeCapacity(index);
@@ -3137,7 +3137,7 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.section_indexes.eh_frame) |shndx| {
         const existing_size = existing_size: {
-            const zo = self.sigObjectPtr() orelse break :existing_size 0;
+            const zo = self.zigObjectPtr() orelse break :existing_size 0;
             const sym = zo.symbol(zo.eh_frame_index orelse break :existing_size 0);
             break :existing_size sym.atom(self).?.size;
         };
@@ -3263,7 +3263,7 @@ pub fn writeSymtab(self: *Elf) !void {
         th.writeSymtab(self);
     };
 
-    if (self.sigObjectPtr()) |zig_object| {
+    if (self.zigObjectPtr()) |zig_object| {
         zig_object.asFile().writeSymtab(self);
     }
 
@@ -3568,7 +3568,7 @@ pub fn thunk(self: *Elf, index: Thunk.Index) *Thunk {
 }
 
 pub fn file(self: *Elf, index: File.Index) ?File {
-    return fileLookup(self.files, index, self.sig_object);
+    return fileLookup(self.files, index, self.zig_object);
 }
 
 fn fileLookup(files: std.MultiArrayList(File.Entry), index: File.Index, zig_object: ?*ZigObject) ?File {
@@ -3576,7 +3576,7 @@ fn fileLookup(files: std.MultiArrayList(File.Entry), index: File.Index, zig_obje
     return switch (tag) {
         .null => null,
         .linker_defined => .{ .linker_defined = &files.items(.data)[index].linker_defined },
-        .sig_object => .{ .sig_object = zig_object.? },
+        .zig_object => .{ .zig_object = zig_object.? },
         .object => .{ .object = &files.items(.data)[index].object },
         .shared_object => .{ .shared_object = &files.items(.data)[index].shared_object },
     };
@@ -3610,11 +3610,11 @@ pub fn symbol(self: *Elf, ref: Ref) ?*Symbol {
 }
 
 pub fn getGlobalSymbol(self: *Elf, name: []const u8, lib_name: ?[]const u8) !u32 {
-    return self.sigObjectPtr().?.getGlobalSymbol(self, name, lib_name);
+    return self.zigObjectPtr().?.getGlobalSymbol(self, name, lib_name);
 }
 
 pub fn zigObjectPtr(self: *Elf) ?*ZigObject {
-    return self.sig_object;
+    return self.zig_object;
 }
 
 pub fn linkerDefinedPtr(self: *Elf) ?*LinkerDefined {
@@ -3920,7 +3920,7 @@ pub fn dumpState(self: *Elf) std.fmt.Alt(*Elf, fmtDumpState) {
 fn fmtDumpState(self: *Elf, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const shared_objects = self.shared_objects.values();
 
-    if (self.sigObjectPtr()) |zig_object| {
+    if (self.zigObjectPtr()) |zig_object| {
         try writer.print("zig_object({d}) : {s}\n", .{ zig_object.index, zig_object.basename });
         try writer.print("{f}{f}", .{
             zig_object.fmtAtoms(self),

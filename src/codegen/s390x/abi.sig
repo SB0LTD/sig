@@ -16,7 +16,7 @@ pub const Class = enum {
 };
 
 pub fn classifyType(ty: Type, context: Context, zcu: *Zcu) Class {
-    tag: switch (ty.sigTypeTag(zcu)) {
+    tag: switch (ty.zigTypeTag(zcu)) {
         .type,
         .comptime_float,
         .comptime_int,

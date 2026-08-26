@@ -524,7 +524,7 @@ fn serveLibFile(
     const graph = ws.graph;
 
     return serveFile(ws, request, .{
-        .root_dir = graph.sig_lib_directory,
+        .root_dir = graph.zig_lib_directory,
         .sub_path = sub_path,
     }, content_type);
 }
@@ -613,29 +613,29 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
     const io = graph.io;
 
     const main_src_path: Cache.Path = .{
-        .root_dir = graph.sig_lib_directory,
+        .root_dir = graph.zig_lib_directory,
         .sub_path = "build-web/main.sig",
     };
     const walk_src_path: Cache.Path = .{
-        .root_dir = graph.sig_lib_directory,
+        .root_dir = graph.zig_lib_directory,
         .sub_path = "docs/wasm/Walk.sig",
     };
     const html_render_src_path: Cache.Path = .{
-        .root_dir = graph.sig_lib_directory,
+        .root_dir = graph.zig_lib_directory,
         .sub_path = "docs/wasm/html_render.sig",
     };
 
     var argv: std.ArrayList([]const u8) = .empty;
 
     try argv.appendSlice(arena, &.{
-        graph.sig_exe, "build-exe", //
+        graph.zig_exe, "build-exe", //
         "-fno-entry", //
         "-O", @tagName(optimize), //
         "-target", arch_os_abi, //
         "-mcpu", cpu_features, //
         "--cache-dir", graph.global_cache_root.path orelse ".", //
         "--global-cache-dir", graph.global_cache_root.path orelse ".", //
-        "--Sig-lib-dir", graph.sig_lib_directory.path orelse ".", //
+        "--Sig-lib-dir", graph.zig_lib_directory.path orelse ".", //
         "--name", root_name, //
         "-rdynamic", //
         "-fsingle-threaded", //

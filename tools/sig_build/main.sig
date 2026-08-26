@@ -113,6 +113,11 @@ pub const Step_Entry = struct {
     module_deps: [MAX_IMPORTS_PER_MODULE]Module_Handle = undefined,
     module_dep_count: usize = 0,
     state: Step_State = .pending,
+    /// Optional path to a Windows resource script (.rc) to compile and link.
+    /// When set, the build system compiles it to a COFF object via `windres`
+    /// and passes the result to the linker. On non-Windows targets, ignored.
+    rc_path: [MODULE_PATH_BUF_SIZE]u8 = undefined,
+    rc_path_len: usize = 0,
 };
 
 pub const Step_Registry = struct {
@@ -537,6 +542,12 @@ fn resolveOutputBinName(buf: *[NAME_BUF_SIZE]u8, base_name: []const u8, target: 
     // Non-Windows or buffer overflow fallback: return name as-is.
     @memcpy(buf[0..base_name.len], base_name);
     return buf[0..base_name.len];
+}
+
+/// Returns true if the target triple specifies Windows, or if no explicit
+/// target is set and the host platform is Windows.
+fn isWindowsTarget(target: *const Target_Triple) bool {
+    return target.os_len >= 7 and std.mem.eql(u8, target.os[0..7], "windows");
 }
 
 // ── Target and optimization ──────────────────────────────────────────────
@@ -1158,6 +1169,9 @@ pub const Compile_Options = struct {
     imports: []const Import_Entry,
     /// Path to the sig/Sig compiler binary. If empty, uses "sig" (found via PATH).
     compiler_path: []const u8,
+    /// Optional Windows resource script (.rc). Compiled to COFF and linked on
+    /// Windows targets (embeds icons, manifests, version info). Ignored on other platforms.
+    rc_path: []const u8 = "",
 };
 
 // ── Version string resolution ────────────────────────────────────────────────
@@ -3290,6 +3304,14 @@ pub const Build_Context = struct {
             step.module_dep_count += 1;
         }
 
+        // Store rc_path if provided (Windows resource script for icon/manifest embedding)
+        if (opts.rc_path.len > 0) {
+            var step = &self.steps.entries[handle];
+            if (opts.rc_path.len > MODULE_PATH_BUF_SIZE) return error.BufferTooSmall;
+            @memcpy(step.rc_path[0..opts.rc_path.len], opts.rc_path);
+            step.rc_path_len = opts.rc_path.len;
+        }
+
         return handle;
     }
 
@@ -3558,6 +3580,37 @@ pub const Build_Context = struct {
         @memcpy(emit_flag[0..emit_prefix.len], emit_prefix);
         @memcpy(emit_flag[emit_prefix.len..][0..output.len], output);
         try cmd.appendArg(emit_flag[0 .. emit_prefix.len + output.len]);
+
+        // ── Windows resource compilation (.rc → .obj) ───────────────────
+        // If the step has an rc_path set and we're targeting Windows (or native
+        // on a Windows host), compile the resource script to a COFF object and
+        // pass it as a positional file argument so the linker embeds it.
+        var rc_obj_path_buf: [PATH_BUF_SIZE]u8 = undefined;
+        if (entry.rc_path_len > 0) {
+            const rc_path = entry.rc_path[0..entry.rc_path_len];
+            const is_windows_target = build_ctx.target.arch_len == 0 or isWindowsTarget(&build_ctx.target);
+            if (is_windows_target) {
+                // Output .res.obj into the step cache directory
+                const rc_obj_path = sig_fs.joinPath(&rc_obj_path_buf, &.{ step_cache_dir, "resource.obj" }) catch return error.BufferTooSmall;
+                // Compile: windres <rc_path> -o <rc_obj_path> --output-format=coff
+                var rc_cmd: Command_Buffer = .{};
+                try rc_cmd.appendArg("windres");
+                try rc_cmd.appendArg(rc_path);
+                try rc_cmd.appendArg("-o");
+                try rc_cmd.appendArg(rc_obj_path);
+                try rc_cmd.appendArg("--output-format=coff");
+                var rc_stderr: [STDERR_CAPTURE_SIZE]u8 = undefined;
+                var rc_stderr_len: usize = 0;
+                const rc_exit = try runCommand(&rc_cmd, &rc_stderr, &rc_stderr_len, io);
+                if (rc_exit != 0) {
+                    if (rc_stderr_len > 0) printMsg(io, "resource compile failed:\n{s}", .{rc_stderr[0..rc_stderr_len]});
+                    return error.BufferTooSmall;
+                }
+                // Pass the compiled resource object to the linker
+                try cmd.appendArg(rc_obj_path);
+                printMsg(io, "  rc: {s} -> {s}", .{ rc_path, rc_obj_path });
+            }
+        }
 
         printMsg(io, "compile: {s} -> {s} ({d} modules)", .{ source_path, output, build_ctx.modules.count });
         var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;

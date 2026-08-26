@@ -3608,7 +3608,7 @@ pub const CreateProcessFlags = packed struct(u32) {
 };
 
 pub fn teb() *TEB {
-    if (builtin.sig_backend == .stage2_c) return @ptrCast(@alignCast(struct {
+    if (builtin.zig_backend == .stage2_c) return @ptrCast(@alignCast(struct {
         /// This is a workaround for the C backend until Sig has the ability to put
         /// C code in inline assembly.
         extern fn zig_windows_teb() callconv(.c) *anyopaque;
@@ -3645,7 +3645,7 @@ pub fn teb() *TEB {
 }
 
 pub fn peb() *PEB {
-    if (builtin.sig_backend == .stage2_c) switch (native_arch) {
+    if (builtin.zig_backend == .stage2_c) switch (native_arch) {
         .x86, .x86_64 => return @ptrCast(@alignCast(struct {
             /// This is a workaround for the C backend until Sig has the ability to put
             /// C code in inline assembly.

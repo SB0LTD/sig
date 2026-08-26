@@ -11,7 +11,7 @@ comptime {
             .visibility = compiler_rt.visibility,
         };
 
-        if (builtin.mode == .small or builtin.sig_backend == .stage2_aarch64)
+        if (builtin.mode == .small or builtin.zig_backend == .stage2_aarch64)
             @export(&memcpySmall, export_options)
         else
             @export(&memcpyFast, export_options);
@@ -220,10 +220,10 @@ fn testMemcpyImpl(comptime memcpyImpl: anytype) !void {
     }
 }
 test memcpySmall {
-    if (builtin.sig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     try testMemcpyImpl(memcpySmall);
 }
 test memcpyFast {
-    if (builtin.sig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     try testMemcpyImpl(memcpyFast);
 }

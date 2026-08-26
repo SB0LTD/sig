@@ -52,7 +52,7 @@ const R_RELATIVE = switch (builtin.cpu.arch) {
 // We have to compute its address as a PC-relative quantity not to require a
 // relocation that, at this point, is not yet applied.
 inline fn getDynamicSymbol() [*]const elf.Dyn {
-    return switch (builtin.sig_backend) {
+    return switch (builtin.zig_backend) {
         else => switch (builtin.cpu.arch) {
             .x86 => asm volatile (
                 \\ .weak _DYNAMIC

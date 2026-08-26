@@ -40,6 +40,10 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
     // Generate build_options (always needed — src/main.sig imports it)
     const config = try ctx.addStep("config:sig", "Generate config.sig", &sig_build.generateConfig);
 
+    // Register repo's std module — used by the compile step to override the
+    // default std from --zig-lib-dir during bootstrap.
+    _ = ctx.modules.register("std", "lib/std/std.sig") catch {};
+
     // Compiler compilation step
     if (!no_bin) {
         _ = try ctx.addCompileStep(.{
@@ -51,8 +55,6 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
             .imports = &.{},
             .compiler_path = "",
         });
-        // Note: sig→config dependency is added by addLlvmLinkStep when LLVM is enabled.
-        // For non-LLVM builds, sig has no config dependency (build_options not needed).
     }
 
     // LLVM pipeline (conditional)

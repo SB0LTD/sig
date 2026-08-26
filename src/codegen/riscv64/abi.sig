@@ -14,7 +14,7 @@ pub fn classifyType(ty: Type, zcu: *Zcu) Class {
     std.debug.assert(ty.hasRuntimeBits(zcu));
 
     const max_byval_size = target.ptrBitWidth() * 2;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .@"struct" => {
             if (ty.containerLayout(zcu) == .@"packed") {
                 if (ty.bitSize(zcu) > max_byval_size) return .memory;
@@ -112,7 +112,7 @@ pub fn classifySystem(ty: Type, zcu: *Zcu) [8]SystemClass {
         .memory, .none, .none, .none,
         .none,   .none, .none, .none,
     };
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .bool, .void, .noreturn => {
             result[0] = .integer;
             return result;

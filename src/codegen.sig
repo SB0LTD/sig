@@ -67,7 +67,7 @@ fn importBackend(comptime backend: std.lang.CompilerBackend) type {
 pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*const Air.Legalize.Features {
     const zcu = pt.zcu;
     const target = &zcu.navFileScope(nav_index).mod.?.resolved_target.result;
-    switch (target_util.sigBackend(target, zcu.comp.config.use_llvm)) {
+    switch (target_util.zigBackend(target, zcu.comp.config.use_llvm)) {
         else => unreachable,
         inline .stage2_llvm,
         .stage2_c,
@@ -89,7 +89,7 @@ pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*co
 pub fn wantsLiveness(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) bool {
     const zcu = pt.zcu;
     const target = &zcu.navFileScope(nav_index).mod.?.resolved_target.result;
-    return switch (target_util.sigBackend(target, zcu.comp.config.use_llvm)) {
+    return switch (target_util.zigBackend(target, zcu.comp.config.use_llvm)) {
         else => true,
         .stage2_aarch64, .stage2_loongarch => false,
     };
@@ -124,7 +124,7 @@ pub const AnyMir = union {
 
     pub fn deinit(mir: *AnyMir, zcu: *const Zcu) void {
         const gpa = zcu.gpa;
-        const backend = target_util.sigBackend(&zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
+        const backend = target_util.zigBackend(&zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
         switch (backend) {
             else => unreachable,
             inline .stage2_aarch64,
@@ -155,7 +155,7 @@ pub fn generateFunction(
     const zcu = pt.zcu;
     const func = zcu.funcInfo(func_index);
     const target = &zcu.navFileScope(func.owner_nav).mod.?.resolved_target.result;
-    switch (target_util.sigBackend(target, false)) {
+    switch (target_util.zigBackend(target, false)) {
         else => unreachable,
         inline .stage2_aarch64,
         .stage2_loongarch,
@@ -199,7 +199,7 @@ pub fn emitFunction(
     tracy_trace.addText(zcu.intern_pool.getNav(func.owner_nav).fqn.toSlice(&zcu.intern_pool));
     tracy_trace.addTextFmt("func_ip_index={d}", .{func_index});
 
-    switch (target_util.sigBackend(target, zcu.comp.config.use_llvm)) {
+    switch (target_util.zigBackend(target, zcu.comp.config.use_llvm)) {
         else => unreachable,
         inline .stage2_aarch64,
         .stage2_loongarch,
@@ -227,7 +227,7 @@ pub fn generateLazyFunction(
         &zcu.fileByIndex(inst_index.resolveFile(&zcu.intern_pool)).mod.?.resolved_target.result
     else
         zcu.getTarget();
-    switch (target_util.sigBackend(target, zcu.comp.config.use_llvm)) {
+    switch (target_util.zigBackend(target, zcu.comp.config.use_llvm)) {
         else => unreachable,
         inline .stage2_riscv64, .stage2_x86_64 => |backend| {
             dev.check(devFeatureForBackend(backend));
@@ -284,7 +284,7 @@ pub fn generateLazySymbol(
             w.writeAll(err_name_nts.toSlice(ip)) catch unreachable;
             w.writeByte(0) catch unreachable;
         }
-    } else if (Type.fromInterned(lazy_sym.ty).sigTypeTag(zcu) == .@"enum") {
+    } else if (Type.fromInterned(lazy_sym.ty).zigTypeTag(zcu) == .@"enum") {
         alignment.* = .@"1";
         const enum_ty = Type.fromInterned(lazy_sym.ty);
         const tag_names = enum_ty.enumFields(zcu);
@@ -681,7 +681,7 @@ fn lowerPtr(
         .field => |field| {
             const base_ptr = Value.fromInterned(field.base);
             const base_ty = base_ptr.typeOf(zcu).childType(zcu);
-            const field_off: u64 = switch (base_ty.sigTypeTag(zcu)) {
+            const field_off: u64 = switch (base_ty.zigTypeTag(zcu)) {
                 .pointer => off: {
                     assert(base_ty.isSlice(zcu));
                     break :off switch (field.index) {
@@ -724,7 +724,7 @@ fn lowerUavRef(
     const ptr_width_bytes = @divExact(target.ptrBitWidth(), 8);
     const uav_val = uav.val;
     const uav_ty = Type.fromInterned(ip.typeOf(uav_val));
-    const is_fn_body = uav_ty.sigTypeTag(zcu) == .@"fn";
+    const is_fn_body = uav_ty.zigTypeTag(zcu) == .@"fn";
 
     log.debug("lowerUavRef: ty = {f}", .{uav_ty.fmt(pt)});
 
@@ -830,7 +830,7 @@ pub fn genNavRef(
     else
         .{ .none, .internal };
     if (lf.cast(.elf)) |elf_file| {
-        const zo = elf_file.sigObjectPtr().?;
+        const zo = elf_file.zigObjectPtr().?;
         switch (linkage) {
             .internal => {
                 const sym_index = try zo.getOrCreateMetadataForNav(zcu, nav_index);
@@ -953,7 +953,7 @@ pub fn lowerValue(pt: Zcu.PerThread, val: Value, target: *const std.Target) Allo
 
     if (val.isUndef(zcu)) return .undef;
 
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .void => return .none,
         .bool => return .{ .immediate = @intFromBool(val.toBool()) },
         .pointer => switch (ty.ptrSize(zcu)) {

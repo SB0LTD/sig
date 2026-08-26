@@ -16,7 +16,7 @@ pub fn suggestVectorLengthForCpu(comptime T: type, comptime cpu: std.Target.Cpu)
     const vector_bit_size: u16 = blk: {
         if (cpu.arch.isX86()) {
             if (T == bool and cpu.has(.x86, .prefer_mask_registers)) return 64;
-            if (builtin.sig_backend != .stage2_x86_64 and cpu.has(.x86, .avx512f) and !cpu.hasAny(.x86, &.{ .prefer_256_bit, .prefer_128_bit })) break :blk 512;
+            if (builtin.zig_backend != .stage2_x86_64 and cpu.has(.x86, .avx512f) and !cpu.hasAny(.x86, &.{ .prefer_256_bit, .prefer_128_bit })) break :blk 512;
             if (cpu.hasAny(.x86, &.{ .prefer_256_bit, .avx2 }) and !cpu.has(.x86, .prefer_128_bit)) break :blk 256;
             if (cpu.has(.x86, .sse)) break :blk 128;
             if (cpu.hasAny(.x86, &.{ .mmx, .@"3dnow" })) break :blk 64;
@@ -92,7 +92,7 @@ test "suggestVectorLengthForCpu works with signed and unsigned values" {
     comptime var cpu = std.Target.Cpu.baseline(std.Target.Cpu.Arch.x86_64, builtin.os);
     comptime cpu.features.addFeature(@backingInt(std.Target.x86.Feature.avx512f));
     comptime cpu.features.populateDependencies(&std.Target.x86.all_features);
-    const expected_len: usize = switch (builtin.sig_backend) {
+    const expected_len: usize = switch (builtin.zig_backend) {
         .stage2_x86_64 => 8,
         else => 16,
     };

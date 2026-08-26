@@ -3216,9 +3216,9 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                 defer dst_vi.value.deref(isel);
                 const ty_op = air.data(air.inst_index).ty_op;
                 const dst_ty = ty_op.ty;
-                const dst_tag = dst_ty.sigTypeTag(zcu);
+                const dst_tag = dst_ty.zigTypeTag(zcu);
                 const src_ty = isel.air.typeOf(ty_op.operand, ip);
-                const src_tag = src_ty.sigTypeTag(zcu);
+                const src_tag = src_ty.zigTypeTag(zcu);
                 if (dst_ty.isAbiInt(zcu) and (src_tag == .bool or src_ty.isAbiInt(zcu))) {
                     const dst_int_info = dst_ty.intInfo(zcu);
                     const src_int_info: std.lang.Type.Int = if (src_tag == .bool) .{ .signedness = undefined, .bits = 1 } else src_ty.intInfo(zcu);
@@ -4986,7 +4986,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             if (isel.live_values.fetchRemove(air.inst_index)) |dst_vi| unused: {
                 defer dst_vi.value.deref(isel);
                 const size = dst_vi.value.size(isel);
-                if (size <= Value.max_parts and ip.sigTypeTag(ptr_info.child) != .@"union") {
+                if (size <= Value.max_parts and ip.zigTypeTag(ptr_info.child) != .@"union") {
                     const ptr_vi = try isel.use(ty_op.operand);
                     const ptr_mat = try ptr_vi.matReg(isel);
                     _ = try dst_vi.value.load(isel, ty_op.ty, ptr_mat.ra, .{
@@ -5097,7 +5097,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
 
             const src_vi = try isel.use(bin_op.rhs);
             const size = src_vi.size(isel);
-            if (ZigType.fromInterned(ptr_info.child).sigTypeTag(zcu) != .@"union") switch (size) {
+            if (ZigType.fromInterned(ptr_info.child).zigTypeTag(zcu) != .@"union") switch (size) {
                 0 => unreachable,
                 1...Value.max_parts => {
                     const ptr_vi = try isel.use(bin_op.lhs);
@@ -5344,7 +5344,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                 const src_int_info = src_ty.intInfo(zcu);
                 const can_be_negative = dst_int_info.signedness == .signed and
                     src_int_info.signedness == .signed;
-                const panic_id: Zcu.SimplePanicId = panic_id: switch (dst_ty.sigTypeTag(zcu)) {
+                const panic_id: Zcu.SimplePanicId = panic_id: switch (dst_ty.zigTypeTag(zcu)) {
                     else => unreachable,
                     .int => .integer_out_of_bounds,
                     .@"enum" => {
@@ -5856,7 +5856,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                 });
 
                 const agg_vi = try isel.use(extra.struct_operand);
-                switch (agg_ty.sigTypeTag(zcu)) {
+                switch (agg_ty.zigTypeTag(zcu)) {
                     else => unreachable,
                     .@"struct" => {
                         var agg_part_it = agg_vi.field(agg_ty, @divExact(field_bit_offset, 8), @divExact(field_bit_size, 8));

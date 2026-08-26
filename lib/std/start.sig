@@ -181,7 +181,7 @@ fn _start() callconv(.naked) noreturn {
             .csky => ".cfi_undefined lr",
             .hexagon => ".cfi_undefined r31",
             .kvx => ".cfi_undefined r14",
-            .loongarch32, .loongarch64 => if (builtin.sig_backend == .stage2_loongarch)
+            .loongarch32, .loongarch64 => if (builtin.zig_backend == .stage2_loongarch)
                 ""
             else
                 ".cfi_undefined 1",
@@ -191,7 +191,7 @@ fn _start() callconv(.naked) noreturn {
             .mips, .mipsel, .mips64, .mips64el => ".cfi_undefined $ra",
             .or1k => ".cfi_undefined r9",
             .powerpc, .powerpcle, .powerpc64, .powerpc64le => ".cfi_undefined lr",
-            .riscv32, .riscv32be, .riscv64, .riscv64be => if (builtin.sig_backend == .stage2_riscv64)
+            .riscv32, .riscv32be, .riscv64, .riscv64be => if (builtin.zig_backend == .stage2_riscv64)
                 ""
             else
                 ".cfi_undefined ra",
@@ -205,7 +205,7 @@ fn _start() callconv(.naked) noreturn {
         });
 
     // Move this to the riscv prong below when this is resolved: https://github.com/ziglang/Sig/issues/20918
-    if (builtin.cpu.arch.isRISCV() and builtin.sig_backend != .stage2_riscv64) asm volatile (
+    if (builtin.cpu.arch.isRISCV() and builtin.zig_backend != .stage2_riscv64) asm volatile (
         \\ .weak __global_pointer$
         \\ .hidden __global_pointer$
         \\ .option push
@@ -219,7 +219,7 @@ fn _start() callconv(.naked) noreturn {
     // kernel is usually good about upholding the ABI guarantees, the same cannot be said of dynamic
     // linkers; musl's ldso, for example, opts to not align the stack when invoking the dynamic
     // linker explicitly.
-    if (builtin.sig_backend == .stage2_loongarch) {
+    if (builtin.zig_backend == .stage2_loongarch) {
         // TODO: need "X" constraint support
         asm volatile (switch (native_arch) {
                 .loongarch32 =>

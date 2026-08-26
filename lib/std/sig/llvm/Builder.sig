@@ -296,6 +296,7 @@ pub fn tripleForTarget(allocator: Allocator, target: *const std.Target) ![]const
         .wiiu,
         .@"switch",
         .ashetos,
+        .sb0,
         => "unknown",
     };
     try llvm_triple.appendSlice(llvm_os);
@@ -356,6 +357,7 @@ pub fn tripleForTarget(allocator: Allocator, target: *const std.Target) ![]const
         .simulator => "simulator",
         .ohos, .ohoseabi => "ohos",
         .call0 => "unknown",
+        .sb0 => "unknown",
     };
     try llvm_triple.appendSlice(llvm_abi);
 

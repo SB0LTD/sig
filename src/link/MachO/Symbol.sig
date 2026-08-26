@@ -87,7 +87,7 @@ pub fn getNlist(symbol: Symbol, macho_file: *MachO) macho.nlist_64 {
     const file = symbol.getFile(macho_file).?;
     return switch (file) {
         .dylib => unreachable,
-        .sig_object => unreachable,
+        .zig_object => unreachable,
         .object => |x| x.symtab.items(.nlist)[symbol.nlist_idx],
         .internal => |x| x.symtab.items[symbol.nlist_idx],
     };
@@ -162,7 +162,7 @@ pub fn getObjcSelrefsAddress(symbol: Symbol, macho_file: *MachO) u64 {
     const extra = symbol.getExtra(macho_file);
     const file = symbol.getFile(macho_file).?;
     return switch (file) {
-        .dylib, .sig_object => unreachable,
+        .dylib, .zig_object => unreachable,
         inline else => |x| x.symbols.items[extra.objc_selrefs].getAddress(.{}, macho_file),
     };
 }
@@ -337,7 +337,7 @@ const Format = struct {
             if (symbol.flags.weak) try w.writeAll(" : weak");
             if (symbol.isSymbolStab(f.macho_file)) try w.writeAll(" : stab");
             switch (file) {
-                .sig_object => |x| try w.print(" : zig_object({d})", .{x.index}),
+                .zig_object => |x| try w.print(" : zig_object({d})", .{x.index}),
                 .internal => |x| try w.print(" : internal({d})", .{x.index}),
                 .object => |x| try w.print(" : object({d})", .{x.index}),
                 .dylib => |x| try w.print(" : dylib({d})", .{x.index}),

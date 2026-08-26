@@ -408,7 +408,7 @@ fn scanAllFunctions(di: *Dwarf, gpa: Allocator, endian: Endian) ScanError!void {
         for (abbrev_table.abbrevs) |abbrev| {
             max_attrs = @max(max_attrs, abbrev.attrs.len);
             if (cast(u7, abbrev.code)) |code| {
-                if (abbrev.tag_id == DW.TAG.sig_padding and
+                if (abbrev.tag_id == DW.TAG.ZIG_padding and
                     !abbrev.has_children and
                     abbrev.attrs.len == 0)
                 {

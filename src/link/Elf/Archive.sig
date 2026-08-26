@@ -202,7 +202,7 @@ pub const ArSymtab = struct {
         defer offsets.deinit();
         try offsets.ensureUnusedCapacity(@intCast(elf_file.objects.items.len + 1));
 
-        if (elf_file.sigObjectPtr()) |zig_object| {
+        if (elf_file.zigObjectPtr()) |zig_object| {
             offsets.putAssumeCapacityNoClobber(zig_object.index, zig_object.output_ar_state.file_off);
         }
         for (elf_file.objects.items) |index| {

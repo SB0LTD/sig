@@ -535,7 +535,7 @@ pub fn serializeCpuAlloc(q: Query, ally: Allocator) Allocator.Error![]u8 {
 
 /// Deprecated; use `zigTriple` instead. Will be removed in 0.18.0.
 pub fn allocDescription(self: Query, allocator: Allocator) ![]u8 {
-    return self.sigTriple(allocator);
+    return self.zigTriple(allocator);
 }
 
 pub fn setGnuLibCVersion(self: *Query, major: u32, minor: u32, patch: u32) void {
@@ -624,7 +624,7 @@ test parse {
         var query = try Query.parse(.{});
         query.setGnuLibCVersion(2, 1, 1);
 
-        const text = try query.sigTriple(std.testing.allocator);
+        const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
 
         try std.testing.expectEqualSlices(u8, "native-native-gnu.2.1.1", text);
@@ -633,7 +633,7 @@ test parse {
         var query = try Query.parse(.{});
         query.android_api_level = 30;
 
-        const text = try query.sigTriple(std.testing.allocator);
+        const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
 
         try std.testing.expectEqualSlices(u8, "native-native-android.30", text);
@@ -653,7 +653,7 @@ test parse {
         try std.testing.expect(query.cpu_arch == null);
         try std.testing.expect(query.isNative());
 
-        const text = try query.sigTriple(std.testing.allocator);
+        const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
         try std.testing.expectEqualSlices(u8, "native", text);
     }
@@ -674,7 +674,7 @@ test parse {
         try std.testing.expect(target.cpu.has(.aarch64, .reserve_x18));
         try std.testing.expect(target.isSb0());
 
-        const text = try query.sigTriple(std.testing.allocator);
+        const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
         try std.testing.expectEqualSlices(u8, "aarch64-sb0", text);
     }
@@ -704,7 +704,7 @@ test parse {
         try std.testing.expect(target.cpu.hasAll(.x86, &.{ .mmx, .x87 }));
         try std.testing.expect(!target.cpu.hasAll(.x86, &.{ .mmx, .x87, .sse }));
 
-        const text = try query.sigTriple(std.testing.allocator);
+        const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
         try std.testing.expectEqualSlices(u8, "x86_64-linux-gnu", text);
     }
@@ -721,7 +721,7 @@ test parse {
         try std.testing.expect(target.cpu.model == &Target.arm.cpu.generic);
         try std.testing.expect(target.cpu.has(.arm, .v8a));
 
-        const text = try query.sigTriple(std.testing.allocator);
+        const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
         try std.testing.expectEqualSlices(u8, "arm-linux-musleabihf", text);
     }
@@ -745,7 +745,7 @@ test parse {
         try std.testing.expect(target.os.version_range.linux.glibc.patch == 0);
         try std.testing.expect(target.abi == .gnu);
 
-        const text = try query.sigTriple(std.testing.allocator);
+        const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
         try std.testing.expectEqualSlices(u8, "aarch64-linux.3.10...4.4.1-gnu.2.27", text);
     }
@@ -766,7 +766,7 @@ test parse {
         try std.testing.expect(target.os.version_range.linux.android == 30);
         try std.testing.expect(target.abi == .android);
 
-        const text = try query.sigTriple(std.testing.allocator);
+        const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
         try std.testing.expectEqualSlices(u8, "aarch64-linux.3.10...4.4.1-android.30", text);
     }
@@ -782,7 +782,7 @@ test parse {
         try std.testing.expect(target.os.version_range.windows.max == .win8);
         try std.testing.expect(target.abi == .msvc);
 
-        const text = try query.sigTriple(std.testing.allocator);
+        const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
         try std.testing.expectEqualSlices(u8, "x86-windows.xp...win8-msvc", text);
     }

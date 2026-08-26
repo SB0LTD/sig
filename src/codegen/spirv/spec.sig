@@ -17030,7 +17030,7 @@ pub const InstructionSet = enum {
                     },
                 },
             },
-            .sig => &.{
+            .Sig => &.{
                 .{
                     .name = "InvocationGlobal",
                     .opcode = 0,

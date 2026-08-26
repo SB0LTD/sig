@@ -3223,7 +3223,7 @@ fn parseCStyleContainer(p: *Parse) Error!bool {
         .extra = .{ .expected_tag = p.tokenTag(main_token) },
     });
     try p.warnMsg(.{
-        .tag = .sig_style_container,
+        .tag = .zig_style_container,
         .is_note = true,
         .token = identifier,
         .extra = .{ .expected_tag = p.tokenTag(main_token) },

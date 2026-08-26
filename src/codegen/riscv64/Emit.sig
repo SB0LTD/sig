@@ -45,7 +45,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                 }),
                 .load_symbol_reloc => |symbol| {
                     const elf_file = emit.bin_file.cast(.elf).?;
-                    const zo = elf_file.sigObjectPtr().?;
+                    const zo = elf_file.zigObjectPtr().?;
 
                     const atom_ptr = zo.symbol(@backingInt(symbol.atom_index)).atom(elf_file).?;
                     const sym = zo.symbol(@backingInt(symbol.sym_index));
@@ -71,7 +71,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                 },
                 .load_tlv_reloc => |symbol| {
                     const elf_file = emit.bin_file.cast(.elf).?;
-                    const zo = elf_file.sigObjectPtr().?;
+                    const zo = elf_file.zigObjectPtr().?;
 
                     const atom_ptr = zo.symbol(@backingInt(symbol.atom_index)).atom(elf_file).?;
 
@@ -97,7 +97,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                 },
                 .call_extern_fn_reloc => |symbol| {
                     const elf_file = emit.bin_file.cast(.elf).?;
-                    const zo = elf_file.sigObjectPtr().?;
+                    const zo = elf_file.zigObjectPtr().?;
                     const atom_ptr = zo.symbol(@backingInt(symbol.atom_index)).atom(elf_file).?;
 
                     const r_type: u32 = @backingInt(std.elf.R_RISCV.CALL_PLT);

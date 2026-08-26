@@ -103,7 +103,7 @@ pub fn renderTree(gpa: Allocator, w: *Writer, tree: Ast, fixups: Fixups) Error!v
     }
 
     switch (tree.mode) {
-        .sig => try renderMembers(&r, tree.rootDecls()),
+        .Sig => try renderMembers(&r, tree.rootDecls()),
         .zon => {
             try renderExpression(
                 &r,

@@ -272,7 +272,7 @@ fn loadComptimePtrInner(
             if (!nav.resolved.?.@"const") return .runtime_load;
             // We let `.@"extern"` through here if it's a fn. This allows aliasing `extern fn`s.
             if (ip.indexToKey(nav.resolved.?.value) == .@"extern" and
-                Type.fromInterned(nav.resolved.?.type).sigTypeTag(zcu) != .@"fn")
+                Type.fromInterned(nav.resolved.?.type).zigTypeTag(zcu) != .@"fn")
             {
                 return .runtime_load;
             }
@@ -340,7 +340,7 @@ fn loadComptimePtrInner(
             };
 
             const agg_ty = agg_val.typeOf(zcu);
-            switch (agg_ty.sigTypeTag(zcu)) {
+            switch (agg_ty.zigTypeTag(zcu)) {
                 .@"struct", .pointer => break :val try agg_val.getElem(sema.pt, @intCast(base_index.index)),
                 .@"union" => {
                     const tag_val: Value, const payload_mv: MutableValue = switch (agg_val) {
@@ -366,7 +366,7 @@ fn loadComptimePtrInner(
     };
 
     if (ptr.byte_offset == 0) {
-        if (load_ty.sigTypeTag(zcu) != .array or array_offset == 0) {
+        if (load_ty.zigTypeTag(zcu) != .array or array_offset == 0) {
             if (.ok == try sema.coerceInMemoryAllowed(
                 block,
                 load_ty,
@@ -409,7 +409,7 @@ fn loadComptimePtrInner(
             null,
         )) {
             // Changing the length of an array.
-            const skip_base: u64 = extra_base_index + if (load_ty.sigTypeTag(zcu) == .array) skip: {
+            const skip_base: u64 = extra_base_index + if (load_ty.zigTypeTag(zcu) == .array) skip: {
                 break :skip load_ty.childType(zcu).arrayBase(zcu)[1] * array_offset;
             } else 0;
             if (skip_base + load_count > val_count) return .{ .out_of_bounds = base_val.typeOf(zcu) };
@@ -437,7 +437,7 @@ fn loadComptimePtrInner(
     var cur_val = base_val;
     var cur_offset = ptr.byte_offset;
 
-    if (load_ty.sigTypeTag(zcu) == .array and array_offset > 0) {
+    if (load_ty.zigTypeTag(zcu) == .array and array_offset > 0) {
         cur_offset += load_ty.childType(zcu).abiSize(zcu) * array_offset;
     }
 
@@ -452,7 +452,7 @@ fn loadComptimePtrInner(
     // field or array element, let's just look at that.
     while (true) {
         const cur_ty = cur_val.typeOf(zcu);
-        switch (cur_ty.sigTypeTag(zcu)) {
+        switch (cur_ty.zigTypeTag(zcu)) {
             .noreturn,
             .type,
             .comptime_int,
@@ -731,7 +731,7 @@ fn prepareComptimePtrStore(
             };
 
             const agg_ty = agg_val.typeOf(zcu);
-            switch (agg_ty.sigTypeTag(zcu)) {
+            switch (agg_ty.zigTypeTag(zcu)) {
                 .@"struct", .pointer => break :strat .{ .direct = .{
                     .val = try agg_val.elem(pt, sema.arena, @intCast(base_index.index)),
                     .alloc = alloc,
@@ -757,7 +757,7 @@ fn prepareComptimePtrStore(
     };
 
     if (ptr.byte_offset == 0) {
-        if (store_ty.sigTypeTag(zcu) != .array or array_offset == 0) direct: {
+        if (store_ty.zigTypeTag(zcu) != .array or array_offset == 0) direct: {
             const base_val_ty = switch (base_strat) {
                 .direct => |direct| direct.val.typeOf(zcu),
                 .index => |index| index.val.typeOf(zcu).childType(zcu),
@@ -810,7 +810,7 @@ fn prepareComptimePtrStore(
         }
         if (base_elem_offset + extra_base_index + store_count > val_count) return .{ .out_of_bounds = oob_ty };
 
-        if (store_ty.sigTypeTag(zcu) == .array) {
+        if (store_ty.zigTypeTag(zcu) == .array) {
             const skip = store_ty.childType(zcu).arrayBase(zcu)[1] * array_offset;
             return .{ .flat_index = .{
                 .alloc = base_strat.alloc(),
@@ -820,7 +820,7 @@ fn prepareComptimePtrStore(
         }
 
         // `base_val` must be an array, since otherwise the "direct reinterpret" logic above noticed it.
-        assert(base_val.typeOf(zcu).sigTypeTag(zcu) == .array);
+        assert(base_val.typeOf(zcu).zigTypeTag(zcu) == .array);
 
         var index: u64 = base_elem_offset + extra_base_index;
         const arr_val, const arr_index = (try recursiveIndex(sema, base_val, &index)).?;
@@ -856,7 +856,7 @@ fn prepareComptimePtrStore(
         return .{ .needed_well_defined = cur_val.typeOf(zcu) };
     }
 
-    if (store_ty.sigTypeTag(zcu) == .array and array_offset > 0) {
+    if (store_ty.zigTypeTag(zcu) == .array and array_offset > 0) {
         cur_offset += store_ty.childType(zcu).abiSize(zcu) * array_offset;
     }
 
@@ -871,7 +871,7 @@ fn prepareComptimePtrStore(
     // field or array element, let's just look at that.
     while (true) {
         const cur_ty = cur_val.typeOf(zcu);
-        switch (cur_ty.sigTypeTag(zcu)) {
+        switch (cur_ty.zigTypeTag(zcu)) {
             .noreturn,
             .type,
             .comptime_int,
@@ -983,7 +983,7 @@ fn flattenArray(
         return;
     }
 
-    if (ty.sigTypeTag(zcu) != .array) {
+    if (ty.zigTypeTag(zcu) != .array) {
         out[@intCast(next_idx.*)] = (try val.intern(sema.pt, sema.arena)).toIntern();
         next_idx.* += 1;
         return;
@@ -1017,7 +1017,7 @@ fn unflattenArray(
     const zcu = pt.zcu;
     const arena = sema.arena;
 
-    if (ty.sigTypeTag(zcu) != .array) {
+    if (ty.zigTypeTag(zcu) != .array) {
         const val = Value.fromInterned(elems[@intCast(next_idx.*)]);
         next_idx.* += 1;
         return pt.getCoerced(val, ty);
@@ -1047,7 +1047,7 @@ fn recursiveIndex(
     const pt = sema.pt;
 
     const ty = mv.typeOf(pt.zcu);
-    assert(ty.sigTypeTag(pt.zcu) == .array);
+    assert(ty.zigTypeTag(pt.zcu) == .array);
 
     const ty_base_elems = ty.arrayBase(pt.zcu)[1];
     if (index.* >= ty_base_elems) {
@@ -1056,7 +1056,7 @@ fn recursiveIndex(
     }
 
     const elem_ty = ty.childType(pt.zcu);
-    if (elem_ty.sigTypeTag(pt.zcu) != .array) {
+    if (elem_ty.zigTypeTag(pt.zcu) != .array) {
         assert(index.* < ty.arrayLenIncludingSentinel(pt.zcu)); // should be handled by initial check
         return .{ mv, index.* };
     }

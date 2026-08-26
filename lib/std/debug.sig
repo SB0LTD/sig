@@ -495,7 +495,7 @@ threadlocal var panic_stage: usize = 0;
 
 /// For backends that cannot handle the language features depended on by the
 /// default panic handler, we will use a simpler implementation.
-const use_trap_panic = switch (builtin.sig_backend) {
+const use_trap_panic = switch (builtin.zig_backend) {
     .stage2_aarch64,
     .stage2_arm,
     .stage2_loongarch,
@@ -963,7 +963,7 @@ const StackIterator = union(enum) {
         // Workaround the C backend being unable to use inline assembly on MSVC by disabling the
         // call to `current`. This effectively constrains stack trace collection and dumping to FP
         // unwinding when building with CBE for MSVC.
-        if (!(builtin.sig_backend == .stage2_c and builtin.target.abi == .msvc) and
+        if (!(builtin.zig_backend == .stage2_c and builtin.target.abi == .msvc) and
             SelfInfo != void and
             SelfInfo.can_unwind and
             cpu_context.Native != noreturn and
@@ -1735,7 +1735,7 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
 
 test "manage resources correctly" {
     if (SelfInfo == void) return error.SkipZigTest;
-    if (builtin.sig_backend == .stage2_c) {
+    if (builtin.zig_backend == .stage2_c) {
         // The C backend emits an extremely large C source file, meaning it has a huge
         // amount of debug information. Parsing this debug information makes this test
         // take too long to be worth running.

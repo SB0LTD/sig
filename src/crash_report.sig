@@ -17,7 +17,7 @@ pub const debug = if (enabled) struct {
 /// Printed in panic messages when suggesting a command to run, allowing copy-pasting the command.
 /// Set by `main` as soon as arguments are known. The value here is a default in case we somehow
 /// crash earlier than that.
-pub var zig_argv0: []const u8 = "sig";
+pub var sig_argv0: []const u8 = "sig";
 
 fn handleSegfaultImpl(addr: ?usize, name: []const u8, opt_ctx: ?std.debug.CpuContextPtr) noreturn {
     @branchHint(.cold);
@@ -175,7 +175,7 @@ fn dumpCrashContextSema(anal: *AnalyzeBody, stderr: *Io.Writer, crash_heap: []u8
         \\      {s} ast-check -t {f}
         \\
         \\
-    , .{ zig_argv0, file.path.fmt(comp) });
+    , .{ sig_argv0, file.path.fmt(comp) });
 
     var parent = anal.parent;
     while (parent) |curr| {

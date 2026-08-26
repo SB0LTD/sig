@@ -594,7 +594,7 @@ fn addExtraAssumeCapacity(cg: *CodeGen, extra: anytype) error{OutOfMemory}!u32 {
 
 /// For `std.lang.CallingConvention.auto`.
 pub fn typeToValtype(ty: Type, zcu: *const Zcu, target: *const std.Target) std.wasm.Valtype {
-    return switch (ty.sigTypeTag(zcu)) {
+    return switch (ty.zigTypeTag(zcu)) {
         .float => switch (ty.floatBits(target)) {
             16 => .i32, // stored/loaded as u16
             32 => .f32,
@@ -643,7 +643,7 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
         .nav_ref => |nav_ref| {
             const zcu = cg.pt.zcu;
             const ip = &zcu.intern_pool;
-            if (ip.sigTypeTag(ip.getNav(nav_ref.nav_index).resolved.?.type) == .@"fn") {
+            if (ip.zigTypeTag(ip.getNav(nav_ref.nav_index).resolved.?.type) == .@"fn") {
                 assert(nav_ref.offset == 0);
                 try cg.mir_indirect_function_set.put(cg.gpa, nav_ref.nav_index, {});
                 try cg.addInst(.{ .tag = .func_ref, .data = .{ .nav_index = nav_ref.nav_index } });
@@ -1213,7 +1213,7 @@ fn ptrSize(cg: *const CodeGen) u16 {
 /// For a given `Type`, will return true when the type will be passed
 /// by reference, rather than by value
 fn isByRef(ty: Type, zcu: *const Zcu, target: *const std.Target) bool {
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .type,
         .comptime_int,
         .comptime_float,
@@ -1253,7 +1253,7 @@ fn isByRef(ty: Type, zcu: *const Zcu, target: *const std.Target) bool {
         .optional => {
             if (ty.isPtrLikeOptional(zcu)) return false;
             const pl_type = ty.optionalChild(zcu);
-            if (pl_type.sigTypeTag(zcu) == .error_set) return false;
+            if (pl_type.zigTypeTag(zcu) == .error_set) return false;
             return pl_type.hasRuntimeBits(zcu);
         },
         .pointer => {
@@ -1274,7 +1274,7 @@ const SimdStoreStrategy = enum {
 /// features are enabled, the function will return `.direct`. This would allow to store
 /// it using a instruction, rather than an unrolled version.
 pub fn determineSimdStoreStrategy(ty: Type, zcu: *const Zcu, target: *const std.Target) SimdStoreStrategy {
-    assert(ty.sigTypeTag(zcu) == .vector);
+    assert(ty.zigTypeTag(zcu) == .vector);
     if (ty.bitSize(zcu) != 128) return .unrolled;
     if (target.cpu.has(.wasm, .relaxed_simd) or target.cpu.has(.wasm, .simd128)) {
         return .direct;
@@ -1359,7 +1359,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const rhs = try cg.resolveInst(bin_op.rhs);
 
             const ty = cg.typeOfIndex(inst);
-            const type_tag = ty.sigTypeTag(zcu);
+            const type_tag = ty.zigTypeTag(zcu);
 
             if (type_tag == .vector) {
                 return cg.fail("TODO: implement AIR op: {s} for vectors", .{@tagName(tag)});
@@ -1413,7 +1413,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const rhs = try cg.resolveInst(bin_op.rhs);
             const ty = cg.typeOfIndex(inst);
 
-            if (ty.sigTypeTag(zcu) == .vector) {
+            if (ty.zigTypeTag(zcu) == .vector) {
                 return cg.fail("TODO: implement AIR op: div_float for vectors", .{});
             }
 
@@ -1425,7 +1425,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const operand = try cg.resolveInst(ty_op.operand);
 
             const ty = cg.typeOf(ty_op.operand);
-            const type_tag = ty.sigTypeTag(zcu);
+            const type_tag = ty.zigTypeTag(zcu);
 
             if (type_tag == .vector) {
                 return cg.fail("TODO: implement AIR op: abs for vectors", .{});
@@ -1449,7 +1449,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const rhs = try cg.resolveInst(bin_op.rhs);
             const ty = cg.typeOfIndex(inst);
 
-            if (ty.sigTypeTag(cg.pt.zcu) == .vector) {
+            if (ty.zigTypeTag(cg.pt.zcu) == .vector) {
                 return cg.fail("TODO: implement AIR op: mul_add for vectors", .{});
             }
 
@@ -1467,7 +1467,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const rhs = try cg.resolveInst(bin_op.rhs);
             const ty = cg.typeOfIndex(inst);
 
-            if (ty.sigTypeTag(cg.pt.zcu) == .vector) {
+            if (ty.zigTypeTag(cg.pt.zcu) == .vector) {
                 return cg.fail("TODO: implement AIR op: {s} for vectors", .{@tagName(tag)});
             }
 
@@ -1526,7 +1526,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const rhs = try cg.resolveInst(bin_op.rhs);
             const ty = cg.typeOfIndex(inst);
 
-            if (ty.sigTypeTag(zcu) == .vector) {
+            if (ty.zigTypeTag(zcu) == .vector) {
                 return cg.fail("TODO: implement AIR op: {s} for vectors", .{@tagName(tag)});
             }
 
@@ -1549,7 +1549,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const rhs = try cg.resolveInst(bin_op.rhs);
             const ty = cg.typeOfIndex(inst);
 
-            if (ty.sigTypeTag(zcu) == .vector) {
+            if (ty.zigTypeTag(zcu) == .vector) {
                 return cg.fail("TODO: implement AIR op: {s} for vectors", .{@tagName(tag)});
             }
 
@@ -1571,7 +1571,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const operand = try cg.resolveInst(ty_op.operand);
             const ty = cg.typeOf(ty_op.operand);
 
-            if (ty.sigTypeTag(zcu) == .vector) {
+            if (ty.zigTypeTag(zcu) == .vector) {
                 return cg.fail("TODO: implement AIR op: not for vectors", .{});
             }
 
@@ -1596,7 +1596,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const operand = try cg.resolveInst(ty_op.operand);
             const src_ty = cg.typeOf(ty_op.operand);
 
-            if (dest_ty.sigTypeTag(zcu) == .vector) {
+            if (dest_ty.zigTypeTag(zcu) == .vector) {
                 return cg.fail("TODO: implement AIR op: int_cast for vectors", .{});
             }
 
@@ -1624,7 +1624,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const dest_ty = ty_op.ty;
             const src_ty = cg.typeOf(ty_op.operand);
 
-            if (dest_ty.sigTypeTag(zcu) == .vector or src_ty.sigTypeTag(zcu) == .vector) {
+            if (dest_ty.zigTypeTag(zcu) == .vector or src_ty.zigTypeTag(zcu) == .vector) {
                 return cg.fail("TODO: implement AIR op: trunc for vectors", .{});
             }
 
@@ -1647,7 +1647,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const src_ty = cg.typeOf(ty_op.operand);
             const dest_ty = cg.typeOfIndex(inst);
 
-            if (dest_ty.sigTypeTag(cg.pt.zcu) == .vector) {
+            if (dest_ty.zigTypeTag(cg.pt.zcu) == .vector) {
                 return cg.fail("TODO: implement AIR op: {s} for vectors", .{@tagName(tag)});
             }
 
@@ -1669,7 +1669,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const src_ty = cg.typeOf(ty_op.operand);
             const dest_ty = cg.typeOfIndex(inst);
 
-            if (src_ty.sigTypeTag(zcu) == .vector) {
+            if (src_ty.zigTypeTag(zcu) == .vector) {
                 return cg.fail("TODO: implement AIR op: int_from_float for vectors", .{});
             }
 
@@ -1682,7 +1682,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const src_ty = cg.typeOf(ty_op.operand);
             const dest_ty = cg.typeOfIndex(inst);
 
-            if (src_ty.sigTypeTag(zcu) == .vector) {
+            if (src_ty.zigTypeTag(zcu) == .vector) {
                 return cg.fail("TODO: implement AIR op: float_from_int for vectors", .{});
             }
 
@@ -1696,7 +1696,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
             const ty = cg.typeOf(ty_op.operand);
 
-            if (ty.sigTypeTag(zcu) == .vector) {
+            if (ty.zigTypeTag(zcu) == .vector) {
                 return cg.fail("TODO: implement AIR op: {s} for vectors", .{@tagName(tag)});
             }
 
@@ -1717,7 +1717,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const operand = try cg.resolveInst(un_op);
             const ty = cg.typeOfIndex(inst);
 
-            if (ty.sigTypeTag(zcu) == .vector) {
+            if (ty.zigTypeTag(zcu) == .vector) {
                 return cg.fail("TODO: implement AIR op: {s} for vectors", .{@tagName(tag)});
             }
 
@@ -2050,7 +2050,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier) 
     const pt = cg.pt;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
-    const fn_ty = switch (ty.sigTypeTag(zcu)) {
+    const fn_ty = switch (ty.zigTypeTag(zcu)) {
         .@"fn" => ty,
         .pointer => ty.childType(zcu),
         else => unreachable,
@@ -2144,7 +2144,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier) 
     } else {
         // in this case we call a function pointer
         // so load its value onto the stack
-        assert(ty.sigTypeTag(zcu) == .pointer);
+        assert(ty.zigTypeTag(zcu) == .pointer);
         const operand = try cg.resolveInst(call.callee);
         try cg.emitWValue(operand);
 
@@ -2336,7 +2336,7 @@ fn store(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErr
         return cg.memcpy(offset_ptr, rhs, .{ .imm32 = @intCast(abi_size) });
     }
 
-    if (ty.sigTypeTag(zcu) == .vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         try cg.emitWValue(lhs);
         try cg.lowerToStack(rhs);
         // TODO: Add helper functions for simd opcodes
@@ -2426,7 +2426,7 @@ fn load(cg: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValue 
     // load local's value from memory by its stack position
     try cg.emitWValue(operand);
 
-    if (ty.sigTypeTag(zcu) == .vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         // TODO: Add helper functions for simd opcodes
         const extra_index: u32 = @intCast(cg.mir_extra.items.len);
         // stores as := opcode, offset, alignment (opcode::memarg)
@@ -4996,7 +4996,7 @@ fn lowerPtr(cg: *CodeGen, ptr_val: InternPool.Index, prev_offset: u64) InnerErro
         .field => |field| {
             const base_ptr = Value.fromInterned(field.base);
             const base_ty = base_ptr.typeOf(zcu).childType(zcu);
-            const field_off: u64 = switch (base_ty.sigTypeTag(zcu)) {
+            const field_off: u64 = switch (base_ty.zigTypeTag(zcu)) {
                 .pointer => off: {
                     assert(base_ty.isSlice(zcu));
                     break :off switch (field.index) {
@@ -5147,7 +5147,7 @@ fn storeSimdImmd(cg: *CodeGen, value: [16]u8) !WValue {
 
 fn emitUndefined(cg: *CodeGen, ty: Type) InnerError!WValue {
     const zcu = cg.pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .bool, .error_set => return .{ .imm32 = 0xaaaaaaaa },
         .int, .@"enum" => switch (ty.intInfo(zcu).bits) {
             0...32 => return .{ .imm32 = 0xaaaaaaaa },
@@ -5178,7 +5178,7 @@ fn emitUndefined(cg: *CodeGen, ty: Type) InnerError!WValue {
             const backing_int_ty = ty.backingIntType(zcu);
             return cg.emitUndefined(backing_int_ty);
         },
-        else => return cg.fail("Wasm TODO: emitUndefined for type: {t}\n", .{ty.sigTypeTag(zcu)}),
+        else => return cg.fail("Wasm TODO: emitUndefined for type: {t}\n", .{ty.zigTypeTag(zcu)}),
     }
 }
 
@@ -5294,7 +5294,7 @@ fn airCmp(cg: *CodeGen, inst: Air.Inst.Index, op: std.math.CompareOperator) Inne
     const operand_ty = cg.typeOf(bin_op.lhs);
     const zcu = cg.pt.zcu;
 
-    const type_tag = operand_ty.sigTypeTag(zcu);
+    const type_tag = operand_ty.zigTypeTag(zcu);
 
     if (type_tag == .vector) {
         return cg.fail("TODO: implement AIR op: cmp for vectors", .{});
@@ -5645,7 +5645,7 @@ const BitcastClass = union(enum) {
 
 fn bitcastClass(cg: *CodeGen, ty: Type) BitcastClass {
     const zcu = cg.pt.zcu;
-    return switch (ty.sigTypeTag(zcu)) {
+    return switch (ty.zigTypeTag(zcu)) {
         .bool,
         .int,
         .@"enum",
@@ -5775,7 +5775,7 @@ fn structFieldPtr(
     const struct_ptr_ty_info = struct_ptr_ty.ptrInfo(zcu);
 
     const offset = switch (struct_ty.containerLayout(zcu)) {
-        .@"packed" => switch (struct_ty.sigTypeTag(zcu)) {
+        .@"packed" => switch (struct_ty.zigTypeTag(zcu)) {
             .@"struct" => offset: {
                 if (result_ty.ptrInfo(zcu).packed_offset.host_size != 0) {
                     break :offset @as(u32, 0);
@@ -6707,7 +6707,7 @@ fn airArrayElemVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         try cg.addTag(.i32_mul);
         try cg.addTag(.i32_add);
     } else {
-        assert(array_ty.sigTypeTag(zcu) == .vector);
+        assert(array_ty.zigTypeTag(zcu) == .vector);
 
         switch (index) {
             inline .imm32, .imm64 => |lane| {
@@ -6938,7 +6938,7 @@ fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const elements: []const Air.Inst.Ref = @ptrCast(cg.air.extra.items[ty_pl.payload..][0..len]);
 
     const result: WValue = result_value: {
-        switch (result_ty.sigTypeTag(zcu)) {
+        switch (result_ty.zigTypeTag(zcu)) {
             .array, .vector => {
                 const result = try cg.allocStack(result_ty);
                 const elem_ty = result_ty.childType(zcu);

@@ -26,7 +26,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
     if (diags.hasErrors()) return error.AlreadyReported;
 
     // First, we flush relocatable object file generated with our backends.
-    if (elf_file.sigObjectPtr()) |zig_object| {
+    if (elf_file.zigObjectPtr()) |zig_object| {
         try zig_object.resolveSymbols(elf_file);
         elf_file.markEhFrameAtomsDead();
         try elf_file.addCommentString();
@@ -41,7 +41,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
             elf_file.shstrtab.items,
             elf_file.merge_sections.items,
             elf_file.group_sections.items,
-            elf_file.sigObjectPtr(),
+            elf_file.zigObjectPtr(),
             elf_file.files,
         );
         try zig_object.addAtomsToRelaSections(elf_file);
@@ -68,7 +68,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
     var files = std.array_list.Managed(File.Index).init(gpa);
     defer files.deinit();
     try files.ensureTotalCapacityPrecise(elf_file.objects.items.len + 1);
-    if (elf_file.sigObjectPtr()) |zig_object| files.appendAssumeCapacity(zig_object.index);
+    if (elf_file.zigObjectPtr()) |zig_object| files.appendAssumeCapacity(zig_object.index);
     for (elf_file.objects.items) |index| files.appendAssumeCapacity(index);
 
     // Update ar symtab from parsed objects
@@ -105,7 +105,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
         for (files.items) |index| {
             const file_ptr = elf_file.file(index).?;
             const state = switch (file_ptr) {
-                .sig_object => |x| &x.output_ar_state,
+                .zig_object => |x| &x.output_ar_state,
                 .object => |x| &x.output_ar_state,
                 else => unreachable,
             };
@@ -177,10 +177,10 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation) !void {
         elf_file.shstrtab.items,
         elf_file.merge_sections.items,
         elf_file.group_sections.items,
-        elf_file.sigObjectPtr(),
+        elf_file.zigObjectPtr(),
         elf_file.files,
     );
-    if (elf_file.sigObjectPtr()) |zig_object| {
+    if (elf_file.zigObjectPtr()) |zig_object| {
         try zig_object.addAtomsToRelaSections(elf_file);
     }
     for (elf_file.objects.items) |index| {
@@ -207,7 +207,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation) !void {
 }
 
 fn claimUnresolved(elf_file: *Elf) void {
-    if (elf_file.sigObjectPtr()) |zig_object| {
+    if (elf_file.zigObjectPtr()) |zig_object| {
         zig_object.claimUnresolvedRelocatable(elf_file);
     }
     for (elf_file.objects.items) |index| {
@@ -216,7 +216,7 @@ fn claimUnresolved(elf_file: *Elf) void {
 }
 
 fn initSections(elf_file: *Elf) !void {
-    if (elf_file.sigObjectPtr()) |zo| {
+    if (elf_file.zigObjectPtr()) |zo| {
         try zo.initRelaSections(elf_file);
     }
     for (elf_file.objects.items) |index| {
@@ -231,7 +231,7 @@ fn initSections(elf_file: *Elf) !void {
     }
 
     const needs_eh_frame = blk: {
-        if (elf_file.sigObjectPtr()) |zo|
+        if (elf_file.zigObjectPtr()) |zo|
             if (zo.eh_frame_index != null) break :blk true;
         break :blk for (elf_file.objects.items) |index| {
             if (elf_file.file(index).?.object.cies.items.len > 0) break true;
@@ -420,7 +420,7 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
 
     if (elf_file.section_indexes.eh_frame) |shndx| {
         const existing_size = existing_size: {
-            const zo = elf_file.sigObjectPtr() orelse break :existing_size 0;
+            const zo = elf_file.zigObjectPtr() orelse break :existing_size 0;
             const sym = zo.symbol(zo.eh_frame_index orelse break :existing_size 0);
             break :existing_size sym.atom(elf_file).?.size;
         };

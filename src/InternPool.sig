@@ -4334,7 +4334,7 @@ pub const Index = enum(u32) {
         }
     }
     comptime {
-        if (!builtin.strip_debug_info) switch (builtin.sig_backend) {
+        if (!builtin.strip_debug_info) switch (builtin.zig_backend) {
             .stage2_llvm => _ = &dbHelper,
             .stage2_x86_64 => for (@typeInfo(Tag).@"enum".field_names) |tag_name| {
                 if (!@hasField(@TypeOf(Tag.encodings), tag_name)) @compileLog("missing: " ++ @typeName(Tag) ++ ".encodings." ++ tag_name);
@@ -6423,7 +6423,7 @@ pub fn activate(ip: *const InternPool) Active {
 
 /// For debugger access only.
 const debug_state = struct {
-    const enable = switch (builtin.sig_backend) {
+    const enable = switch (builtin.zig_backend) {
         else => false,
         .stage2_x86_64 => !builtin.strip_debug_info and build_options.io_mode == .threaded,
     };
@@ -7969,7 +7969,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, io: Io, tid: Zcu.PerThread.Id, key: 
             if (sentinel != .none) extra.appendAssumeCapacity(.{@backingInt(sentinel)});
         },
         .bitpack => |bitpack| {
-            switch (ip.sigTypeTag(bitpack.ty)) {
+            switch (ip.zigTypeTag(bitpack.ty)) {
                 .@"struct" => assert(ip.typeOf(bitpack.backing_int_val) == ip.loadStructType(bitpack.ty).packed_backing_int_type),
                 .@"union" => assert(ip.typeOf(bitpack.backing_int_val) == ip.loadUnionType(bitpack.ty).packed_backing_int_type),
                 else => unreachable,

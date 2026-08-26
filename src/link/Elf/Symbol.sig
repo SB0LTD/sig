@@ -86,7 +86,7 @@ pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
 
 pub fn elfSym(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
     return switch (symbol.file(elf_file).?) {
-        .sig_object => |x| x.symtab.items(.elf_sym)[symbol.esym_index],
+        .zig_object => |x| x.symtab.items(.elf_sym)[symbol.esym_index],
         .shared_object => |so| so.parsed.symtab[symbol.esym_index],
         inline else => |x| x.symtab.items[symbol.esym_index],
     };
@@ -226,7 +226,7 @@ pub fn tlsDescAddress(symbol: Symbol, elf_file: *Elf) i64 {
 
 pub fn trampolineAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_trampoline) return 0;
-    const zo = elf_file.sigObjectPtr().?;
+    const zo = elf_file.zigObjectPtr().?;
     const index = symbol.extra(elf_file).trampoline;
     return zo.symbol(index).address(.{}, elf_file);
 }

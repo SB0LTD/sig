@@ -2121,7 +2121,7 @@ pub fn resetShdrIndexes(self: *ZigObject, backlinks: []const u32) void {
 }
 
 pub fn asFile(self: *ZigObject) File {
-    return .{ .sig_object = self };
+    return .{ .zig_object = self };
 }
 
 pub fn sectionSymbol(self: *ZigObject, shndx: u32, elf_file: *Elf) ?*Symbol {

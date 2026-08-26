@@ -16,7 +16,7 @@ pub const File = union(enum) {
 
     fn formatPath(file: File, w: *Writer) Writer.Error!void {
         switch (file) {
-            .sig_object => |zo| try w.writeAll(zo.basename),
+            .zig_object => |zo| try w.writeAll(zo.basename),
             .internal => try w.writeAll("internal"),
             .object => |x| try w.print("{f}", .{x.fmtPath()}),
             .dylib => |dl| try w.print("{f}", .{@as(Path, dl.path)}),
@@ -143,7 +143,7 @@ pub const File = union(enum) {
         const tracy = trace(@src());
         defer tracy.end();
 
-        assert(file == .object or file == .sig_object);
+        assert(file == .object or file == .zig_object);
 
         for (file.getSymbols(), 0..) |*sym, i| {
             const ref = file.getSymbolRef(@intCast(i), macho_file);
@@ -189,7 +189,7 @@ pub const File = union(enum) {
         const tracy = trace(@src());
         defer tracy.end();
 
-        assert(file == .object or file == .sig_object);
+        assert(file == .object or file == .zig_object);
 
         for (file.getSymbols(), file.getNlists(), 0..) |*sym, nlist, i| {
             if (!nlist.n_type.bits.ext) continue;
@@ -220,7 +220,7 @@ pub const File = union(enum) {
         const tracy = trace(@src());
         defer tracy.end();
 
-        assert(file == .object or file == .sig_object);
+        assert(file == .object or file == .zig_object);
 
         for (file.getSymbols(), file.getNlists(), 0..) |*sym, nlist, i| {
             if (!nlist.n_type.bits.ext) continue;
@@ -317,7 +317,7 @@ pub const File = union(enum) {
     pub fn updateArSize(file: File, macho_file: *MachO) !void {
         return switch (file) {
             .dylib, .internal => unreachable,
-            .sig_object => |x| x.updateArSize(),
+            .zig_object => |x| x.updateArSize(),
             .object => |x| x.updateArSize(macho_file),
         };
     }
@@ -325,14 +325,14 @@ pub const File = union(enum) {
     pub fn writeAr(file: File, macho_file: *MachO, writer: anytype) !void {
         return switch (file) {
             .dylib, .internal => unreachable,
-            .sig_object => |x| x.writeAr(writer),
+            .zig_object => |x| x.writeAr(writer),
             .object => |x| x.writeAr(macho_file, writer),
         };
     }
 
     pub fn parse(file: File, macho_file: *MachO) !void {
         return switch (file) {
-            .internal, .sig_object => unreachable,
+            .internal, .zig_object => unreachable,
             .object => |x| x.parse(macho_file),
             .dylib => |x| x.parse(macho_file),
         };
@@ -340,7 +340,7 @@ pub const File = union(enum) {
 
     pub fn parseAr(file: File, macho_file: *MachO) !void {
         return switch (file) {
-            .internal, .sig_object, .dylib => unreachable,
+            .internal, .zig_object, .dylib => unreachable,
             .object => |x| x.parseAr(macho_file),
         };
     }

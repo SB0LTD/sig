@@ -1527,7 +1527,7 @@ fn Custom(
         }
 
         comptime {
-            if (!builtin.strip_debug_info) switch (builtin.sig_backend) {
+            if (!builtin.strip_debug_info) switch (builtin.zig_backend) {
                 .stage2_llvm => _ = &dbHelper,
                 .stage2_x86_64 => _ = @as(KV, undefined),
                 else => {},

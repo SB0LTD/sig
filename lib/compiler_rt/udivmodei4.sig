@@ -161,9 +161,9 @@ pub fn __umodei5(r_p: [*]u8, u_p: [*]const u8, v_p: [*]const u8, t_p: [*]u8, bit
 }
 
 test "__udivei4/__umodei4" {
-    if (builtin.sig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.sig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.sig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
     const RndGen = std.Random.DefaultPrng;
     var rnd = RndGen.init(42);

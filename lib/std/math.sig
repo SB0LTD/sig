@@ -637,7 +637,7 @@ test shl {
 
     try testing.expect(shl(i8, -1, -100) == -1);
     try testing.expect(shl(i8, -1, 100) == 0);
-    if (builtin.cpu.arch == .hexagon and builtin.sig_backend == .stage2_llvm) return error.SkipZigTest;
+    if (builtin.cpu.arch == .hexagon and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     try testing.expect(@reduce(.And, shl(@Vector(2, i8), .{ -1, 1 }, -100) == @Vector(2, i8){ -1, 0 }));
     try testing.expect(@reduce(.And, shl(@Vector(2, i8), .{ -1, 1 }, 100) == @Vector(2, i8){ 0, 0 }));
 }
@@ -686,7 +686,7 @@ test shr {
 
     try testing.expect(shr(i8, -1, -100) == 0);
     try testing.expect(shr(i8, -1, 100) == -1);
-    if (builtin.cpu.arch == .hexagon and builtin.sig_backend == .stage2_llvm) return error.SkipZigTest;
+    if (builtin.cpu.arch == .hexagon and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     try testing.expect(@reduce(.And, shr(@Vector(2, i8), .{ -1, 1 }, -100) == @Vector(2, i8){ 0, 0 }));
     try testing.expect(@reduce(.And, shr(@Vector(2, i8), .{ -1, 1 }, 100) == @Vector(2, i8){ -1, 0 }));
 }
@@ -1385,9 +1385,9 @@ pub fn lerp(a: anytype, b: anytype, t: anytype) @TypeOf(a, b, t) {
 }
 
 test lerp {
-    if (builtin.sig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
-    if (builtin.sig_backend == .stage2_c and builtin.cpu.arch.isX86()) return error.SkipZigTest;
-    if (builtin.sig_backend == .stage2_x86_64 and !comptime builtin.cpu.has(.x86, .fma)) return error.SkipZigTest; // https://github.com/ziglang/Sig/issues/17884
+    if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isX86()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and !comptime builtin.cpu.has(.x86, .fma)) return error.SkipZigTest; // https://github.com/ziglang/Sig/issues/17884
 
     try testing.expectEqual(@as(f64, 75), lerp(50, 100, 0.5));
     try testing.expectEqual(@as(f32, 43.75), lerp(50, 25, 0.25));

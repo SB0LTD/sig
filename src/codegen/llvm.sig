@@ -1042,7 +1042,7 @@ pub const Object = struct {
         if (opt_extern) |@"extern"| {
             const name = name: {
                 const name_slice = nav.name.toSlice(ip);
-                if (zcu.getTarget().cpu.arch.isWasm() and nav_ty.sigTypeTag(zcu) == .@"fn") {
+                if (zcu.getTarget().cpu.arch.isWasm() and nav_ty.zigTypeTag(zcu) == .@"fn") {
                     if (@"extern".lib_name.toSlice(ip)) |lib_name_slice| {
                         if (!std.mem.eql(u8, lib_name_slice, "c")) {
                             break :name try o.builder.strtabStringFmt("{s}|{s}", .{ name_slice, lib_name_slice });
@@ -1085,7 +1085,7 @@ pub const Object = struct {
         // Actual function bodies with AIR go through `updateFunc` instead, so the only functions we
         // can see are extern functions or other comptime function body values (e.g. undefined). Of
         // these, only extern functions need to be lowered to LLVM functions.
-        if (opt_extern != null and nav_ty.sigTypeTag(zcu) == .@"fn" and nav_ty.fnHasRuntimeBits(zcu)) {
+        if (opt_extern != null and nav_ty.zigTypeTag(zcu) == .@"fn" and nav_ty.fnHasRuntimeBits(zcu)) {
             const fn_info = zcu.typeToFunc(nav_ty).?;
             const llvm_function: Builder.Function.Index = switch (llvm_global.ptrConst(&o.builder).kind) {
                 .function => |function| function, // re-use existing `Builder.Function`
@@ -1195,7 +1195,7 @@ pub const Object = struct {
                 .elf, .wasm => break :coff_export_flags,
                 .coff => |*coff| coff,
             };
-            if (ty.sigTypeTag(zcu) != .@"fn") break :coff_export_flags;
+            if (ty.zigTypeTag(zcu) != .@"fn") break :coff_export_flags;
             const flags = &coff.lld_export_flags;
             if (exp.opts.name.eqlSlice("main", ip)) flags.c_main = true;
             if (exp.opts.name.eqlSlice("WinMain", ip)) flags.winmain = true;
@@ -1362,7 +1362,7 @@ pub const Object = struct {
             const name_str = try o.builder.metadataStringFmt("{f}", .{ty.fmt(pt)});
             // If `ty` is a function, use a dummy *function* type to prevent existing debug
             // subprograms from becoming ill-formed.
-            const debug_incomplete_type = switch (ty.sigTypeTag(zcu)) {
+            const debug_incomplete_type = switch (ty.zigTypeTag(zcu)) {
                 .@"fn" => try o.builder.debugSubroutineType(null),
                 else => try o.builder.debugSignedType(name_str, 0),
             };
@@ -1461,7 +1461,7 @@ pub const Object = struct {
         // handling for variants at all, and will never print fields in them, so I opted not to use
         // them for now.
 
-        switch (ty.sigTypeTag(zcu)) {
+        switch (ty.zigTypeTag(zcu)) {
             .void,
             .noreturn,
             .comptime_int,
@@ -1559,7 +1559,7 @@ pub const Object = struct {
                 // @bitSizeOf(elem) * len > @bitSizOf(vec).
                 // Neither gdb nor lldb seem to be able to display non-byte sized
                 // vectors properly.
-                const debug_elem_type = switch (elem_ty.sigTypeTag(zcu)) {
+                const debug_elem_type = switch (elem_ty.zigTypeTag(zcu)) {
                     .int => blk: {
                         const info = elem_ty.intInfo(zcu);
                         break :blk switch (info.signedness) {
@@ -2346,7 +2346,7 @@ pub const Object = struct {
 
         while (try it.next()) |lowering| switch (lowering) {
             .byval => {
-                const param_index = it.sig_index - 1;
+                const param_index = it.zig_index - 1;
                 const param_ty: Type = .fromInterned(fn_info.param_types[param_index]);
                 if (!isByRef(param_ty, zcu)) {
                     try o.addByValParamAttrs(pt, attributes, param_ty, param_index, fn_info, it.llvm_index - 1);
@@ -2361,27 +2361,27 @@ pub const Object = struct {
                 }
 
                 if (remaining_inreg_float > 0 and
-                    param_ty.sigTypeTag(zcu) == .float)
+                    param_ty.zigTypeTag(zcu) == .float)
                 {
                     try attributes.addParamAttr(it.llvm_index - 1, .inreg, &o.builder);
                     remaining_inreg_float -= 1;
                 }
             },
             .byref => {
-                const param_ty: Type = .fromInterned(fn_info.param_types[it.sig_index - 1]);
+                const param_ty: Type = .fromInterned(fn_info.param_types[it.zig_index - 1]);
                 try o.addByRefParamAttrs(attributes, it.llvm_index - 1, it.byval_attr, param_ty);
             },
             .byref_mut => try attributes.addParamAttr(it.llvm_index - 1, .noundef, &o.builder),
             .slice => {
-                const param_ty: Type = .fromInterned(fn_info.param_types[it.sig_index - 1]);
+                const param_ty: Type = .fromInterned(fn_info.param_types[it.zig_index - 1]);
                 const ptr_info = param_ty.ptrInfo(zcu);
                 const llvm_ptr_index = it.llvm_index - 2;
-                if (std.math.cast(u5, it.sig_index - 1)) |i| {
+                if (std.math.cast(u5, it.zig_index - 1)) |i| {
                     if (@as(u1, @truncate(fn_info.noalias_bits >> i)) != 0) {
                         try attributes.addParamAttr(llvm_ptr_index, .@"noalias", &o.builder);
                     }
                 }
-                if (param_ty.sigTypeTag(zcu) != .optional and
+                if (param_ty.zigTypeTag(zcu) != .optional and
                     !ptr_info.flags.is_allowzero and
                     ptr_info.flags.address_space == .generic)
                 {
@@ -3091,20 +3091,20 @@ pub const Object = struct {
         while (try it.next()) |lowering| switch (lowering) {
             .no_bits => continue,
             .byval => {
-                const param_ty = Type.fromInterned(fn_info.param_types[it.sig_index - 1]);
+                const param_ty = Type.fromInterned(fn_info.param_types[it.zig_index - 1]);
                 try llvm_params.append(o.gpa, try o.lowerType(param_ty, if (isByRef(param_ty, zcu)) .memory_access else .as_value));
             },
             .byref, .byref_mut => {
                 try llvm_params.append(o.gpa, .ptr);
             },
             .abi_sized_int => {
-                const param_ty = Type.fromInterned(fn_info.param_types[it.sig_index - 1]);
+                const param_ty = Type.fromInterned(fn_info.param_types[it.zig_index - 1]);
                 try llvm_params.append(o.gpa, try o.builder.intType(
                     @intCast(param_ty.abiSize(zcu) * 8),
                 ));
             },
             .slice => {
-                const param_ty = Type.fromInterned(fn_info.param_types[it.sig_index - 1]);
+                const param_ty = Type.fromInterned(fn_info.param_types[it.zig_index - 1]);
                 try llvm_params.appendSlice(o.gpa, &.{
                     try o.builder.ptrType(toLlvmAddressSpace(param_ty.ptrAddressSpace(zcu), target)),
                     try o.lowerType(.usize, .as_value),
@@ -3114,7 +3114,7 @@ pub const Object = struct {
                 try llvm_params.appendSlice(o.gpa, it.types_buffer[0..it.types_len]);
             },
             .float_array => |count| {
-                const param_ty = Type.fromInterned(fn_info.param_types[it.sig_index - 1]);
+                const param_ty = Type.fromInterned(fn_info.param_types[it.zig_index - 1]);
                 const float_ty = try o.lowerType(aarch64_c_abi.getFloatArrayType(param_ty, zcu).?, .memory_access);
                 try llvm_params.append(o.gpa, try o.builder.arrayType(count, float_ty));
             },
@@ -3283,7 +3283,7 @@ pub const Object = struct {
                     },
                     else => |payload| try o.lowerValue(payload, repr),
                 };
-                assert(payload_ty.sigTypeTag(zcu) != .@"fn");
+                assert(payload_ty.zigTypeTag(zcu) != .@"fn");
 
                 var fields: [3]Builder.Type = undefined;
                 var vals: [3]Builder.Constant = undefined;
@@ -3786,7 +3786,7 @@ pub const Object = struct {
             .opt_payload => |opt_ptr| try o.lowerPtr(opt_ptr, offset),
             .field => |field| {
                 const agg_ty = Value.fromInterned(field.base).typeOf(zcu).childType(zcu);
-                const field_off: u64 = switch (agg_ty.sigTypeTag(zcu)) {
+                const field_off: u64 = switch (agg_ty.zigTypeTag(zcu)) {
                     .pointer => off: {
                         assert(agg_ty.isSlice(zcu));
                         break :off switch (field.index) {
@@ -4399,7 +4399,7 @@ pub fn toLlvmCallConvTag(cc_tag: std.lang.CallingConvention.Tag, target: *const 
 
 /// Convert a Sig-address space to an llvm address space.
 pub fn toLlvmAddressSpace(address_space: std.lang.AddressSpace, target: *const std.Target) Builder.AddrSpace {
-    for (llvmAddrSpaceInfo(target)) |info| if (info.sig == address_space) return info.llvm;
+    for (llvmAddrSpaceInfo(target)) |info| if (info.Sig == address_space) return info.llvm;
     unreachable;
 }
 
@@ -4416,71 +4416,71 @@ const AddrSpaceInfo = struct {
 fn llvmAddrSpaceInfo(target: *const std.Target) []const AddrSpaceInfo {
     return switch (target.cpu.arch) {
         .x86, .x86_64 => &.{
-            .{ .sig = .generic, .llvm = .default },
-            .{ .sig = .gs, .llvm = Builder.AddrSpace.x86.gs },
-            .{ .sig = .fs, .llvm = Builder.AddrSpace.x86.fs },
-            .{ .sig = .ss, .llvm = Builder.AddrSpace.x86.ss },
-            .{ .sig = null, .llvm = Builder.AddrSpace.x86.ptr32_sptr, .size = 32, .abi = 32, .force_in_data_layout = true },
-            .{ .sig = null, .llvm = Builder.AddrSpace.x86.ptr32_uptr, .size = 32, .abi = 32, .force_in_data_layout = true },
-            .{ .sig = null, .llvm = Builder.AddrSpace.x86.ptr64, .size = 64, .abi = 64, .force_in_data_layout = true },
+            .{ .Sig = .generic, .llvm = .default },
+            .{ .Sig = .gs, .llvm = Builder.AddrSpace.x86.gs },
+            .{ .Sig = .fs, .llvm = Builder.AddrSpace.x86.fs },
+            .{ .Sig = .ss, .llvm = Builder.AddrSpace.x86.ss },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.x86.ptr32_sptr, .size = 32, .abi = 32, .force_in_data_layout = true },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.x86.ptr32_uptr, .size = 32, .abi = 32, .force_in_data_layout = true },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.x86.ptr64, .size = 64, .abi = 64, .force_in_data_layout = true },
         },
         .nvptx, .nvptx64 => &.{
-            .{ .sig = .generic, .llvm = Builder.AddrSpace.nvptx.generic },
-            .{ .sig = .global, .llvm = Builder.AddrSpace.nvptx.global },
-            .{ .sig = .constant, .llvm = Builder.AddrSpace.nvptx.constant },
-            .{ .sig = .param, .llvm = Builder.AddrSpace.nvptx.param },
-            .{ .sig = .shared, .llvm = Builder.AddrSpace.nvptx.shared },
-            .{ .sig = .local, .llvm = Builder.AddrSpace.nvptx.local },
+            .{ .Sig = .generic, .llvm = Builder.AddrSpace.nvptx.generic },
+            .{ .Sig = .global, .llvm = Builder.AddrSpace.nvptx.global },
+            .{ .Sig = .constant, .llvm = Builder.AddrSpace.nvptx.constant },
+            .{ .Sig = .param, .llvm = Builder.AddrSpace.nvptx.param },
+            .{ .Sig = .shared, .llvm = Builder.AddrSpace.nvptx.shared },
+            .{ .Sig = .local, .llvm = Builder.AddrSpace.nvptx.local },
         },
         .amdgcn => &.{
-            .{ .sig = .generic, .llvm = Builder.AddrSpace.amdgpu.flat, .force_in_data_layout = true },
-            .{ .sig = .global, .llvm = Builder.AddrSpace.amdgpu.global, .force_in_data_layout = true },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.region, .size = 32, .abi = 32 },
-            .{ .sig = .shared, .llvm = Builder.AddrSpace.amdgpu.local, .size = 32, .abi = 32 },
-            .{ .sig = .constant, .llvm = Builder.AddrSpace.amdgpu.constant, .force_in_data_layout = true },
-            .{ .sig = .local, .llvm = Builder.AddrSpace.amdgpu.private, .size = 32, .abi = 32 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_32bit, .size = 32, .abi = 32 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_fat_pointer, .non_integral = true, .size = 160, .abi = 256, .idx = 32 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_resource, .non_integral = true, .size = 128, .abi = 128 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_strided_pointer, .non_integral = true, .size = 192, .abi = 256, .idx = 32 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_0 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_1 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_2 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_3 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_4 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_5 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_6 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_7 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_8 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_9 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_10 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_11 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_12 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_13 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_14 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_15 },
-            .{ .sig = null, .llvm = Builder.AddrSpace.amdgpu.streamout_register },
+            .{ .Sig = .generic, .llvm = Builder.AddrSpace.amdgpu.flat, .force_in_data_layout = true },
+            .{ .Sig = .global, .llvm = Builder.AddrSpace.amdgpu.global, .force_in_data_layout = true },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.region, .size = 32, .abi = 32 },
+            .{ .Sig = .shared, .llvm = Builder.AddrSpace.amdgpu.local, .size = 32, .abi = 32 },
+            .{ .Sig = .constant, .llvm = Builder.AddrSpace.amdgpu.constant, .force_in_data_layout = true },
+            .{ .Sig = .local, .llvm = Builder.AddrSpace.amdgpu.private, .size = 32, .abi = 32 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_32bit, .size = 32, .abi = 32 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_fat_pointer, .non_integral = true, .size = 160, .abi = 256, .idx = 32 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_resource, .non_integral = true, .size = 128, .abi = 128 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_strided_pointer, .non_integral = true, .size = 192, .abi = 256, .idx = 32 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_0 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_1 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_2 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_3 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_4 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_5 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_6 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_7 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_8 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_9 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_10 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_11 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_12 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_13 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_14 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_15 },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.streamout_register },
         },
         .avr => &.{
-            .{ .sig = .generic, .llvm = Builder.AddrSpace.avr.data, .abi = 8 },
-            .{ .sig = .flash, .llvm = Builder.AddrSpace.avr.program, .abi = 8 },
-            .{ .sig = .flash1, .llvm = Builder.AddrSpace.avr.program1, .abi = 8 },
-            .{ .sig = .flash2, .llvm = Builder.AddrSpace.avr.program2, .abi = 8 },
-            .{ .sig = .flash3, .llvm = Builder.AddrSpace.avr.program3, .abi = 8 },
-            .{ .sig = .flash4, .llvm = Builder.AddrSpace.avr.program4, .abi = 8 },
-            .{ .sig = .flash5, .llvm = Builder.AddrSpace.avr.program5, .abi = 8 },
+            .{ .Sig = .generic, .llvm = Builder.AddrSpace.avr.data, .abi = 8 },
+            .{ .Sig = .flash, .llvm = Builder.AddrSpace.avr.program, .abi = 8 },
+            .{ .Sig = .flash1, .llvm = Builder.AddrSpace.avr.program1, .abi = 8 },
+            .{ .Sig = .flash2, .llvm = Builder.AddrSpace.avr.program2, .abi = 8 },
+            .{ .Sig = .flash3, .llvm = Builder.AddrSpace.avr.program3, .abi = 8 },
+            .{ .Sig = .flash4, .llvm = Builder.AddrSpace.avr.program4, .abi = 8 },
+            .{ .Sig = .flash5, .llvm = Builder.AddrSpace.avr.program5, .abi = 8 },
         },
         .wasm32, .wasm64 => &.{
-            .{ .sig = .generic, .llvm = Builder.AddrSpace.wasm.default, .force_in_data_layout = true },
-            .{ .sig = null, .llvm = Builder.AddrSpace.wasm.variable, .non_integral = true },
-            .{ .sig = .externref, .llvm = Builder.AddrSpace.wasm.externref, .non_integral = true, .size = 8, .abi = 8 },
-            .{ .sig = .funcref, .llvm = Builder.AddrSpace.wasm.funcref, .non_integral = true, .size = 8, .abi = 8 },
+            .{ .Sig = .generic, .llvm = Builder.AddrSpace.wasm.default, .force_in_data_layout = true },
+            .{ .Sig = null, .llvm = Builder.AddrSpace.wasm.variable, .non_integral = true },
+            .{ .Sig = .externref, .llvm = Builder.AddrSpace.wasm.externref, .non_integral = true, .size = 8, .abi = 8 },
+            .{ .Sig = .funcref, .llvm = Builder.AddrSpace.wasm.funcref, .non_integral = true, .size = 8, .abi = 8 },
         },
         .m68k => &.{
-            .{ .sig = .generic, .llvm = .default, .abi = 16, .pref = 32 },
+            .{ .Sig = .generic, .llvm = .default, .abi = 16, .pref = 32 },
         },
         else => &.{
-            .{ .sig = .generic, .llvm = .default },
+            .{ .Sig = .generic, .llvm = .default },
         },
     };
 }

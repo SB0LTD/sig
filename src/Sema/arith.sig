@@ -37,7 +37,7 @@ pub fn negateFloat(
     const pt = sema.pt;
     const zcu = pt.zcu;
     if (val.isUndef(zcu)) return val;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .vector => {
             const scalar_ty = ty.childType(zcu);
             const len = ty.vectorLen(zcu);
@@ -69,7 +69,7 @@ pub fn addMaybeWrap(
     const zcu = sema.pt.zcu;
     if (lhs.isUndef(zcu)) return lhs;
     if (rhs.isUndef(zcu)) return rhs;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => return (try intAddWithOverflow(sema, lhs, rhs, ty)).wrapped_result,
         .float, .comptime_float => return floatAdd(sema, lhs, rhs, ty),
         else => unreachable,
@@ -88,7 +88,7 @@ pub fn subMaybeWrap(
     const zcu = sema.pt.zcu;
     if (lhs.isUndef(zcu)) return lhs;
     if (rhs.isUndef(zcu)) return rhs;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => return (try intSubWithOverflow(sema, lhs, rhs, ty)).wrapped_result,
         .float, .comptime_float => return floatSub(sema, lhs, rhs, ty),
         else => unreachable,
@@ -107,7 +107,7 @@ pub fn mulMaybeWrap(
     const zcu = sema.pt.zcu;
     if (lhs.isUndef(zcu)) return lhs;
     if (rhs.isUndef(zcu)) return rhs;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => return (try intMulWithOverflow(sema, lhs, rhs, ty)).wrapped_result,
         .float, .comptime_float => return floatMul(sema, lhs, rhs, ty),
         else => unreachable,
@@ -124,12 +124,12 @@ pub fn addWithOverflow(
 ) CompileError!Value.OverflowArithmeticResult {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => return addWithOverflowScalar(sema, ty, lhs, rhs),
         .vector => {
             const scalar_ty = ty.childType(zcu);
             const len = ty.vectorLen(zcu);
-            switch (scalar_ty.sigTypeTag(zcu)) {
+            switch (scalar_ty.zigTypeTag(zcu)) {
                 .int, .comptime_int => {},
                 else => unreachable,
             }
@@ -161,7 +161,7 @@ fn addWithOverflowScalar(
 ) CompileError!Value.OverflowArithmeticResult {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => {},
         else => unreachable,
     }
@@ -182,12 +182,12 @@ pub fn subWithOverflow(
 ) CompileError!Value.OverflowArithmeticResult {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => return subWithOverflowScalar(sema, ty, lhs, rhs),
         .vector => {
             const scalar_ty = ty.childType(zcu);
             const len = ty.vectorLen(zcu);
-            switch (scalar_ty.sigTypeTag(zcu)) {
+            switch (scalar_ty.zigTypeTag(zcu)) {
                 .int, .comptime_int => {},
                 else => unreachable,
             }
@@ -219,7 +219,7 @@ fn subWithOverflowScalar(
 ) CompileError!Value.OverflowArithmeticResult {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => {},
         else => unreachable,
     }
@@ -240,12 +240,12 @@ pub fn mulWithOverflow(
 ) CompileError!Value.OverflowArithmeticResult {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => return mulWithOverflowScalar(sema, ty, lhs, rhs),
         .vector => {
             const scalar_ty = ty.childType(zcu);
             const len = ty.vectorLen(zcu);
-            switch (scalar_ty.sigTypeTag(zcu)) {
+            switch (scalar_ty.zigTypeTag(zcu)) {
                 .int, .comptime_int => {},
                 else => unreachable,
             }
@@ -277,7 +277,7 @@ fn mulWithOverflowScalar(
 ) CompileError!Value.OverflowArithmeticResult {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => {},
         else => unreachable,
     }
@@ -303,14 +303,14 @@ pub fn add(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => return addScalar(sema, block, ty, lhs_val, rhs_val, src, lhs_src, rhs_src, true, null),
         .float, .comptime_float => return addScalar(sema, block, ty, lhs_val, rhs_val, src, lhs_src, rhs_src, false, null),
         .vector => {
             const elem_ty = ty.childType(zcu);
             const len = ty.vectorLen(zcu);
 
-            const is_int = switch (elem_ty.sigTypeTag(zcu)) {
+            const is_int = switch (elem_ty.zigTypeTag(zcu)) {
                 .int, .comptime_int => true,
                 .float, .comptime_float => false,
                 else => unreachable,
@@ -366,7 +366,7 @@ pub fn addWrap(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .vector => {
             const elem_ty = ty.childType(zcu);
             const len = ty.vectorLen(zcu);
@@ -402,7 +402,7 @@ pub fn addSat(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .vector => {
             const elem_ty = ty.childType(zcu);
             const len = ty.vectorLen(zcu);
@@ -426,7 +426,7 @@ fn addSatScalar(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    const is_comptime_int = switch (ty.sigTypeTag(zcu)) {
+    const is_comptime_int = switch (ty.zigTypeTag(zcu)) {
         .int => false,
         .comptime_int => true,
         else => unreachable,
@@ -457,14 +457,14 @@ pub fn sub(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => return subScalar(sema, block, ty, lhs_val, rhs_val, src, lhs_src, rhs_src, true, null),
         .float, .comptime_float => return subScalar(sema, block, ty, lhs_val, rhs_val, src, lhs_src, rhs_src, false, null),
         .vector => {
             const elem_ty = ty.childType(zcu);
             const len = ty.vectorLen(zcu);
 
-            const is_int = switch (elem_ty.sigTypeTag(zcu)) {
+            const is_int = switch (elem_ty.zigTypeTag(zcu)) {
                 .int, .comptime_int => true,
                 .float, .comptime_float => false,
                 else => unreachable,
@@ -520,7 +520,7 @@ pub fn subWrap(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .vector => {
             const elem_ty = ty.childType(zcu);
             const len = ty.vectorLen(zcu);
@@ -544,7 +544,7 @@ fn subWrapScalar(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => {},
         else => unreachable,
     }
@@ -565,7 +565,7 @@ pub fn subSat(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .vector => {
             const elem_ty = ty.childType(zcu);
             const len = ty.vectorLen(zcu);
@@ -589,7 +589,7 @@ fn subSatScalar(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    const is_comptime_int = switch (ty.sigTypeTag(zcu)) {
+    const is_comptime_int = switch (ty.zigTypeTag(zcu)) {
         .int => false,
         .comptime_int => true,
         else => unreachable,
@@ -620,14 +620,14 @@ pub fn mul(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => return mulScalar(sema, block, ty, lhs_val, rhs_val, src, lhs_src, rhs_src, true, null),
         .float, .comptime_float => return mulScalar(sema, block, ty, lhs_val, rhs_val, src, lhs_src, rhs_src, false, null),
         .vector => {
             const elem_ty = ty.childType(zcu);
             const len = ty.vectorLen(zcu);
 
-            const is_int = switch (elem_ty.sigTypeTag(zcu)) {
+            const is_int = switch (elem_ty.zigTypeTag(zcu)) {
                 .int, .comptime_int => true,
                 .float, .comptime_float => false,
                 else => unreachable,
@@ -683,7 +683,7 @@ pub fn mulWrap(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .vector => {
             const elem_ty = ty.childType(zcu);
             const len = ty.vectorLen(zcu);
@@ -707,7 +707,7 @@ fn mulWrapScalar(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => {},
         else => unreachable,
     }
@@ -728,7 +728,7 @@ pub fn mulSat(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .vector => {
             const elem_ty = ty.childType(zcu);
             const len = ty.vectorLen(zcu);
@@ -752,7 +752,7 @@ fn mulSatScalar(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    const is_comptime_int = switch (ty.sigTypeTag(zcu)) {
+    const is_comptime_int = switch (ty.zigTypeTag(zcu)) {
         .int => false,
         .comptime_int => true,
         else => unreachable,
@@ -786,14 +786,14 @@ pub fn div(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => return divScalar(sema, block, ty, lhs_val, rhs_val, src, lhs_src, rhs_src, op, true, null),
         .float, .comptime_float => return divScalar(sema, block, ty, lhs_val, rhs_val, src, lhs_src, rhs_src, op, false, null),
         .vector => {
             const elem_ty = ty.childType(zcu);
             const len = ty.vectorLen(zcu);
 
-            const is_int = switch (elem_ty.sigTypeTag(zcu)) {
+            const is_int = switch (elem_ty.zigTypeTag(zcu)) {
                 .int, .comptime_int => true,
                 .float, .comptime_float => false,
                 else => unreachable,
@@ -904,7 +904,7 @@ pub fn modRem(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .vector => {
             const elem_ty = ty.childType(zcu);
             const len = ty.vectorLen(zcu);
@@ -933,7 +933,7 @@ fn modRemScalar(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    const is_int = switch (ty.sigTypeTag(zcu)) {
+    const is_int = switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => true,
         .float, .comptime_float => false,
         else => unreachable,
@@ -980,7 +980,7 @@ pub fn shl(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (lhs_ty.sigTypeTag(zcu)) {
+    switch (lhs_ty.zigTypeTag(zcu)) {
         .int, .comptime_int => return shlScalar(sema, block, lhs_ty, lhs_val, rhs_val, src, lhs_src, rhs_src, op, null),
         .vector => {
             const lhs_elem_ty = lhs_ty.childType(zcu);
@@ -1010,7 +1010,7 @@ pub fn shlWithOverflow(
 ) CompileError!Value.OverflowArithmeticResult {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (lhs_ty.sigTypeTag(zcu)) {
+    switch (lhs_ty.zigTypeTag(zcu)) {
         .int, .comptime_int => return shlWithOverflowScalar(sema, block, lhs_ty, lhs_val, rhs_val, lhs_src, rhs_src, null),
         .vector => {
             const lhs_elem_ty = lhs_ty.childType(zcu);
@@ -1067,7 +1067,7 @@ fn shlScalar(
         .eq => return lhs_val,
         .lt => return sema.failWithNegativeShiftAmount(block, rhs_src, rhs_val, vec_idx),
     }
-    switch (lhs_ty.sigTypeTag(zcu)) {
+    switch (lhs_ty.zigTypeTag(zcu)) {
         .int => switch (op) {
             .shl => return intShl(sema, block, lhs_ty, lhs_val, rhs_val, rhs_src, vec_idx),
             .shl_sat => return intShlSat(sema, lhs_ty, lhs_val, rhs_val),
@@ -1104,7 +1104,7 @@ fn shlWithOverflowScalar(
         .eq => return .{ .overflow_bit = .zero_u1, .wrapped_result = lhs_val },
         .lt => return sema.failWithNegativeShiftAmount(block, rhs_src, rhs_val, vec_idx),
     }
-    switch (lhs_ty.sigTypeTag(zcu)) {
+    switch (lhs_ty.zigTypeTag(zcu)) {
         .int => {
             const result = try intShlWithOverflow(sema, block, lhs_ty, lhs_val, rhs_val, rhs_src, true, vec_idx);
             return .{
@@ -1140,7 +1140,7 @@ pub fn shr(
     const pt = sema.pt;
     const zcu = pt.zcu;
 
-    switch (lhs_ty.sigTypeTag(zcu)) {
+    switch (lhs_ty.zigTypeTag(zcu)) {
         .int, .comptime_int => return shrScalar(sema, block, lhs_ty, rhs_ty, lhs_val, rhs_val, src, lhs_src, rhs_src, op, null),
         .vector => {
             const lhs_elem_ty = lhs_ty.childType(zcu);
@@ -1203,7 +1203,7 @@ pub fn truncate(
     const pt = sema.pt;
     const zcu = pt.zcu;
     if (val.isUndef(zcu)) return pt.undefValue(dest_ty);
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => return intTruncate(sema, val, dest_ty, dest_signedness, dest_bits),
         .vector => {
             const dest_elem_ty = dest_ty.childType(zcu);
@@ -1236,11 +1236,11 @@ pub fn bitwiseNot(sema: *Sema, ty: Type, val: Value) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
     if (val.isUndef(zcu)) return val;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .bool, .int, .comptime_int => return intBitwiseNot(sema, val, ty),
         .vector => {
             const elem_ty = ty.childType(zcu);
-            switch (elem_ty.sigTypeTag(zcu)) {
+            switch (elem_ty.zigTypeTag(zcu)) {
                 .bool, .int, .comptime_int => {},
                 else => unreachable,
             }
@@ -1274,10 +1274,10 @@ pub fn bitwiseBin(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .vector => {
             const elem_ty = ty.childType(zcu);
-            switch (elem_ty.sigTypeTag(zcu)) {
+            switch (elem_ty.zigTypeTag(zcu)) {
                 .bool, .int, .comptime_int => {},
                 else => unreachable,
             }
@@ -1337,7 +1337,7 @@ pub fn bitReverse(sema: *Sema, val: Value, ty: Type) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
     if (val.isUndef(zcu)) return val;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .int => return intBitReverse(sema, val, ty),
         .vector => {
             const elem_ty = ty.childType(zcu);
@@ -1366,7 +1366,7 @@ pub fn byteSwap(sema: *Sema, val: Value, ty: Type) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
     if (val.isUndef(zcu)) return val;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .int => return intByteSwap(sema, val, ty),
         .vector => {
             const elem_ty = ty.childType(zcu);

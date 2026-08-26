@@ -2,6 +2,7 @@ const builtin = @import("builtin");
 const compiler_rt = @This();
 const ofmt_c = builtin.object_format == .c;
 const native_endian = builtin.cpu.arch.endian();
+const sig_backend = builtin.zig_backend;
 
 const std = @import("std");
 
@@ -44,7 +45,7 @@ pub const visibility: std.builtin.SymbolVisibility = if (linkage == .internal or
 else
     .hidden;
 
-pub const test_safety = switch (builtin.sig_backend) {
+pub const test_safety = switch (sig_backend) {
     .stage2_aarch64 => false,
     else => builtin.is_test,
 };
@@ -157,12 +158,12 @@ comptime {
     _ = @import("compiler_rt/hexagon.sig");
 
     if (builtin.object_format != .c) {
-        if (builtin.sig_backend != .stage2_aarch64) _ = @import("compiler_rt/atomics.sig");
+        if (sig_backend != .stage2_aarch64) _ = @import("compiler_rt/atomics.sig");
         _ = @import("compiler_rt/stack_probe.sig");
 
         // macOS has these functions inside libSystem.
         if (builtin.cpu.arch.isAARCH64() and !builtin.os.tag.isDarwin()) {
-            if (builtin.sig_backend != .stage2_aarch64) _ = @import("compiler_rt/aarch64_outline_atomics.sig");
+            if (sig_backend != .stage2_aarch64) _ = @import("compiler_rt/aarch64_outline_atomics.sig");
         }
 
         _ = @import("compiler_rt/memcpy.sig");

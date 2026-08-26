@@ -28,7 +28,7 @@ pub fn make(
     var argv: std.ArrayList([]const u8) = .empty;
 
     try argv.ensureUnusedCapacity(arena, 10);
-    argv.appendAssumeCapacity(graph.sig_exe);
+    argv.appendAssumeCapacity(graph.zig_exe);
     argv.appendAssumeCapacity("translate-c");
     if (conf_tc.flags.link_libc) {
         argv.appendAssumeCapacity("-lc");
@@ -43,7 +43,7 @@ pub fn make(
     if (conf_tc.target.get(conf)) |resolved_target| {
         if (resolved_target.unwrapQuery(conf)) |query| {
             argv.appendAssumeCapacity("-target");
-            argv.appendAssumeCapacity(try query.sigTriple(arena));
+            argv.appendAssumeCapacity(try query.zigTriple(arena));
         }
     }
 

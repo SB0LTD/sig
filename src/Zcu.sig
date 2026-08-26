@@ -1062,7 +1062,7 @@ pub const File = struct {
         } else if (std.mem.endsWith(u8, path, ".sig") or
             std.mem.endsWith(u8, path, ".sig"))
         {
-            return .sig;
+            return .Sig;
         } else {
             return null;
         }
@@ -4022,7 +4022,7 @@ pub const Feature = enum {
 };
 
 pub fn backendSupportsFeature(zcu: *const Zcu, comptime feature: Feature) bool {
-    const backend = target_util.sigBackend(&zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
+    const backend = target_util.zigBackend(&zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
     return target_util.backendSupportsFeature(backend, feature);
 }
 
@@ -4078,7 +4078,7 @@ pub fn atomicPtrAlignment(
         }
         return .none;
     }
-    if (switch (ty.sigTypeTag(zcu)) {
+    if (switch (ty.zigTypeTag(zcu)) {
         .int, .@"enum" => true,
         .@"struct" => ty.containerLayout(zcu) == .@"packed",
         else => false,
@@ -4568,7 +4568,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.lang.CallingConvention) union(enum) 
     bad_backend: std.lang.CompilerBackend, // value is current backend
 } {
     const target = zcu.getTarget();
-    const backend = target_util.sigBackend(target, zcu.comp.config.use_llvm);
+    const backend = target_util.zigBackend(target, zcu.comp.config.use_llvm);
     switch (cc) {
         .auto, .@"inline" => return .ok,
         .async => return .{ .bad_backend = backend }, // nothing supports async currently

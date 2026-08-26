@@ -51,7 +51,7 @@ fn csuPath(comp: *Compilation, arena: Allocator, sub_path: []const u8) ![]const 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
 /// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.sig for example.
 pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) anyerror!void {
-    if (!build_options.have_llvm) return error.sigCompilerNotBuiltWithLLVMExtensions;
+    if (!build_options.have_llvm) return error.ZigCompilerNotBuiltWithLLVMExtensions;
 
     const gpa = comp.gpa;
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
@@ -248,7 +248,7 @@ pub const abilists_path = "libc" ++ path.sep_str ++ "netbsd" ++ path.sep_str ++ 
 pub const abilists_max_size = 300 * 1024; // Bigger than this and something is definitely borked.
 
 /// This function will emit a log error when there is a problem with the Sig
-/// installation and then return `error.sigInstallationCorrupt`.
+/// installation and then return `error.ZigInstallationCorrupt`.
 pub fn loadMetaData(gpa: Allocator, contents: []const u8) LoadMetaDataError!*ABI {
     const tracy = trace(@src());
     defer tracy.end();
@@ -271,7 +271,7 @@ pub fn loadMetaData(gpa: Allocator, contents: []const u8) LoadMetaDataError!*ABI
             if (i >= libs.len or !mem.eql(u8, libs[i].name, lib_name)) {
                 log.err("libc" ++ path.sep_str ++ "netbsd" ++ path.sep_str ++
                     "abilists: invalid library name or index ({d}): '{s}'", .{ i, lib_name });
-                return error.sigInstallationCorrupt;
+                return error.ZigInstallationCorrupt;
             }
         }
     }
@@ -306,27 +306,27 @@ pub fn loadMetaData(gpa: Allocator, contents: []const u8) LoadMetaDataError!*ABI
             var component_it = mem.tokenizeScalar(u8, target_name, '-');
             const arch_name = component_it.next() orelse {
                 log.err("abilists: expected arch name", .{});
-                return error.sigInstallationCorrupt;
+                return error.ZigInstallationCorrupt;
             };
             const os_name = component_it.next() orelse {
                 log.err("abilists: expected OS name", .{});
-                return error.sigInstallationCorrupt;
+                return error.ZigInstallationCorrupt;
             };
             const abi_name = component_it.next() orelse {
                 log.err("abilists: expected ABI name", .{});
-                return error.sigInstallationCorrupt;
+                return error.ZigInstallationCorrupt;
             };
             const arch_tag = std.meta.stringToEnum(std.Target.Cpu.Arch, arch_name) orelse {
                 log.err("abilists: unrecognized arch: '{s}'", .{arch_name});
-                return error.sigInstallationCorrupt;
+                return error.ZigInstallationCorrupt;
             };
             if (!mem.eql(u8, os_name, "netbsd")) {
                 log.err("abilists: expected OS 'netbsd', found '{s}'", .{os_name});
-                return error.sigInstallationCorrupt;
+                return error.ZigInstallationCorrupt;
             }
             const abi_tag = std.meta.stringToEnum(std.Target.Abi, abi_name) orelse {
                 log.err("abilists: unrecognized ABI: '{s}'", .{abi_name});
-                return error.sigInstallationCorrupt;
+                return error.ZigInstallationCorrupt;
             };
 
             targets[i] = .{
@@ -374,7 +374,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     defer tracy.end();
 
     if (!build_options.have_llvm) {
-        return error.sigCompilerNotBuiltWithLLVMExtensions;
+        return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
 
     const gpa = comp.gpa;

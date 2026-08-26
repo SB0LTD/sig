@@ -24,7 +24,7 @@ const runner_threaded_io: Io = Io.Threaded.global_single_threaded.io();
 
 /// Keep in sync with logic in `std.Build.addRunArtifact` which decides whether
 /// the test runner will communicate with the build runner via `std.sig.Server`.
-const need_simple = switch (builtin.sig_backend) {
+const need_simple = switch (builtin.zig_backend) {
     .stage2_aarch64,
     .stage2_loongarch,
     .stage2_powerpc,
@@ -366,12 +366,12 @@ pub fn log(
 pub fn mainSimple() anyerror!void {
     @disableInstrumentation();
     // is the backend capable of calling `Io.File.writeAll`?
-    const enable_write = switch (builtin.sig_backend) {
+    const enable_write = switch (builtin.zig_backend) {
         .stage2_aarch64, .stage2_riscv64 => true,
         else => false,
     };
     // is the backend capable of calling `Io.Writer.print`?
-    const enable_print = switch (builtin.sig_backend) {
+    const enable_print = switch (builtin.zig_backend) {
         .stage2_aarch64, .stage2_riscv64 => true,
         else => false,
     };

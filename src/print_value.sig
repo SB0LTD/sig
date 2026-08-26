@@ -173,7 +173,7 @@ pub fn print(
                 return writer.writeAll(".{ ... }");
             }
             const ty: Type = .fromInterned(bitpack.ty);
-            switch (ty.sigTypeTag(zcu)) {
+            switch (ty.zigTypeTag(zcu)) {
                 .@"struct" => {
                     if (ty.structFieldCount(zcu) == 0) {
                         return writer.writeAll(".{}");
@@ -224,7 +224,7 @@ fn printAggregate(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const ty = Type.fromInterned(aggregate.ty);
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .@"struct" => if (!ty.isTuple(zcu)) {
             if (is_ref) try writer.writeByte('&');
             if (ty.structFieldCount(zcu) == 0) {
@@ -424,7 +424,7 @@ pub fn printPtrDerivation(
         .field_ptr => |field| root: {
             const root = try printPtrDerivation(field.parent.*, writer, pt, null, root_strat, ptr_depth - 1);
             const agg_ty = (try field.parent.ptrType(pt)).childType(zcu);
-            switch (agg_ty.sigTypeTag(zcu)) {
+            switch (agg_ty.zigTypeTag(zcu)) {
                 .@"struct" => if (agg_ty.structFieldName(field.field_idx, zcu).unwrap()) |field_name| {
                     try writer.print(".{f}", .{field_name.fmt(ip)});
                 } else {

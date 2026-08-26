@@ -103,7 +103,7 @@ pub fn classifyWindows(init_ty: Type, zcu: *Zcu, target: *const std.Target, ctx:
     // "Structs and unions of size 8, 16, 32, or 64 bits, and __m64 types, are passed
     // as if they were integers of the same size."
     var ty = init_ty;
-    while (true) return switch (ty.sigTypeTag(zcu)) {
+    while (true) return switch (ty.zigTypeTag(zcu)) {
         .void => return .none,
         .bool,
         .pointer,
@@ -120,7 +120,7 @@ pub fn classifyWindows(init_ty: Type, zcu: *Zcu, target: *const std.Target, ctx:
         => switch (ty.abiSize(zcu)) {
             0 => .none,
             1, 2, 4, 8 => .integer,
-            else => switch (ty.sigTypeTag(zcu)) {
+            else => switch (ty.zigTypeTag(zcu)) {
                 .int => .win_i128,
                 .@"struct", .@"union" => if (ty.containerLayout(zcu) == .@"packed")
                     .win_i128
@@ -182,7 +182,7 @@ pub fn classifyWindows(init_ty: Type, zcu: *Zcu, target: *const std.Target, ctx:
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
 pub fn classifySystemV(ty: Type, zcu: *Zcu, target: *const std.Target, ctx: Context) [8]Class {
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .void => return Class.zero_bit,
         .bool => return Class.one_integer,
         .noreturn => unreachable,
@@ -380,7 +380,7 @@ fn classifySystemVStruct(
                 },
                 .@"packed" => {},
             }
-        } else if (field_ty.sigTypeTag(zcu) == .array) {
+        } else if (field_ty.zigTypeTag(zcu) == .array) {
             byte_offset = classifySystemVArray(result, byte_offset, field_ty, zcu, target);
             continue;
         }
@@ -422,7 +422,7 @@ fn classifySystemVUnion(
                 },
                 .@"packed" => {},
             }
-        } else if (field_ty.sigTypeTag(zcu) == .array) {
+        } else if (field_ty.zigTypeTag(zcu) == .array) {
             _ = classifySystemVArray(result, starting_byte_offset, field_ty, zcu, target);
             continue;
         }

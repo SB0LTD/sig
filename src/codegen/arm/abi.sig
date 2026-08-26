@@ -28,7 +28,7 @@ pub fn classifyType(ty: Type, zcu: *Zcu, ctx: Context) Class {
     var maybe_float_bits: ?u16 = null;
     const max_byval_size = 512;
     const ip = &zcu.intern_pool;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .@"struct" => {
             if (ty.containerLayout(zcu) == .@"packed") {
                 if (ty.bitSize(zcu) > 64) return .memory;
@@ -127,7 +127,7 @@ fn countFloats(ty: Type, zcu: *Zcu, maybe_float_bits: *?u16) u32 {
     const ip = &zcu.intern_pool;
     const target = zcu.getTarget();
     const invalid = std.math.maxInt(u32);
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .@"union" => {
             const union_obj = zcu.typeToUnion(ty).?;
             var max_count: u32 = 0;

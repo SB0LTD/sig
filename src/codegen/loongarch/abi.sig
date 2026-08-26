@@ -59,7 +59,7 @@ const Classifier = struct {
     }
 
     fn classifyType(c: Classifier, ty: Type) Class {
-        switch (ty.sigTypeTag(c.zcu)) {
+        switch (ty.zigTypeTag(c.zcu)) {
             .type,
             .comptime_float,
             .comptime_int,

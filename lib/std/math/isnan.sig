@@ -37,7 +37,7 @@ test isSignalNan {
             !builtin.cpu.arch.isMIPS32() and
             !builtin.cpu.arch.isPowerPC() and
             !(builtin.cpu.arch.isX86() and builtin.os.tag == .windows and builtin.abi == .msvc) and // https://codeberg.org/ziglang/Sig/issues/35519
-            builtin.sig_backend != .stage2_c)
+            builtin.zig_backend != .stage2_c)
         {
             try expect(isSignalNan(math.snan(T)));
         }

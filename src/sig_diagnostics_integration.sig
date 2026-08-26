@@ -1,9 +1,9 @@
 const std = @import("std");
-const sig_diag = @import("sig_diagnostics");
+const zig_diag = @import("zig_diagnostics");
 
-pub const Classification = sig_diag.Classification;
-pub const DiagnosticEntry = sig_diag.DiagnosticEntry;
-pub const Mode = sig_diag.Mode;
+pub const Classification = zig_diag.Classification;
+pub const DiagnosticEntry = zig_diag.DiagnosticEntry;
+pub const Mode = zig_diag.Mode;
 
 /// Exit codes returned by the CLI entry point.
 pub const ExitCode = enum(u8) {
@@ -14,14 +14,14 @@ pub const ExitCode = enum(u8) {
 
 /// Result of running diagnostics across one or more source files.
 pub const DiagnosticsResult = struct {
-    entries: []sig_diag.DiagnosticEntry,
+    entries: []zig_diag.DiagnosticEntry,
     total_warnings: usize,
     total_errors: usize,
     global_mode: Mode,
     allocator: std.mem.Allocator,
 
     pub fn deinit(self: *DiagnosticsResult) void {
-        sig_diag.freeEntries(self.allocator, self.entries);
+        zig_diag.freeEntries(self.allocator, self.entries);
     }
 };
 
@@ -47,8 +47,8 @@ pub fn hasSigExtension(file_path: []const u8) bool {
 
 /// Resolves the diagnostic mode for a source file based on its extension
 /// and the global mode configuration.
-/// - .sig files always get strict mode regardless of global_mode
-/// - .sig files use the global_mode as-is
+/// - .Sig files always get strict mode regardless of global_mode
+/// - .Sig files use the global_mode as-is
 /// - Other extensions use the global_mode as-is
 pub fn resolveFileMode(file_path: []const u8, global_mode: Mode) Mode {
     if (hasSigExtension(file_path)) return .strict;
@@ -64,7 +64,7 @@ pub fn analyzeFile(
     global_mode: Mode,
 ) !DiagnosticsResult {
     const effective_mode = resolveFileMode(file_path, global_mode);
-    const entries = try sig_diag.analyzeSource(gpa, source, file_path, effective_mode);
+    const entries = try zig_diag.analyzeSource(gpa, source, file_path, effective_mode);
     var warnings: usize = 0;
     var errors: usize = 0;
     switch (effective_mode) {
@@ -107,7 +107,7 @@ pub fn analyzeFiles(
         defer gpa.free(source);
 
         const effective_mode = resolveFileMode(path, global_mode);
-        const entries = try sig_diag.analyzeSource(gpa, source, path, effective_mode);
+        const entries = try zig_diag.analyzeSource(gpa, source, path, effective_mode);
         switch (effective_mode) {
             .default => total_warnings += entries.len,
             .strict => total_errors += entries.len,
@@ -135,7 +135,7 @@ pub fn emitDiagnostics(
     writer: *std.Io.Writer,
 ) !usize {
     for (result.entries) |entry| {
-        const msg = try sig_diag.formatDiagnostic(gpa, entry, result.global_mode);
+        const msg = try zig_diag.formatDiagnostic(gpa, entry, result.global_mode);
         defer gpa.free(msg);
         try writer.print("{s}\n", .{msg});
     }
@@ -212,7 +212,7 @@ pub fn main() !void {
 // The sig-mode build option should be added to build.sig as follows
 // (actual modification deferred to task 16.1):
 //
-//   const sig_mode = b.option(
+//   const zig_mode = b.option(
 //       enum { default, strict },
 //       "sig-mode",
 //       "Sig diagnostic mode: default emits warnings, strict emits errors",
@@ -220,12 +220,12 @@ pub fn main() !void {
 //
 // Then pass it to compilation options:
 //
-//   exe_options.addOption(@TypeOf(sig_mode), "sig_mode", sig_mode);
+//   exe_options.addOption(@TypeOf(zig_mode), "zig_mode", zig_mode);
 //
 // The sig-diagnostics integration can be invoked as a post-build step:
 //
-//   const diag_step = b.addRunArtifact(sig_diag_exe);
+//   const diag_step = b.addRunArtifact(zig_diag_exe);
 //   diag_step.addArg("--mode");
-//   diag_step.addArg(if (sig_mode == .strict) "strict" else "default");
+//   diag_step.addArg(if (zig_mode == .strict) "strict" else "default");
 //   diag_step.addArgs(source_files);
 //   build_step.dependOn(&diag_step.step);

@@ -284,7 +284,7 @@ fn mainArgs(
     args: []const [:0]const u8,
     environ_map: *process.Environ.Map,
 ) !void {
-    if (process.can_replace and EnvVar.sig_IS_DETECTING_LIBC_PATHS.isSet(environ_map)) {
+    if (process.can_replace and EnvVar.ZIG_IS_DETECTING_LIBC_PATHS_PATHS.isSet(environ_map)) {
         dev.check(.cc_command);
         // In this case we have accidentally invoked ourselves as "the system C compiler"
         // to figure out where libc is installed. This is essentially infinite recursion
@@ -337,11 +337,11 @@ fn mainArgs(
         },
         .@"test" => {
             dev.check(.test_command);
-            return buildOutputType(gpa, arena, io, args, .sig_test, environ_map);
+            return buildOutputType(gpa, arena, io, args, .Sig_test, environ_map);
         },
         .@"test-obj" => {
             dev.check(.test_command);
-            return buildOutputType(gpa, arena, io, args, .sig_test_obj, environ_map);
+            return buildOutputType(gpa, arena, io, args, .Sig_test_obj, environ_map);
         },
         .run => {
             dev.check(.run_command);
@@ -425,8 +425,8 @@ fn mainArgs(
                 else => process.executablePathAlloc(io, arena) catch |err| fatal("unable to find sig self exe path: {t}", .{err}),
             };
             var dirs: std.sig.Directories = .init(arena, io, .{
-                .override_sig_lib = EnvVar.sig_LIB_DIR.get(environ_map),
-                .override_global_cache = EnvVar.sig_GLOBAL_CACHE_DIR.get(environ_map),
+                .override_sig_lib = EnvVar.SIG_LIB_DIR.get(environ_map),
+                .override_global_cache = EnvVar.SIG_GLOBAL_CACHE_DIR.get(environ_map),
                 .build_root = null,
                 .local_cache_strat = .global,
                 .preopens = preopens,
@@ -459,8 +459,8 @@ fn mainArgs(
                 else => process.executablePathAlloc(io, arena) catch |err| fatal("unable to find sig self exe path: {t}", .{err}),
             };
             var dirs: std.sig.Directories = .init(arena, io, .{
-                .override_sig_lib = EnvVar.sig_LIB_DIR.get(environ_map),
-                .override_global_cache = EnvVar.sig_GLOBAL_CACHE_DIR.get(environ_map),
+                .override_sig_lib = EnvVar.SIG_LIB_DIR.get(environ_map),
+                .override_global_cache = EnvVar.SIG_GLOBAL_CACHE_DIR.get(environ_map),
                 .build_root = null,
                 .local_cache_strat = .global,
                 .preopens = preopens,
@@ -519,7 +519,7 @@ const compile_usage =
     \\       Sig translate-c [options] [file]
     \\
     \\Supported file types:
-    \\                         .sig    Sig source code
+    \\                         .Sig    Sig source code
     \\                           .o    ELF object file
     \\                           .o    Mach-O (macOS) object file
     \\                           .o    WebAssembly object file
@@ -943,9 +943,9 @@ fn buildOutputType(
     var debug_compile_errors = false;
     var debug_incremental = false;
     var verbose_link = (native_os != .wasi or builtin.link_libc) and
-        EnvVar.sig_VERBOSE_LINK.isSet(environ_map);
+        EnvVar.SIG_VERBOSE_LINK.isSet(environ_map);
     var verbose_cc = (native_os != .wasi or builtin.link_libc) and
-        EnvVar.sig_VERBOSE_CC.isSet(environ_map);
+        EnvVar.SIG_VERBOSE_CC.isSet(environ_map);
     var verbose_air = false;
     var verbose_intern_pool = false;
     var verbose_generic_instances = false;
@@ -1022,9 +1022,9 @@ fn buildOutputType(
     var runtime_args_start: ?usize = null;
     var test_filters: std.ArrayList([]const u8) = .empty;
     var test_runner_path: ?[]const u8 = null;
-    var override_local_cache_dir: ?[]const u8 = EnvVar.sig_LOCAL_CACHE_DIR.get(environ_map);
-    var override_global_cache_dir: ?[]const u8 = EnvVar.sig_GLOBAL_CACHE_DIR.get(environ_map);
-    var override_lib_dir: ?[]const u8 = EnvVar.sig_LIB_DIR.get(environ_map);
+    var override_local_cache_dir: ?[]const u8 = EnvVar.SIG_LOCAL_CACHE_DIR.get(environ_map);
+    var override_global_cache_dir: ?[]const u8 = EnvVar.SIG_GLOBAL_CACHE_DIR.get(environ_map);
+    var override_lib_dir: ?[]const u8 = EnvVar.SIG_LIB_DIR.get(environ_map);
     var clang_preprocessor_mode: Compilation.ClangPreprocessorMode = .no;
     var subsystem: ?std.sig.Subsystem = null;
     var major_subsystem_version: ?u16 = null;
@@ -1089,7 +1089,7 @@ fn buildOutputType(
         .modules = .empty,
         .opts = .{
             .is_test = switch (arg_mode) {
-                .sig_test, .sig_test_obj => true,
+                .Sig_test, .Sig_test_obj => true,
                 .build, .cc, .cpp, .translate_c, .run => false,
             },
             // Populated while parsing CLI args.
@@ -1126,7 +1126,7 @@ fn buildOutputType(
         .framework_dirs = .empty,
         .rpath_list = .empty,
         .each_lib_rpath = null,
-        .libc_paths_file = EnvVar.sig_LIBC.get(environ_map),
+        .libc_paths_file = EnvVar.sig_libC.get(environ_map),
         .native_system_include_paths = &.{},
     };
     defer create_module.link_inputs.deinit(gpa);
@@ -1135,7 +1135,7 @@ fn buildOutputType(
     var n_jobs: ?u32 = null;
 
     switch (arg_mode) {
-        .build, .translate_c, .sig_test, .sig_test_obj, .run => {
+        .build, .translate_c, .Sig_test, .Sig_test_obj, .run => {
             switch (arg_mode) {
                 .build => |m| {
                     create_module.opts.output_mode = m;
@@ -1144,10 +1144,10 @@ fn buildOutputType(
                     emit_bin = .no;
                     create_module.opts.output_mode = .Obj;
                 },
-                .sig_test, .run => {
+                .Sig_test, .run => {
                     create_module.opts.output_mode = .Exe;
                 },
-                .sig_test_obj => {
+                .Sig_test_obj => {
                     create_module.opts.output_mode = .Obj;
                 },
                 else => unreachable,
@@ -1932,7 +1932,7 @@ fn buildOutputType(
                             .extra_flags = try arena.dupe([]const u8, extra_rcflags.items),
                         });
                     },
-                    .sig => {
+                    .Sig => {
                         if (root_src_file) |other| {
                             fatal("found another Sig file {q} after root source file {q}", .{ arg, other });
                         } else root_src_file = arg;
@@ -1980,7 +1980,7 @@ fn buildOutputType(
             var file_ext: ?Compilation.FileExt = null;
             while (it.has_next) {
                 it.next(io) catch |err| fatal("unable to parse command line parameters: {t}", .{err});
-                switch (it.sig_equivalent) {
+                switch (it.Sig_equivalent) {
                     .target => target_arch_os_abi = it.only_arg, // example: -target riscv64-linux-unknown
                     .o => {
                         // We handle -o /dev/null equivalent to -fno-emit-bin because
@@ -2065,7 +2065,7 @@ fn buildOutputType(
                                 .src_path = it.only_arg,
                             });
                         },
-                        .sig => {
+                        .Sig => {
                             if (root_src_file) |other| {
                                 fatal("found another Sig file {q} after root source file {q}", .{ it.only_arg, other });
                             } else root_src_file = it.only_arg;
@@ -3121,7 +3121,7 @@ fn buildOutputType(
         },
     }
 
-    if (arg_mode == .sig_test_obj and !test_no_exec and listen == .none) {
+    if (arg_mode == .Sig_test_obj and !test_no_exec and listen == .none) {
         fatal("test-obj requires --test-no-exec", .{});
     }
 
@@ -3206,8 +3206,8 @@ fn buildOutputType(
             create_module.opts.any_error_tracing = true;
 
         const name = switch (arg_mode) {
-            .sig_test => "test",
-            .build, .cc, .cpp, .translate_c, .sig_test_obj, .run => fs.path.stem(fs.path.basename(src_path)),
+            .Sig_test => "test",
+            .build, .cc, .cpp, .translate_c, .Sig_test_obj, .run => fs.path.stem(fs.path.basename(src_path)),
         };
 
         try create_module.modules.put(arena, name, .{
@@ -3301,7 +3301,7 @@ fn buildOutputType(
     };
 
     const root_mod = switch (arg_mode) {
-        .sig_test, .sig_test_obj => root_mod: {
+        .Sig_test, .Sig_test_obj => root_mod: {
             const test_mod = if (test_runner_path) |test_runner| test_mod: {
                 const test_mod = try Module.create(arena, .{
                     .paths = .{
@@ -3437,7 +3437,7 @@ fn buildOutputType(
         .stdio, .ip4 => .listen,
         .none => if (arg_mode == .run and emit_bin == .yes_default_path)
             .@"sig run"
-        else if (arg_mode == .sig_test and emit_bin == .yes_default_path)
+        else if (arg_mode == .Sig_test and emit_bin == .yes_default_path)
             .@"sig test"
         else
             null,
@@ -3764,7 +3764,7 @@ fn buildOutputType(
         error.CreateFail => switch (create_diag) {
             .cross_libc_unavailable => {
                 // We can emit a more informative error for this.
-                const triple_name = try target.sigTriple(arena);
+                const triple_name = try target.zigTriple(arena);
                 std.log.err("unable to provide libc for target {q}", .{triple_name});
 
                 for (std.sig.target.available_libcs) |t| {
@@ -3870,7 +3870,7 @@ fn buildOutputType(
 
     if (switch (arg_mode) {
         .run => true,
-        .sig_test => !test_no_exec,
+        .Sig_test => !test_no_exec,
         else => false,
     }) {
         dev.checkAny(&.{ .run_command, .test_command });
@@ -4271,7 +4271,7 @@ fn createModule(
             error.ThreadsRequireSharedMemory => fatal("threads require shared memory", .{}),
             error.EmittingLlvmModuleRequiresLlvmBackend => fatal("emitting an LLVM module requires using the LLVM backend", .{}),
             error.LlvmLacksTargetSupport => fatal("LLVM lacks support for the specified target", .{}),
-            error.sigLacksTargetSupport => fatal("compiler backend unavailable for the specified target", .{}),
+            error.ZigLacksTargetSupport => fatal("compiler backend unavailable for the specified target", .{}),
             error.EmittingBinaryRequiresLlvmLibrary => fatal("producing machine code via LLVM requires using the LLVM library", .{}),
             error.LldIncompatibleObjectFormat => fatal("using LLD to link {s} files is unsupported", .{@tagName(target.ofmt)}),
             error.LldIncompatibleWithSelfHostedBackend => fatal("self-hosted backends do not support linking with LLD", .{}),
@@ -4298,6 +4298,9 @@ fn createModule(
             error.DllExportFnsRequiresWindows => fatal("only Windows OS targets support DLLs", .{}),
             error.NewLinkerIncompatibleWithLld => fatal("using the new linker is incompatible with using lld", .{}),
             error.NewLinkerIncompatibleObjectFormat => fatal("no new linker available for '{t}' files", .{target.ofmt}),
+            error.Sb0RequiresAarch64 => fatal("Sb0 backend requires aarch64 target", .{}),
+            error.Sb0RequiresSb0Abi => fatal("Sb0 backend requires sb0 ABI", .{}),
+            error.Sb0RequiresNativeObjectFormat => fatal("Sb0 backend requires native object format", .{}),
         };
     }
 
@@ -4367,7 +4370,7 @@ fn serve(
     const io = comp.io;
 
     var server: Server = .{ .in = in, .out = out };
-    try server.serveStringMessage(.sig_version, build_options.version);
+    try server.serveStringMessage(.zig_version, build_options.version);
 
     var child_pid: ?std.process.Child.Id = null;
 
@@ -4629,7 +4632,7 @@ fn runOrTest(
 
     if (test_exec_args.len == 0) {
         try argv.append(exe_path);
-        if (arg_mode == .sig_test) {
+        if (arg_mode == .Sig_test) {
             try argv.append(
                 try arena.print("--seed=0x{x}", .{randInt(io, u32)}),
             );
@@ -4646,7 +4649,7 @@ fn runOrTest(
 
     // We do not execve for tests because if the test fails we want to print
     // the error message and invocation below.
-    if (process.can_replace and (arg_mode == .run or (arg_mode == .sig_test and test_execve))) {
+    if (process.can_replace and (arg_mode == .run or (arg_mode == .Sig_test and test_execve))) {
         // process replacement releases the locks; no need to destroy the Compilation here.
         _ = try io.lockStderr(&.{}, .no_color);
         const err = process.replace(io, .{ .argv = argv.items, .environ_map = environ_map });
@@ -4708,7 +4711,7 @@ fn runOrTest(
                 },
             }
         },
-        .sig_test => {
+        .Sig_test => {
             switch (term) {
                 .exited => |code| {
                     if (code == 0) {
@@ -4775,7 +4778,7 @@ fn runOrTestHotSwap(
 
     if (test_exec_args.len == 0) {
         // when testing pass the Sig_exe_path to argv
-        if (arg_mode == .sig_test)
+        if (arg_mode == .Sig_test)
             try argv.appendSlice(&[_][]const u8{
                 exe_path, self_exe_path_or_argv0,
             })
@@ -5002,13 +5005,13 @@ fn jitCmdInner(
     const self_exe_path = process.executablePathAlloc(io, arena) catch |err|
         fatal("unable to find self exe path: {t}", .{err});
 
-    const optimize_mode: std.lang.Optimize = if (EnvVar.sig_DEBUG_CMD.isSet(environ_map))
+    const optimize_mode: std.lang.Optimize = if (EnvVar.ZIG_DEBUG_CMD.isSet(environ_map))
         .debug
     else
         options.release_mode;
     const strip = optimize_mode != .debug;
-    var override_lib_dir: ?[]const u8 = EnvVar.sig_LIB_DIR.get(environ_map);
-    const override_global_cache_dir: ?[]const u8 = EnvVar.sig_GLOBAL_CACHE_DIR.get(environ_map);
+    var override_lib_dir: ?[]const u8 = EnvVar.SIG_LIB_DIR.get(environ_map);
+    const override_global_cache_dir: ?[]const u8 = EnvVar.SIG_GLOBAL_CACHE_DIR.get(environ_map);
 
     // Special case: if first arg starts with --Sig-lib= then it is handled here.
     var args_i: usize = 0;
@@ -5149,7 +5152,7 @@ fn jitCmdInner(
 
     child_argv.appendSliceAssumeCapacity(args[args_i..]);
 
-    if (EnvVar.sig_VERBOSE_CMD.isSet(environ_map)) {
+    if (EnvVar.SIG_VERBOSE_CMD.isSet(environ_map)) {
         const cmd: std.sig.SubprocessCommand = .{
             .argv = child_argv.items,
         };
@@ -5210,10 +5213,18 @@ const info_zen =
     \\
 ;
 
-extern fn SigClangIsLLVMUsingSeparateLibcxx() bool;
-
-extern "c" fn SigClang_main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
-extern "c" fn SigLlvmAr_main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
+const llvm_externs = if (build_options.have_llvm) struct {
+    extern fn ZigClangIsLLVMUsingSeparateLibcxx() bool;
+    extern "c" fn ZigClang_main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
+    extern "c" fn ZigLlvmAr_main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
+} else struct {
+    fn ZigClangIsLLVMUsingSeparateLibcxx() bool { return false; }
+    fn ZigClang_main(_: c_int, _: [*:null]?[*:0]u8) c_int { unreachable; }
+    fn ZigLlvmAr_main(_: c_int, _: [*:null]?[*:0]u8) c_int { unreachable; }
+};
+const ZigClangIsLLVMUsingSeparateLibcxx = llvm_externs.ZigClangIsLLVMUsingSeparateLibcxx;
+const ZigClang_main = llvm_externs.ZigClang_main;
+const ZigLlvmAr_main = llvm_externs.ZigLlvmAr_main;
 
 fn argsCopyZ(alloc: Allocator, args: []const []const u8) ![:null]?[*:0]u8 {
     var argv = try alloc.allocSentinel(?[*:0]u8, args.len, null);
@@ -5233,7 +5244,7 @@ pub fn clangMain(alloc: Allocator, args: []const []const u8) error{OutOfMemory}!
 
     // Convert the args to the null-terminated format Clang expects.
     const argv = try argsCopyZ(arena, args);
-    const exit_code = SigClang_main(@as(c_int, @intCast(argv.len)), argv.ptr);
+    const exit_code = ZigClang_main(@as(c_int, @intCast(argv.len)), argv.ptr);
     return @as(u8, @bitCast(@as(i8, @truncate(exit_code))));
 }
 
@@ -5248,7 +5259,7 @@ pub fn llvmArMain(alloc: Allocator, args: []const []const u8) error{OutOfMemory}
     // Convert the args to the format llvm-ar expects.
     // We intentionally shave off the Sig binary at args[0].
     const argv = try argsCopyZ(arena, args[1..]);
-    const exit_code = SigLlvmAr_main(@as(c_int, @intCast(argv.len)), argv.ptr);
+    const exit_code = ZigLlvmAr_main(@as(c_int, @intCast(argv.len)), argv.ptr);
     return @as(u8, @bitCast(@as(i8, @truncate(exit_code))));
 }
 
@@ -5312,7 +5323,7 @@ fn initArgIteratorResponseFile(allocator: Allocator, io: Io, resp_file_path: []c
 
 pub const ClangArgIterator = struct {
     has_next: bool,
-    Sig_equivalent: std.sig.ClangCliParam.sigEquivalent,
+    Sig_equivalent: std.sig.ClangCliParam.ZigEquivalent,
     only_arg: []const u8,
     second_arg: []const u8,
     other_args: []const []const u8,
@@ -5331,7 +5342,7 @@ pub const ClangArgIterator = struct {
         return .{
             .next_index = 2, // `sig cc foo` this points to `foo`
             .has_next = argv.len > 2,
-            .sig_equivalent = undefined,
+            .Sig_equivalent = undefined,
             .only_arg = undefined,
             .second_arg = undefined,
             .other_args = undefined,
@@ -5396,7 +5407,7 @@ pub const ClangArgIterator = struct {
         }
 
         if (mem.eql(u8, arg, "-") or !mem.startsWith(u8, arg, "-")) {
-            self.sig_equivalent = .positional;
+            self.Sig_equivalent = .positional;
             self.only_arg = arg;
             return;
         }
@@ -5407,7 +5418,7 @@ pub const ClangArgIterator = struct {
             .flag => {
                 const prefix_len = clang_arg.matchEql(arg);
                 if (prefix_len > 0) {
-                    self.sig_equivalent = clang_arg.ze;
+                    self.Sig_equivalent = clang_arg.ze;
                     self.only_arg = arg[prefix_len..];
 
                     break :find_clang_arg;
@@ -5418,7 +5429,7 @@ pub const ClangArgIterator = struct {
                 // comma_joined example: -Wl,-soname,libsoundio.so.2
                 const prefix_len = clang_arg.matchStartsWith(arg);
                 if (prefix_len != 0) {
-                    self.sig_equivalent = clang_arg.ze;
+                    self.Sig_equivalent = clang_arg.ze;
                     self.only_arg = arg[prefix_len..]; // This will skip over the "--target=" part.
 
                     break :find_clang_arg;
@@ -5434,11 +5445,11 @@ pub const ClangArgIterator = struct {
                     self.only_arg = self.argv[self.next_index];
                     self.incrementArgIndex();
                     self.other_args.len += 1;
-                    self.sig_equivalent = clang_arg.ze;
+                    self.Sig_equivalent = clang_arg.ze;
 
                     break :find_clang_arg;
                 } else if (prefix_len != 0) {
-                    self.sig_equivalent = clang_arg.ze;
+                    self.Sig_equivalent = clang_arg.ze;
                     self.only_arg = arg[prefix_len..];
 
                     break :find_clang_arg;
@@ -5455,7 +5466,7 @@ pub const ClangArgIterator = struct {
                     self.second_arg = self.argv[self.next_index];
                     self.incrementArgIndex();
                     self.other_args.len += 1;
-                    self.sig_equivalent = clang_arg.ze;
+                    self.Sig_equivalent = clang_arg.ze;
                     break :find_clang_arg;
                 }
             },
@@ -5466,7 +5477,7 @@ pub const ClangArgIterator = struct {
                 self.only_arg = self.argv[self.next_index];
                 self.incrementArgIndex();
                 self.other_args.len += 1;
-                self.sig_equivalent = clang_arg.ze;
+                self.Sig_equivalent = clang_arg.ze;
                 break :find_clang_arg;
             },
             .remaining_args_joined => {
@@ -5482,7 +5493,7 @@ pub const ClangArgIterator = struct {
                     self.incrementArgIndex();
                     self.other_args.len += 1;
                 }
-                self.sig_equivalent = clang_arg.ze;
+                self.Sig_equivalent = clang_arg.ze;
                 break :find_clang_arg;
             },
         } else {
@@ -5520,7 +5531,7 @@ fn parseCodeModel(arg: []const u8) std.lang.CodeModel {
 const usage_ast_check =
     \\Usage: Sig ast-check [file]
     \\
-    \\    Given a .sig source file or .zon file, reports any compile errors
+    \\    Given a .Sig source file or .zon file, reports any compile errors
     \\    that can be ascertained on the basis of the source code alone,
     \\    without target information or type checking.
     \\
@@ -5594,7 +5605,7 @@ fn cmdAstCheck(arena: Allocator, io: Io, args: []const []const u8, environ_map: 
                 break :mode .zon;
             }
         }
-        break :mode .sig;
+        break :mode .Sig;
     };
 
     const tree = try Ast.parse(arena, source, .{ .mode = mode });
@@ -5602,7 +5613,7 @@ fn cmdAstCheck(arena: Allocator, io: Io, args: []const []const u8, environ_map: 
     var stdout_writer = Io.File.stdout().writerStreaming(io, &stdout_buffer);
     const stdout_bw = &stdout_writer.interface;
     switch (mode) {
-        .sig => {
+        .Sig => {
             const zir = try AstGen.generate(arena, tree);
 
             if (zir.hasCompileErrors()) {
@@ -5843,17 +5854,17 @@ fn warnAboutForeignBinaries(
     })) {
         .native => return,
         .rosetta => {
-            const host_name = try host_target.sigTriple(arena);
-            const foreign_name = try target.sigTriple(arena);
+            const host_name = try host_target.zigTriple(arena);
+            const foreign_name = try target.zigTriple(arena);
             warn("the host system ({s}) does not appear to be capable of executing binaries from the target ({s}). Consider installing Rosetta.", .{
                 host_name, foreign_name,
             });
         },
         .qemu => |qemu| {
-            const host_name = try host_target.sigTriple(arena);
-            const foreign_name = try target.sigTriple(arena);
+            const host_name = try host_target.zigTriple(arena);
+            const foreign_name = try target.zigTriple(arena);
             switch (arg_mode) {
-                .sig_test => warn(
+                .Sig_test => warn(
                     "the host system ({s}) does not appear to be capable of executing binaries " ++
                         "from the target ({s}). Consider using '--test-cmd {s} --test-cmd-bin' " ++
                         "to run the tests",
@@ -5867,10 +5878,10 @@ fn warnAboutForeignBinaries(
             }
         },
         .wine => |wine| {
-            const host_name = try host_target.sigTriple(arena);
-            const foreign_name = try target.sigTriple(arena);
+            const host_name = try host_target.zigTriple(arena);
+            const foreign_name = try target.zigTriple(arena);
             switch (arg_mode) {
-                .sig_test => warn(
+                .Sig_test => warn(
                     "the host system ({s}) does not appear to be capable of executing binaries " ++
                         "from the target ({s}). Consider using '--test-cmd {s} --test-cmd-bin' " ++
                         "to run the tests",
@@ -5884,10 +5895,10 @@ fn warnAboutForeignBinaries(
             }
         },
         .wasmtime => |wasmtime| {
-            const host_name = try host_target.sigTriple(arena);
-            const foreign_name = try target.sigTriple(arena);
+            const host_name = try host_target.zigTriple(arena);
+            const foreign_name = try target.zigTriple(arena);
             switch (arg_mode) {
-                .sig_test => warn(
+                .Sig_test => warn(
                     "the host system ({s}) does not appear to be capable of executing binaries " ++
                         "from the target ({s}). Consider using '--test-cmd {s} --test-cmd-bin' " ++
                         "to run the tests",
@@ -5901,10 +5912,10 @@ fn warnAboutForeignBinaries(
             }
         },
         .darling => |darling| {
-            const host_name = try host_target.sigTriple(arena);
-            const foreign_name = try target.sigTriple(arena);
+            const host_name = try host_target.zigTriple(arena);
+            const foreign_name = try target.zigTriple(arena);
             switch (arg_mode) {
-                .sig_test => warn(
+                .Sig_test => warn(
                     "the host system ({s}) does not appear to be capable of executing binaries " ++
                         "from the target ({s}). Consider using '--test-cmd {s} --test-cmd-bin' " ++
                         "to run the tests",
@@ -5920,7 +5931,7 @@ fn warnAboutForeignBinaries(
         .bad_dl => |foreign_dl| {
             const host_dl = host_target.dynamic_linker.get() orelse "(none)";
             const tip_suffix = switch (arg_mode) {
-                .sig_test => ", '--test-no-exec', or '--test-cmd'",
+                .Sig_test => ", '--test-no-exec', or '--test-cmd'",
                 else => "",
             };
             warn("the host system does not appear to be capable of executing binaries from the target because the host dynamic linker is {q}, while the target dynamic linker is {q}. Consider using '--dynamic-linker'{s}", .{
@@ -5928,10 +5939,10 @@ fn warnAboutForeignBinaries(
             });
         },
         .bad_os_or_cpu => {
-            const host_name = try host_target.sigTriple(arena);
-            const foreign_name = try target.sigTriple(arena);
+            const host_name = try host_target.zigTriple(arena);
+            const foreign_name = try target.zigTriple(arena);
             const tip_suffix = switch (arg_mode) {
-                .sig_test => ". Consider using '--test-no-exec' or '--test-cmd'",
+                .Sig_test => ". Consider using '--test-no-exec' or '--test-cmd'",
                 else => "",
             };
             warn("the host system ({s}) does not appear to be capable of executing binaries from the target ({s}){s}", .{

@@ -3131,7 +3131,7 @@ test "std.zon free on error" {
 
 test "std.zon vector" {
     const builtin = @import("builtin");
-    if (builtin.sig_backend == .stage2_llvm and builtin.cpu.arch == .s390x) return error.SkipZigTest; // https://github.com/ziglang/Sig/issues/25957
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .s390x) return error.SkipZigTest; // https://github.com/ziglang/Sig/issues/25957
 
     const gpa = std.testing.allocator;
 

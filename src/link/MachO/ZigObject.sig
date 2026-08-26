@@ -729,7 +729,7 @@ pub fn lowerUav(
         name,
         val,
         uav_alignment,
-        macho_file.sig_const_sect_index.?,
+        macho_file.zig_const_sect_index.?,
     ) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
         else => |e| return macho_file.base.comp.link_diags.fail(
@@ -833,14 +833,14 @@ pub fn updateFunc(
             const tr_size = trampolineSize(macho_file.getTarget().cpu.arch);
             const tr_sym_index = try self.newSymbolWithAtom(gpa, name_off, macho_file);
             const tr_sym = &self.symbols.items[tr_sym_index];
-            tr_sym.out_n_sect = macho_file.sig_text_sect_index.?;
+            tr_sym.out_n_sect = macho_file.zig_text_sect_index.?;
             const tr_nlist = &self.symtab.items(.nlist)[tr_sym.nlist_idx];
-            tr_nlist.n_sect = macho_file.sig_text_sect_index.? + 1;
+            tr_nlist.n_sect = macho_file.zig_text_sect_index.? + 1;
             const tr_atom = tr_sym.getAtom(macho_file).?;
             tr_atom.value = old_rva;
             tr_atom.setAlive(true);
             tr_atom.alignment = old_alignment;
-            tr_atom.out_n_sect = macho_file.sig_text_sect_index.?;
+            tr_atom.out_n_sect = macho_file.zig_text_sect_index.?;
             tr_atom.size = tr_size;
             self.symtab.items(.size)[tr_sym.nlist_idx] = tr_size;
             const target_sym = &self.symbols.items[sym_index];
@@ -1154,7 +1154,7 @@ fn getNavOutputSection(
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
     const nav_val: Value = .fromInterned(nav.resolved.?.value);
-    if (ip.isFunctionType(nav_val.typeOf(zcu).toIntern())) return macho_file.sig_text_sect_index.?;
+    if (ip.isFunctionType(nav_val.typeOf(zcu).toIntern())) return macho_file.zig_text_sect_index.?;
     if (nav.resolved.?.@"threadlocal" and macho_file.base.comp.config.any_non_single_threaded) {
         for (code) |byte| {
             if (byte != 0) break;
@@ -1169,16 +1169,16 @@ fn getNavOutputSection(
             .{ .flags = macho.S_THREAD_LOCAL_REGULAR },
         );
     }
-    if (nav.resolved.?.@"const") return macho_file.sig_const_sect_index.?;
+    if (nav.resolved.?.@"const") return macho_file.zig_const_sect_index.?;
     if (nav_val.isUndef(zcu))
         return switch (zcu.navFileScope(nav_index).mod.?.optimize_mode) {
-            .debug, .safe => macho_file.sig_data_sect_index.?,
-            .fast, .small => macho_file.sig_bss_sect_index.?,
+            .debug, .safe => macho_file.zig_data_sect_index.?,
+            .fast, .small => macho_file.zig_bss_sect_index.?,
         };
     for (code) |byte| {
         if (byte != 0) break;
-    } else return macho_file.sig_bss_sect_index.?;
-    return macho_file.sig_data_sect_index.?;
+    } else return macho_file.zig_bss_sect_index.?;
+    return macho_file.zig_data_sect_index.?;
 }
 
 fn lowerConst(
@@ -1387,8 +1387,8 @@ fn updateLazySymbol(
     const code = aw.written();
 
     const output_section_index = switch (lazy_sym.kind) {
-        .code => macho_file.sig_text_sect_index.?,
-        .const_data => macho_file.sig_const_sect_index.?,
+        .code => macho_file.zig_text_sect_index.?,
+        .const_data => macho_file.zig_const_sect_index.?,
     };
     const sym = &self.symbols.items[symbol_index];
     sym.name = name_str;
@@ -1672,7 +1672,7 @@ pub fn getString(self: ZigObject, string: MachO.String) [:0]const u8 {
 }
 
 pub fn asFile(self: *ZigObject) File {
-    return .{ .sig_object = self };
+    return .{ .zig_object = self };
 }
 
 pub fn fmtSymtab(self: *ZigObject, macho_file: *MachO) std.fmt.Alt(Format, Format.symtab) {

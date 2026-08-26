@@ -872,7 +872,7 @@ pub fn render(gpa: Allocator, nodes: []const Node) !std.sig.Ast {
         .nodes = ctx.nodes.toOwnedSlice(),
         .extra_data = ctx.extra_data.toOwnedSliceAssert(),
         .errors = &.{},
-        .mode = .sig,
+        .mode = .Sig,
     };
 }
 

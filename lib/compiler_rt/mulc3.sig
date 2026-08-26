@@ -8,7 +8,7 @@ const symbol = compiler_rt.symbol;
 const Complex = compiler_rt.Complex;
 
 comptime {
-    if (@import("builtin").sig_backend != .stage2_c) {
+    if (@import("builtin").zig_backend != .stage2_c) {
         symbol(&__mulhc3, "__mulhc3");
         symbol(&__mulsc3, "__mulsc3");
         symbol(&__muldc3, "__muldc3");

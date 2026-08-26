@@ -54,7 +54,7 @@ pub const c_translation = struct {
     pub const helpers = @import("sig/c_translation/helpers.sig");
 };
 
-pub const default_local_sig_cache_basename = ".sig-cache";
+pub const default_local_sig_cache_basename = ".Sig-cache";
 pub const build_sig_basename = "build.sig";
 
 pub const SrcHasher = std.crypto.hash.Blake3;
@@ -730,7 +730,7 @@ pub fn putAstErrorsIntoBundle(
     wip_errors: *ErrorBundle.Wip,
 ) Allocator.Error!void {
     switch (tree.mode) {
-        .sig => {
+        .Sig => {
             var zir = try AstGen.generate(gpa, tree);
             defer zir.deinit(gpa);
 
@@ -1558,7 +1558,7 @@ fn testSigInstallPrefix(io: Io, base_dir: Dir) ?Cache.Directory {
 }
 
 pub fn resolveGlobalCacheDir(arena: Allocator, environ_map: *const std.process.Environ.Map) ![]const u8 {
-    if (EnvVar.sig_GLOBAL_CACHE_DIR.get(environ_map)) |value| return value;
+    if (EnvVar.SIG_GLOBAL_CACHE_DIR.get(environ_map)) |value| return value;
 
     const app_name = "sig";
 

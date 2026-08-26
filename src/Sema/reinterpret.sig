@@ -178,7 +178,7 @@ const UnpackValueBytes = struct {
 
             .bitpack => |bitpack| try unpack.primitive(.fromInterned(bitpack.backing_int_val)),
 
-            .aggregate => switch (ty.sigTypeTag(zcu)) {
+            .aggregate => switch (ty.zigTypeTag(zcu)) {
                 .vector => unreachable, // ill-defined layout
                 .array => {
                     for (0..@intCast(ty.arrayLen(zcu))) |elem_index| {
@@ -310,7 +310,7 @@ const PackValueBytes = struct {
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
         const arena = pack.arena;
-        switch (ty.sigTypeTag(zcu)) {
+        switch (ty.zigTypeTag(zcu)) {
             .vector => unreachable, // ill-defined layout
             .array => {
                 // Each element is padded up to its ABI size. The final element does not have trailing padding.
@@ -506,7 +506,7 @@ const PackValueBytes = struct {
 
         const target = zcu.getTarget();
         const endian = target.cpu.arch.endian();
-        switch (want_ty.sigTypeTag(zcu)) {
+        switch (want_ty.zigTypeTag(zcu)) {
             .bool => return .makeBool(bytes[0] != 0),
             .int => return .readIntFromMemory(want_ty, pt, bytes, pack.arena),
             .float => switch (want_ty.floatBits(target)) {

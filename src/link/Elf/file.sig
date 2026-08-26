@@ -33,7 +33,7 @@ pub const File = union(enum) {
 
     fn formatPath(file: File, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (file) {
-            .sig_object => |zo| try writer.writeAll(zo.basename),
+            .zig_object => |zo| try writer.writeAll(zo.basename),
             .linker_defined => try writer.writeAll("(linker defined)"),
             .object => |x| try writer.print("{f}", .{x.fmtPath()}),
             .shared_object => |x| try writer.print("{f}", .{@as(Path, x.path)}),
@@ -42,7 +42,7 @@ pub const File = union(enum) {
 
     pub fn isAlive(file: File) bool {
         return switch (file) {
-            .sig_object => true,
+            .zig_object => true,
             .linker_defined => true,
             inline else => |x| x.alive,
         };
@@ -79,7 +79,7 @@ pub const File = union(enum) {
 
     pub fn setAlive(file: File) void {
         switch (file) {
-            .sig_object, .linker_defined => {},
+            .zig_object, .linker_defined => {},
             inline else => |x| x.alive = true,
         }
     }
@@ -142,7 +142,7 @@ pub const File = union(enum) {
         }.impl;
 
         switch (file) {
-            .sig_object => |x| {
+            .zig_object => |x| {
                 for (x.local_symbols.items, 0..) |idx, i| {
                     const sym = &x.symbols.items[idx];
                     const ref = x.resolveSymbol(@intCast(i), elf_file);
@@ -181,7 +181,7 @@ pub const File = union(enum) {
         return switch (file) {
             .shared_object => unreachable,
             .linker_defined => &[0]Atom.Index{},
-            .sig_object => |x| x.atoms_indexes.items,
+            .zig_object => |x| x.atoms_indexes.items,
             .object => |x| x.atoms_indexes.items,
         };
     }
@@ -202,7 +202,7 @@ pub const File = union(enum) {
 
     pub fn cies(file: File) []const Cie {
         return switch (file) {
-            .sig_object => &[0]Cie{},
+            .zig_object => &[0]Cie{},
             .object => |x| x.cies.items,
             inline else => unreachable,
         };
@@ -210,7 +210,7 @@ pub const File = union(enum) {
 
     pub fn group(file: File, ind: Elf.Group.Index) *Elf.Group {
         return switch (file) {
-            .linker_defined, .shared_object, .sig_object => unreachable,
+            .linker_defined, .shared_object, .zig_object => unreachable,
             .object => |x| x.group(ind),
         };
     }
@@ -223,7 +223,7 @@ pub const File = union(enum) {
 
     pub fn symbol(file: File, ind: Symbol.Index) *Symbol {
         return switch (file) {
-            .sig_object => |x| x.symbol(ind),
+            .zig_object => |x| x.symbol(ind),
             inline else => |x| &x.symbols.items[ind],
         };
     }
@@ -248,7 +248,7 @@ pub const File = union(enum) {
 
     pub fn updateArSymtab(file: File, ar_symtab: *Archive.ArSymtab, elf_file: *Elf) !void {
         return switch (file) {
-            .sig_object => |x| x.updateArSymtab(ar_symtab, elf_file),
+            .zig_object => |x| x.updateArSymtab(ar_symtab, elf_file),
             .object => |x| x.updateArSymtab(ar_symtab, elf_file),
             else => unreachable,
         };
@@ -256,7 +256,7 @@ pub const File = union(enum) {
 
     pub fn updateArStrtab(file: File, allocator: Allocator, ar_strtab: *Archive.ArStrtab) !void {
         switch (file) {
-            .sig_object => |zo| {
+            .zig_object => |zo| {
                 const basename = zo.basename;
                 if (basename.len <= Archive.max_member_name_len) return;
                 zo.output_ar_state.name_off = try ar_strtab.insert(allocator, basename);
@@ -272,7 +272,7 @@ pub const File = union(enum) {
 
     pub fn updateArSize(file: File, elf_file: *Elf) !void {
         return switch (file) {
-            .sig_object => |x| x.updateArSize(),
+            .zig_object => |x| x.updateArSize(),
             .object => |x| x.updateArSize(elf_file),
             else => unreachable,
         };
@@ -280,7 +280,7 @@ pub const File = union(enum) {
 
     pub fn writeAr(file: File, elf_file: *Elf, writer: anytype) !void {
         return switch (file) {
-            .sig_object => |x| x.writeAr(writer),
+            .zig_object => |x| x.writeAr(writer),
             .object => |x| x.writeAr(elf_file, writer),
             else => unreachable,
         };

@@ -223,7 +223,7 @@ fn checkTypeInner(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .bool,
         .int,
         .float,
@@ -359,7 +359,7 @@ fn lowerExprKnownResTyInner(
     res_ty: Type,
 ) (CompileError || error{WrongType})!InternPool.Index {
     const pt = self.sema.pt;
-    switch (res_ty.sigTypeTag(pt.zcu)) {
+    switch (res_ty.zigTypeTag(pt.zcu)) {
         .optional => return pt.intern(.{
             .opt = .{
                 .ty = res_ty.toIntern(),
@@ -437,7 +437,7 @@ fn lowerInt(
                 const rhs: i32 = val;
 
                 // If our result is a fixed size integer, check that our value is not out of bounds
-                if (res_ty.sigTypeTag(self.sema.pt.zcu) == .int) {
+                if (res_ty.zigTypeTag(self.sema.pt.zcu) == .int) {
                     const lhs_info = res_ty.intInfo(self.sema.pt.zcu);
 
                     // If lhs is unsigned and rhs is less than 0, we're out of bounds
@@ -472,7 +472,7 @@ fn lowerInt(
                 } });
             },
             .big => |val| {
-                if (res_ty.sigTypeTag(self.sema.pt.zcu) == .int) {
+                if (res_ty.zigTypeTag(self.sema.pt.zcu) == .int) {
                     const int_info = res_ty.intInfo(self.sema.pt.zcu);
                     if (!val.fitsInTwosComp(int_info.signedness, int_info.bits)) {
                         return self.fail(
@@ -523,7 +523,7 @@ fn lowerInt(
         },
         .char_literal => |val| {
             // If our result is a fixed size integer, check that our value is not out of bounds
-            if (res_ty.sigTypeTag(self.sema.pt.zcu) == .int) {
+            if (res_ty.zigTypeTag(self.sema.pt.zcu) == .int) {
                 const dest_info = res_ty.intInfo(self.sema.pt.zcu);
                 const unsigned_bits = dest_info.bits - @intFromBool(dest_info.signedness == .signed);
                 if (unsigned_bits < 21) {

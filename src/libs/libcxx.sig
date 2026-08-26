@@ -110,7 +110,7 @@ pub const BuildError = error{
 
 pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!void {
     if (!build_options.have_llvm) {
-        return error.sigCompilerNotBuiltWithLLVMExtensions;
+        return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
 
     const tracy = trace(@src());
@@ -299,7 +299,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
 
 pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildError!void {
     if (!build_options.have_llvm) {
-        return error.sigCompilerNotBuiltWithLLVMExtensions;
+        return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
 
     const tracy = trace(@src());

@@ -60,7 +60,7 @@ pub fn getRelocs(self: Atom, macho_file: *MachO) []const Relocation {
 pub fn getInputSection(self: Atom, macho_file: *MachO) macho.section_64 {
     return switch (self.getFile(macho_file)) {
         .dylib => unreachable,
-        .sig_object => |x| x.getInputSection(self, macho_file),
+        .zig_object => |x| x.getInputSection(self, macho_file),
         .object => |x| x.sections.items(.header)[self.n_sect],
         .internal => |x| x.sections.items(.header)[self.n_sect],
     };
@@ -84,7 +84,7 @@ pub fn getUnwindRecords(self: Atom, macho_file: *MachO) []const UnwindInfo.Recor
     const extra = self.getExtra(macho_file);
     return switch (self.getFile(macho_file)) {
         .dylib => unreachable,
-        .sig_object, .internal => &[0]UnwindInfo.Record.Index{},
+        .zig_object, .internal => &[0]UnwindInfo.Record.Index{},
         .object => |x| x.unwind_records_indexes.items[extra.unwind_index..][0..extra.unwind_count],
     };
 }
@@ -429,7 +429,7 @@ pub fn free(self: *Atom, macho_file: *MachO) void {
     // TODO create relocs free list
     self.freeRelocs(macho_file);
     // TODO figure out how to free input section mappind in ZigModule
-    // const zig_object = macho_file.sigObjectPtr().?
+    // const zig_object = macho_file.zigObjectPtr().?
     // assert(zig_object.atoms.swapRemove(self.atom_index));
     self.* = .{};
 }
@@ -437,16 +437,16 @@ pub fn free(self: *Atom, macho_file: *MachO) void {
 pub fn addReloc(self: *Atom, macho_file: *MachO, reloc: Relocation) !void {
     const gpa = macho_file.base.comp.gpa;
     const file = self.getFile(macho_file);
-    assert(file == .sig_object);
+    assert(file == .zig_object);
     var extra = self.getExtra(macho_file);
-    const rels = &file.sig_object.relocs.items[extra.rel_index];
+    const rels = &file.zig_object.relocs.items[extra.rel_index];
     try rels.append(gpa, reloc);
     extra.rel_count += 1;
     self.setExtra(extra, macho_file);
 }
 
 pub fn freeRelocs(self: *Atom, macho_file: *MachO) void {
-    self.getFile(macho_file).sig_object.freeAtomRelocs(self.*, macho_file);
+    self.getFile(macho_file).zig_object.freeAtomRelocs(self.*, macho_file);
     var extra = self.getExtra(macho_file);
     extra.rel_count = 0;
     self.setExtra(extra, macho_file);

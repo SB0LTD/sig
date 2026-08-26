@@ -327,7 +327,7 @@ pub fn writeBuildVersionLC(platform: MachO.Platform, sdk_version: ?std.SemanticV
         .ntools = 1,
     }), .little);
     try writer.writeAll(mem.asBytes(&macho.build_tool_version{
-        .tool = .sig,
+        .tool = .Sig,
         .version = 0x0,
     }));
 }

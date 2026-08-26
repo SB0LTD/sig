@@ -82017,7 +82017,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         }
                     },
                     .int => {
-                        switch (ty.sigTypeTag(zcu)) {
+                        switch (ty.zigTypeTag(zcu)) {
                             else => {},
                             .@"struct", .@"union" => {
                                 assert(ty.containerLayout(zcu) == .@"packed");
@@ -170894,7 +170894,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     .required_features = .{ .avx, null, null, null },
                     .src_constraints = .{ .{ .int = .gpr }, .any, .any },
                     .patterns = &.{
-                        .{ .src = .{ .{ .to_param_gpr = .{ .cc = .sigcc, .after = 0, .at = 0 } }, .none, .none } },
+                        .{ .src = .{ .{ .to_param_gpr = .{ .cc = .zigcc, .after = 0, .at = 0 } }, .none, .none } },
                     },
                     .call_frame = .{ .alignment = .@"32" },
                     .extra_temps = .{
@@ -170911,7 +170911,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .unused,
                     },
                     .dst_temps = .{ .{ .cc = .nz }, .unused },
-                    .clobbers = .{ .eflags = true, .caller_preserved = .sigcc },
+                    .clobbers = .{ .eflags = true, .caller_preserved = .zigcc },
                     .each = .{ .once = &.{
                         .{ ._, ._, .call, .tmp0d, ._, ._, ._ },
                         .{ ._, ._, .@"test", .src0p, .src0p, ._, ._ },
@@ -170924,7 +170924,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     },
                     .call_frame = .{ .alignment = .@"32" },
                     .extra_temps = .{
-                        .{ .type = .usize, .kind = .{ .param_gpr = .{ .cc = .sigcc, .after = 0, .at = 0 } } },
+                        .{ .type = .usize, .kind = .{ .param_gpr = .{ .cc = .zigcc, .after = 0, .at = 0 } } },
                         .{ .type = .usize, .kind = .{ .lazy_sym = .{ .kind = .code, .ref = .src0 } } },
                         .unused,
                         .unused,
@@ -170937,7 +170937,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .unused,
                     },
                     .dst_temps = .{ .{ .cc = .nz }, .unused },
-                    .clobbers = .{ .eflags = true, .caller_preserved = .sigcc },
+                    .clobbers = .{ .eflags = true, .caller_preserved = .zigcc },
                     .each = .{ .once = &.{
                         .{ ._, ._, .lea, .tmp0p, .mem(.src0), ._, ._ },
                         .{ ._, ._, .call, .tmp1d, ._, ._, ._ },
@@ -170947,7 +170947,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     .required_features = .{ .sse, null, null, null },
                     .src_constraints = .{ .{ .int = .gpr }, .any, .any },
                     .patterns = &.{
-                        .{ .src = .{ .{ .to_param_gpr = .{ .cc = .sigcc, .after = 0, .at = 0 } }, .none, .none } },
+                        .{ .src = .{ .{ .to_param_gpr = .{ .cc = .zigcc, .after = 0, .at = 0 } }, .none, .none } },
                     },
                     .call_frame = .{ .alignment = .@"16" },
                     .extra_temps = .{
@@ -170964,7 +170964,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .unused,
                     },
                     .dst_temps = .{ .{ .cc = .nz }, .unused },
-                    .clobbers = .{ .eflags = true, .caller_preserved = .sigcc },
+                    .clobbers = .{ .eflags = true, .caller_preserved = .zigcc },
                     .each = .{ .once = &.{
                         .{ ._, ._, .call, .tmp0d, ._, ._, ._ },
                         .{ ._, ._, .@"test", .src0p, .src0p, ._, ._ },
@@ -170977,7 +170977,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     },
                     .call_frame = .{ .alignment = .@"16" },
                     .extra_temps = .{
-                        .{ .type = .usize, .kind = .{ .param_gpr = .{ .cc = .sigcc, .after = 0, .at = 0 } } },
+                        .{ .type = .usize, .kind = .{ .param_gpr = .{ .cc = .zigcc, .after = 0, .at = 0 } } },
                         .{ .type = .usize, .kind = .{ .lazy_sym = .{ .kind = .code, .ref = .src0 } } },
                         .unused,
                         .unused,
@@ -170990,7 +170990,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .unused,
                     },
                     .dst_temps = .{ .{ .cc = .nz }, .unused },
-                    .clobbers = .{ .eflags = true, .caller_preserved = .sigcc },
+                    .clobbers = .{ .eflags = true, .caller_preserved = .zigcc },
                     .each = .{ .once = &.{
                         .{ ._, ._, .lea, .tmp0p, .mem(.src0), ._, ._ },
                         .{ ._, ._, .call, .tmp1d, ._, ._, ._ },
@@ -170999,7 +170999,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 }, .{
                     .src_constraints = .{ .{ .int = .gpr }, .any, .any },
                     .patterns = &.{
-                        .{ .src = .{ .{ .to_param_gpr = .{ .cc = .sigcc, .after = 0, .at = 0 } }, .none, .none } },
+                        .{ .src = .{ .{ .to_param_gpr = .{ .cc = .zigcc, .after = 0, .at = 0 } }, .none, .none } },
                     },
                     .call_frame = .{ .alignment = .@"8" },
                     .extra_temps = .{
@@ -171016,7 +171016,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .unused,
                     },
                     .dst_temps = .{ .{ .cc = .nz }, .unused },
-                    .clobbers = .{ .eflags = true, .caller_preserved = .sigcc },
+                    .clobbers = .{ .eflags = true, .caller_preserved = .zigcc },
                     .each = .{ .once = &.{
                         .{ ._, ._, .call, .tmp0d, ._, ._, ._ },
                         .{ ._, ._, .@"test", .src0p, .src0p, ._, ._ },
@@ -171028,7 +171028,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     },
                     .call_frame = .{ .alignment = .@"8" },
                     .extra_temps = .{
-                        .{ .type = .usize, .kind = .{ .param_gpr = .{ .cc = .sigcc, .after = 0, .at = 0 } } },
+                        .{ .type = .usize, .kind = .{ .param_gpr = .{ .cc = .zigcc, .after = 0, .at = 0 } } },
                         .{ .type = .usize, .kind = .{ .lazy_sym = .{ .kind = .code, .ref = .src0 } } },
                         .unused,
                         .unused,
@@ -171041,7 +171041,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .unused,
                     },
                     .dst_temps = .{ .{ .cc = .nz }, .unused },
-                    .clobbers = .{ .eflags = true, .caller_preserved = .sigcc },
+                    .clobbers = .{ .eflags = true, .caller_preserved = .zigcc },
                     .each = .{ .once = &.{
                         .{ ._, ._, .lea, .tmp0p, .mem(.src0), ._, ._ },
                         .{ ._, ._, .call, .tmp1d, ._, ._, ._ },
@@ -171065,7 +171065,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     .required_features = .{ .avx, null, null, null },
                     .src_constraints = .{ .{ .int = .gpr }, .any, .any },
                     .patterns = &.{
-                        .{ .src = .{ .{ .to_param_gpr = .{ .cc = .sigcc, .after = 0, .at = 0 } }, .none, .none } },
+                        .{ .src = .{ .{ .to_param_gpr = .{ .cc = .zigcc, .after = 0, .at = 0 } }, .none, .none } },
                     },
                     .call_frame = .{ .alignment = .@"32" },
                     .extra_temps = .{
@@ -171081,8 +171081,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .unused,
                         .unused,
                     },
-                    .dst_temps = .{ .{ .ret_gpr = .{ .cc = .sigcc, .after = 1, .at = 1 } }, .unused },
-                    .clobbers = .{ .eflags = true, .caller_preserved = .sigcc },
+                    .dst_temps = .{ .{ .ret_gpr = .{ .cc = .zigcc, .after = 1, .at = 1 } }, .unused },
+                    .clobbers = .{ .eflags = true, .caller_preserved = .zigcc },
                     .each = .{ .once = &.{
                         .{ ._, ._, .call, .tmp0d, ._, ._, ._ },
                     } },
@@ -171106,8 +171106,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .unused,
                         .unused,
                     },
-                    .dst_temps = .{ .{ .ret_gpr_pair = .{ .cc = .sigcc, .after = 0, .at = 0 } }, .unused },
-                    .clobbers = .{ .eflags = true, .caller_preserved = .sigcc },
+                    .dst_temps = .{ .{ .ret_gpr_pair = .{ .cc = .zigcc, .after = 0, .at = 0 } }, .unused },
+                    .clobbers = .{ .eflags = true, .caller_preserved = .zigcc },
                     .each = .{ .once = &.{
                         .{ ._, ._, .lea, .dst0p0, .mem(.src0), ._, ._ },
                         .{ ._, ._, .call, .tmp0d, ._, ._, ._ },
@@ -171116,7 +171116,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     .required_features = .{ .sse, null, null, null },
                     .src_constraints = .{ .{ .int = .gpr }, .any, .any },
                     .patterns = &.{
-                        .{ .src = .{ .{ .to_param_gpr = .{ .cc = .sigcc, .after = 0, .at = 0 } }, .none, .none } },
+                        .{ .src = .{ .{ .to_param_gpr = .{ .cc = .zigcc, .after = 0, .at = 0 } }, .none, .none } },
                     },
                     .call_frame = .{ .alignment = .@"16" },
                     .extra_temps = .{
@@ -171132,8 +171132,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .unused,
                         .unused,
                     },
-                    .dst_temps = .{ .{ .ret_gpr = .{ .cc = .sigcc, .after = 1, .at = 1 } }, .unused },
-                    .clobbers = .{ .eflags = true, .caller_preserved = .sigcc },
+                    .dst_temps = .{ .{ .ret_gpr = .{ .cc = .zigcc, .after = 1, .at = 1 } }, .unused },
+                    .clobbers = .{ .eflags = true, .caller_preserved = .zigcc },
                     .each = .{ .once = &.{
                         .{ ._, ._, .call, .tmp0d, ._, ._, ._ },
                     } },
@@ -171157,8 +171157,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .unused,
                         .unused,
                     },
-                    .dst_temps = .{ .{ .ret_gpr_pair = .{ .cc = .sigcc, .after = 0, .at = 0 } }, .unused },
-                    .clobbers = .{ .eflags = true, .caller_preserved = .sigcc },
+                    .dst_temps = .{ .{ .ret_gpr_pair = .{ .cc = .zigcc, .after = 0, .at = 0 } }, .unused },
+                    .clobbers = .{ .eflags = true, .caller_preserved = .zigcc },
                     .each = .{ .once = &.{
                         .{ ._, ._, .lea, .dst0p0, .mem(.src0), ._, ._ },
                         .{ ._, ._, .call, .tmp0d, ._, ._, ._ },
@@ -171166,7 +171166,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 }, .{
                     .src_constraints = .{ .{ .int = .gpr }, .any, .any },
                     .patterns = &.{
-                        .{ .src = .{ .{ .to_param_gpr = .{ .cc = .sigcc, .after = 0, .at = 0 } }, .none, .none } },
+                        .{ .src = .{ .{ .to_param_gpr = .{ .cc = .zigcc, .after = 0, .at = 0 } }, .none, .none } },
                     },
                     .call_frame = .{ .alignment = .@"8" },
                     .extra_temps = .{
@@ -171182,8 +171182,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .unused,
                         .unused,
                     },
-                    .dst_temps = .{ .{ .ret_gpr = .{ .cc = .sigcc, .after = 1, .at = 1 } }, .unused },
-                    .clobbers = .{ .eflags = true, .caller_preserved = .sigcc },
+                    .dst_temps = .{ .{ .ret_gpr = .{ .cc = .zigcc, .after = 1, .at = 1 } }, .unused },
+                    .clobbers = .{ .eflags = true, .caller_preserved = .zigcc },
                     .each = .{ .once = &.{
                         .{ ._, ._, .call, .tmp0d, ._, ._, ._ },
                     } },
@@ -171207,8 +171207,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .unused,
                         .unused,
                     },
-                    .dst_temps = .{ .{ .ret_gpr_pair = .{ .cc = .sigcc, .after = 0, .at = 0 } }, .unused },
-                    .clobbers = .{ .eflags = true, .caller_preserved = .sigcc },
+                    .dst_temps = .{ .{ .ret_gpr_pair = .{ .cc = .zigcc, .after = 0, .at = 0 } }, .unused },
+                    .clobbers = .{ .eflags = true, .caller_preserved = .zigcc },
                     .each = .{ .once = &.{
                         .{ ._, ._, .lea, .dst0p0, .mem(.src0), ._, ._ },
                         .{ ._, ._, .call, .tmp0d, ._, ._, ._ },
@@ -171340,7 +171340,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     .required_features = .{ .avx, null, null, null },
                     .src_constraints = .{ .{ .int = .gpr }, .any, .any },
                     .patterns = &.{
-                        .{ .src = .{ .{ .to_param_gpr = .{ .cc = .sigcc, .after = 0, .at = 0 } }, .none, .none } },
+                        .{ .src = .{ .{ .to_param_gpr = .{ .cc = .zigcc, .after = 0, .at = 0 } }, .none, .none } },
                     },
                     .call_frame = .{ .alignment = .@"32" },
                     .extra_temps = .{
@@ -171357,7 +171357,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .unused,
                     },
                     .dst_temps = .{ .{ .cc = .nz }, .unused },
-                    .clobbers = .{ .eflags = true, .caller_preserved = .sigcc },
+                    .clobbers = .{ .eflags = true, .caller_preserved = .zigcc },
                     .each = .{ .once = &.{
                         .{ ._, ._, .call, .tmp0d, ._, ._, ._ },
                         .{ ._, ._, .@"test", .src0d, .src0d, ._, ._ },
@@ -171366,7 +171366,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     .required_features = .{ .sse, null, null, null },
                     .src_constraints = .{ .{ .int = .gpr }, .any, .any },
                     .patterns = &.{
-                        .{ .src = .{ .{ .to_param_gpr = .{ .cc = .sigcc, .after = 0, .at = 0 } }, .none, .none } },
+                        .{ .src = .{ .{ .to_param_gpr = .{ .cc = .zigcc, .after = 0, .at = 0 } }, .none, .none } },
                     },
                     .call_frame = .{ .alignment = .@"16" },
                     .extra_temps = .{
@@ -171383,7 +171383,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .unused,
                     },
                     .dst_temps = .{ .{ .cc = .nz }, .unused },
-                    .clobbers = .{ .eflags = true, .caller_preserved = .sigcc },
+                    .clobbers = .{ .eflags = true, .caller_preserved = .zigcc },
                     .each = .{ .once = &.{
                         .{ ._, ._, .call, .tmp0d, ._, ._, ._ },
                         .{ ._, ._, .@"test", .src0d, .src0d, ._, ._ },
@@ -171391,7 +171391,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 }, .{
                     .src_constraints = .{ .{ .int = .gpr }, .any, .any },
                     .patterns = &.{
-                        .{ .src = .{ .{ .to_param_gpr = .{ .cc = .sigcc, .after = 0, .at = 0 } }, .none, .none } },
+                        .{ .src = .{ .{ .to_param_gpr = .{ .cc = .zigcc, .after = 0, .at = 0 } }, .none, .none } },
                     },
                     .call_frame = .{ .alignment = .@"8" },
                     .extra_temps = .{
@@ -171408,7 +171408,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .unused,
                     },
                     .dst_temps = .{ .{ .cc = .nz }, .unused },
-                    .clobbers = .{ .eflags = true, .caller_preserved = .sigcc },
+                    .clobbers = .{ .eflags = true, .caller_preserved = .zigcc },
                     .each = .{ .once = &.{
                         .{ ._, ._, .call, .tmp0d, ._, ._, ._ },
                         .{ ._, ._, .@"test", .src0d, .src0d, ._, ._ },
@@ -174110,7 +174110,7 @@ fn allocRegOrMemAdvanced(self: *CodeGen, ty: Type, inst: ?Air.Inst.Index, reg_ok
     };
 
     if (reg_ok) need_mem: {
-        if (std.math.isPowerOfTwo(abi_size) and abi_size <= @as(u32, max_abi_size: switch (ty.sigTypeTag(zcu)) {
+        if (std.math.isPowerOfTwo(abi_size) and abi_size <= @as(u32, max_abi_size: switch (ty.zigTypeTag(zcu)) {
             .float => switch (ty.floatBits(self.target)) {
                 16, 32, 64, 128 => 16,
                 80 => break :need_mem,
@@ -176196,7 +176196,7 @@ fn genCall(cg: *CodeGen, info: union(enum) {
     const fn_ty = switch (info) {
         .air => |callee| fn_info: {
             const callee_ty = cg.typeOf(callee);
-            break :fn_info switch (callee_ty.sigTypeTag(zcu)) {
+            break :fn_info switch (callee_ty.zigTypeTag(zcu)) {
                 .@"fn" => callee_ty,
                 .pointer => callee_ty.childType(zcu),
                 else => unreachable,
@@ -176636,7 +176636,7 @@ fn genCall(cg: *CodeGen, info: union(enum) {
                 .@"extern" => |@"extern"| try cg.asmImmediate(.{ ._, .call }, .{ .nav = .{ .index = @"extern".owner_nav } }),
             }
         } else {
-            assert(cg.typeOf(callee).sigTypeTag(zcu) == .pointer);
+            assert(cg.typeOf(callee).zigTypeTag(zcu) == .pointer);
             const scratch_reg = abi.getCAbiLinkerScratchReg(fn_info.cc);
             try cg.genSetReg(scratch_reg, .usize, .{ .air_ref = callee }, opts);
             try cg.asmRegister(.{ ._, .call }, scratch_reg);
@@ -178463,7 +178463,7 @@ fn moveStrategy(cg: *CodeGen, ty: Type, class: Register.Class, aligned: bool) !M
         .general_purpose, .gphi, .segment => return .{ .load_store = .{ ._, .mov } },
         .x87 => return .load_store_x87,
         .mmx => {},
-        .sse => switch (ty.sigTypeTag(zcu)) {
+        .sse => switch (ty.zigTypeTag(zcu)) {
             else => {
                 const classes = std.mem.sliceTo(&abi.classifySystemV(ty, zcu, cg.target, .other), .none);
                 assert(std.mem.findNone(abi.Class, classes, &.{
@@ -178560,7 +178560,7 @@ fn moveStrategy(cg: *CodeGen, ty: Type, class: Register.Class, aligned: bool) !M
                     .{ ._ps, if (aligned) .mova else .movu } },
                 else => {},
             },
-            .vector => switch (ty.childType(zcu).sigTypeTag(zcu)) {
+            .vector => switch (ty.childType(zcu).zigTypeTag(zcu)) {
                 .bool => switch (ty.vectorLen(zcu)) {
                     1...8 => return if (cg.hasFeature(.avx)) .{ .vex_insert_extract = .{
                         .insert = .{ .vp_b, .insr },
@@ -179224,7 +179224,7 @@ fn genSetReg(
                 } else unreachable,
                 .mmx, .ip, .cr, .dr => unreachable,
                 .sse => try cg.asmRegisterRegister(
-                    @as(?Mir.Inst.FixedTag, switch (ty.scalarType(zcu).sigTypeTag(zcu)) {
+                    @as(?Mir.Inst.FixedTag, switch (ty.scalarType(zcu).zigTypeTag(zcu)) {
                         else => switch (abi_size) {
                             1...16 => if (cg.hasFeature(.avx))
                                 .{ .v_dqa, .mov }
@@ -179746,7 +179746,7 @@ fn genSetMem(
                 part_disp += @intCast(cg.unalignedSize(src_ty));
             }
         },
-        .register_overflow => |ro| switch (ty.sigTypeTag(zcu)) {
+        .register_overflow => |ro| switch (ty.zigTypeTag(zcu)) {
             .@"struct" => {
                 try cg.genSetMem(
                     base,
@@ -180035,14 +180035,14 @@ fn airBitCast(self: *CodeGen, inst: Air.Inst.Index) !void {
             break :dst dst_mcv;
         };
 
-        switch (dst_ty.sigTypeTag(zcu)) {
+        switch (dst_ty.zigTypeTag(zcu)) {
             .float, .error_union, .error_set, .vector => break :result dst_mcv,
             .@"struct", .@"union" => if (dst_ty.containerLayout(zcu) != .@"packed") break :result dst_mcv,
             .optional, .pointer => if (!dst_ty.isPtrAtRuntime(zcu)) break :result dst_mcv,
             else => {},
         }
 
-        if (dst_ty.isAbiInt(zcu) and src_ty.isAbiInt(zcu) and src_ty.sigTypeTag(zcu) != .@"struct" and
+        if (dst_ty.isAbiInt(zcu) and src_ty.isAbiInt(zcu) and src_ty.zigTypeTag(zcu) != .@"struct" and
             dst_ty.intInfo(zcu).signedness == src_ty.intInfo(zcu).signedness) break :result dst_mcv;
 
         const abi_size = dst_ty.abiSize(zcu);
@@ -181141,7 +181141,7 @@ fn airSelect(self: *CodeGen, inst: Air.Inst.Index) !void {
         const dst_lock = self.register_manager.lockReg(dst_reg);
         defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const mir_tag = @as(?Mir.Inst.FixedTag, switch (elem_ty.sigTypeTag(zcu)) {
+        const mir_tag = @as(?Mir.Inst.FixedTag, switch (elem_ty.zigTypeTag(zcu)) {
             else => null,
             .int => switch (abi_size) {
                 0 => unreachable,
@@ -181239,7 +181239,7 @@ fn airAggregateInitBoolVec(self: *CodeGen, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[@backingInt(inst)].ty_pl;
     const elements: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[ty_pl.payload..][0..len]);
 
-    assert(result_ty.sigTypeTag(zcu) == .vector);
+    assert(result_ty.zigTypeTag(zcu) == .vector);
     assert(result_ty.childType(zcu).toIntern() == .bool_type);
 
     const result_size = result_ty.abiSize(zcu);
@@ -182082,7 +182082,7 @@ fn resolveCallingConventionValues(
             result.fp_count = param_sse_index;
         },
         .auto => {
-            result.stack_align = abi.sigcc.stack_align orelse .fromByteUnits(cg.vectorSize(.float));
+            result.stack_align = abi.zigcc.stack_align orelse .fromByteUnits(cg.vectorSize(.float));
 
             var param_gpr = abi.getCAbiIntParamRegs(cc);
             var param_x87 = abi.getCAbiX87ParamRegs(cc);
@@ -182099,7 +182099,7 @@ fn resolveCallingConventionValues(
                 .runtime, .partially_comptime => return_value: {
                     const ret_gpr = abi.getCAbiIntReturnRegs(cc);
                     const ret_size: u31 = @intCast(ret_ty.abiSize(zcu));
-                    if (abi.sigcc.return_in_regs) switch (cg.regClassForType(ret_ty)) {
+                    if (abi.zigcc.return_in_regs) switch (cg.regClassForType(ret_ty)) {
                         .general_purpose, .gphi => if (ret_size <= @as(u4, switch (cg.target.cpu.arch) {
                             else => unreachable,
                             .x86 => 4,
@@ -182130,7 +182130,7 @@ fn resolveCallingConventionValues(
                 .runtime, .partially_comptime => {
                     result.air_arg_count += 1;
                     const param_size: u31 = @intCast(param_ty.abiSize(zcu));
-                    if (abi.sigcc.params_in_regs) switch (cg.regClassForType(param_ty)) {
+                    if (abi.zigcc.params_in_regs) switch (cg.regClassForType(param_ty)) {
                         .general_purpose, .gphi => if (param_gpr.len >= 1 and param_size <= @as(u4, switch (cg.target.cpu.arch) {
                             else => unreachable,
                             .x86 => 4,
@@ -182347,7 +182347,7 @@ fn truncateRegister(self: *CodeGen, ty: Type, reg: Register) !void {
 fn regBitSize(self: *CodeGen, ty: Type) u64 {
     const zcu = self.pt.zcu;
     const abi_size = ty.abiSize(zcu);
-    return switch (ty.sigTypeTag(zcu)) {
+    return switch (ty.zigTypeTag(zcu)) {
         else => switch (abi_size) {
             1 => 8,
             2 => 16,
@@ -190618,7 +190618,7 @@ const Select = struct {
                     return switch (spec.cc) {
                         .none => unreachable,
                         .ccc => cg.target.cCallingConvention().?,
-                        .sigcc => .auto,
+                        .zigcc => .auto,
                     };
                 }
 
@@ -192384,7 +192384,7 @@ fn select(
                 const cc = switch (case.clobbers.caller_preserved) {
                     .none => break :caller_preserved,
                     .ccc => cg.target.cCallingConvention().?,
-                    .sigcc => .auto,
+                    .zigcc => .auto,
                 };
                 assert(case.clobbers.eflags);
                 const err_ret_trace_reg = if (cc == .auto and cg.pt.zcu.comp.config.any_error_tracing) err_ret_trace_reg: {
@@ -192449,7 +192449,7 @@ fn select(
                 const cc = switch (case.clobbers.caller_preserved) {
                     .none => break :caller_preserved,
                     .ccc => cg.target.cCallingConvention().?,
-                    .sigcc => .auto,
+                    .zigcc => .auto,
                 };
                 const err_ret_trace_reg = if (cc == .auto and cg.pt.zcu.comp.config.any_error_tracing) err_ret_trace_reg: {
                     const param_gpr = abi.getCAbiIntParamRegs(.auto);

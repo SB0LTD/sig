@@ -98,7 +98,7 @@ extern fn zig_loongarch_cpucfg(word: u32, result: *u32) callconv(.c) void;
 fn cpucfg(word: u32) u32 {
     var result: u32 = undefined;
 
-    if (builtin.sig_backend == .stage2_c) {
+    if (builtin.zig_backend == .stage2_c) {
         zig_loongarch_cpucfg(word, &result);
     } else {
         asm ("cpucfg %[result], %[word]"

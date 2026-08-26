@@ -550,7 +550,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                 const ty_op = l.air_instructions.items(.data)[@backingInt(inst)].ty_op;
                 const src_ty = l.typeOf(ty_op.operand);
                 const dest_ty = ty_op.ty;
-                if (src_ty.sigTypeTag(zcu) == .vector) {
+                if (src_ty.zigTypeTag(zcu) == .vector) {
                     if (l.features.has(.scalarize_fptrunc) or
                         l.wantSoftFloatScalar(src_ty.childType(zcu)) or
                         l.wantSoftFloatScalar(dest_ty.childType(zcu)))
@@ -565,7 +565,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                 const ty_op = l.air_instructions.items(.data)[@backingInt(inst)].ty_op;
                 const src_ty = l.typeOf(ty_op.operand);
                 const dest_ty = ty_op.ty;
-                if (src_ty.sigTypeTag(zcu) == .vector) {
+                if (src_ty.zigTypeTag(zcu) == .vector) {
                     if (l.features.has(.scalarize_fpext) or
                         l.wantSoftFloatScalar(src_ty.childType(zcu)) or
                         l.wantSoftFloatScalar(dest_ty.childType(zcu)))
@@ -895,7 +895,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             },
             .splat => {
                 const ty_op = l.air_instructions.items(.data)[@backingInt(inst)].ty_op;
-                switch (ty_op.ty.sigTypeTag(zcu)) {
+                switch (ty_op.ty.zigTypeTag(zcu)) {
                     .vector => switch (ty_op.ty.vectorLen(zcu)) {
                         0 => unreachable,
                         1 => continue :inst l.replaceInst(inst, .bit_cast, .{ .ty_op = .{
@@ -961,7 +961,7 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .aggregate_init => if (l.features.has(.expand_packed_aggregate_init)) {
                 const ty_pl = l.air_instructions.items(.data)[@backingInt(inst)].ty_pl;
                 const agg_ty = ty_pl.ty;
-                switch (agg_ty.sigTypeTag(zcu)) {
+                switch (agg_ty.zigTypeTag(zcu)) {
                     else => {},
                     .@"union" => unreachable,
                     .@"struct" => switch (agg_ty.containerLayout(zcu)) {
@@ -1038,7 +1038,7 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, form: Scalariz
 
     const orig = l.air_instructions.get(@backingInt(orig_inst));
     const res_ty = l.typeOfIndex(orig_inst);
-    const result_is_array = switch (res_ty.sigTypeTag(zcu)) {
+    const result_is_array = switch (res_ty.zigTypeTag(zcu)) {
         .vector => false,
         .array => true,
         else => unreachable,
@@ -1110,7 +1110,7 @@ fn scalarizeBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, form: Scalariz
         },
         .ty_op => elem: {
             const orig_operand = orig.data.ty_op.operand;
-            const operand_is_array = switch (l.typeOf(orig_operand).sigTypeTag(zcu)) {
+            const operand_is_array = switch (l.typeOf(orig_operand).zigTypeTag(zcu)) {
                 .vector => false,
                 .array => true,
                 else => unreachable,
@@ -1552,8 +1552,8 @@ fn scalarizeBitcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!?
     // We exit this block only if the scalarization is actually necessary. Otherwise we will return
     // `null` from within the block.
     const operand_to_int_ok: bool, const int_to_dest_ok: bool = int_ok: {
-        const operand_tag = operand_ty.sigTypeTag(zcu);
-        const dest_tag = dest_ty.sigTypeTag(zcu);
+        const operand_tag = operand_ty.zigTypeTag(zcu);
+        const dest_tag = dest_ty.zigTypeTag(zcu);
 
         if (operand_tag != .array and
             operand_tag != .vector and
@@ -1713,7 +1713,7 @@ fn scalarizeBitcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!?
         const index_val = loop.block.addTyOp(l, .load, .usize, index_ptr).toRef();
         const raw_elem = loop.block.addBinOp(
             l,
-            if (operand_ty.sigTypeTag(zcu) == .vector) .legalize_vec_elem_val else .array_elem_val,
+            if (operand_ty.zigTypeTag(zcu) == .vector) .legalize_vec_elem_val else .array_elem_val,
             ty_op.operand,
             index_val,
         ).toRef();
@@ -1751,7 +1751,7 @@ fn scalarizeBitcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!?
 
     // We omit the safety check when casting to an array or a vector since it's
     // not supposed to be elementwise.
-    if (dest_ty.sigTypeTag(zcu) == .@"enum") assert(int_to_dest_ok);
+    if (dest_ty.zigTypeTag(zcu) == .@"enum") assert(int_to_dest_ok);
 
     if (int_to_dest_ok) {
         _ = main_block.stealCapacity(17);
@@ -1823,7 +1823,7 @@ fn scalarizeBitcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!?
         const shifted_uint = loop.block.addBinOp(l, .shr, uint_val, casted_bit_offset).toRef();
         const elem_uint = loop.block.addTyOp(l, .trunc, elem_uint_ty, shifted_uint).toRef();
         const elem_val = loop.block.addBitCast(l, elem_ty, elem_uint);
-        switch (dest_ty.sigTypeTag(zcu)) {
+        switch (dest_ty.zigTypeTag(zcu)) {
             .array => {
                 const elem_ptr = loop.block.add(l, .{
                     .tag = .ptr_elem_ptr,
@@ -2035,20 +2035,20 @@ fn scalarizeReduceBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, optimize
 
     const ident_val: Value = switch (reduce.operation) {
         // identity for add is 0; identity for OR and XOR is all 0 bits
-        .Or, .Xor, .Add => switch (scalar_ty.sigTypeTag(zcu)) {
+        .Or, .Xor, .Add => switch (scalar_ty.zigTypeTag(zcu)) {
             .int => try pt.intValue(scalar_ty, 0),
             .float => try pt.floatValue(scalar_ty, 0.0),
             .bool => .false,
             else => unreachable,
         },
         // identity for multiplication is 1
-        .Mul => switch (scalar_ty.sigTypeTag(zcu)) {
+        .Mul => switch (scalar_ty.zigTypeTag(zcu)) {
             .int => try pt.intValue(scalar_ty, 1),
             .float => try pt.floatValue(scalar_ty, 1.0),
             else => unreachable,
         },
         // identity for AND is all 1 bits
-        .And => switch (scalar_ty.sigTypeTag(zcu)) {
+        .And => switch (scalar_ty.zigTypeTag(zcu)) {
             .int => switch (scalar_ty.intInfo(zcu).signedness) {
                 .unsigned => try scalar_ty.maxIntScalar(pt, scalar_ty),
                 .signed => try pt.intValue(scalar_ty, -1),
@@ -2057,13 +2057,13 @@ fn scalarizeReduceBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, optimize
             else => unreachable,
         },
         // identity for @min is maximum value
-        .Min => switch (scalar_ty.sigTypeTag(zcu)) {
+        .Min => switch (scalar_ty.zigTypeTag(zcu)) {
             .int => try scalar_ty.maxIntScalar(pt, scalar_ty),
             .float => try pt.floatValue(scalar_ty, std.math.inf(f32)),
             else => unreachable,
         },
         // identity for @max is minimum value
-        .Max => switch (scalar_ty.sigTypeTag(zcu)) {
+        .Max => switch (scalar_ty.zigTypeTag(zcu)) {
             .int => try scalar_ty.minIntScalar(pt, scalar_ty),
             .float => try pt.floatValue(scalar_ty, -std.math.inf(f32)),
             else => unreachable,
@@ -2076,12 +2076,12 @@ fn scalarizeReduceBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, optimize
         .Xor => .xor,
         .Min => .min,
         .Max => .max,
-        .Add => switch (scalar_ty.sigTypeTag(zcu)) {
+        .Add => switch (scalar_ty.zigTypeTag(zcu)) {
             .int => .add_wrap,
             .float => if (optimized) .add_optimized else .add,
             else => unreachable,
         },
-        .Mul => switch (scalar_ty.sigTypeTag(zcu)) {
+        .Mul => switch (scalar_ty.zigTypeTag(zcu)) {
             .int => .mul_wrap,
             .float => if (optimized) .mul_optimized else .mul,
             else => unreachable,
@@ -2160,7 +2160,7 @@ fn safeBitcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!?Air.I
     const operand_ref = ty_op.operand;
     const dest_ty = ty_op.ty;
 
-    if (dest_ty.sigTypeTag(zcu) != .@"enum" or
+    if (dest_ty.zigTypeTag(zcu) != .@"enum" or
         dest_ty.isNonexhaustiveEnum(zcu) or
         !zcu.backendSupportsFeature(.is_named_enum_value))
     {
@@ -2216,12 +2216,12 @@ fn safeIntcastBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!?Air.I
     const operand_ty = l.typeOf(operand_ref);
     const dest_ty = ty_op.ty;
 
-    const is_vector = operand_ty.sigTypeTag(zcu) == .vector;
+    const is_vector = operand_ty.zigTypeTag(zcu) == .vector;
     const operand_scalar_ty = operand_ty.scalarType(zcu);
     const dest_scalar_ty = dest_ty.scalarType(zcu);
 
-    assert(operand_scalar_ty.sigTypeTag(zcu) == .int);
-    const dest_is_enum = switch (dest_scalar_ty.sigTypeTag(zcu)) {
+    assert(operand_scalar_ty.zigTypeTag(zcu) == .int);
+    const dest_is_enum = switch (dest_scalar_ty.zigTypeTag(zcu)) {
         .int => false,
         .@"enum" => true,
         else => unreachable,
@@ -2387,7 +2387,7 @@ fn safeIntFromFloatBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, optimiz
     const operand_ty = l.typeOf(operand_ref);
     const dest_ty = ty_op.ty;
 
-    const is_vector = operand_ty.sigTypeTag(zcu) == .vector;
+    const is_vector = operand_ty.zigTypeTag(zcu) == .vector;
     const dest_scalar_ty = dest_ty.scalarType(zcu);
     const int_info = dest_scalar_ty.intInfo(zcu);
 
@@ -2493,7 +2493,7 @@ fn safeArithmeticBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, overflow_
 
     const operand_ty = l.typeOf(bin_op.lhs);
     assert(l.typeOf(bin_op.rhs).toIntern() == operand_ty.toIntern());
-    const is_vector = operand_ty.sigTypeTag(zcu) == .vector;
+    const is_vector = operand_ty.zigTypeTag(zcu) == .vector;
 
     const overflow_tuple_ty = try pt.overflowArithmeticTupleType(operand_ty);
     const overflow_bits_ty = overflow_tuple_ty.fieldType(1, zcu);
@@ -2591,9 +2591,9 @@ fn divCeilBlockPayload(
     assert(l.typeOf(bin_op.rhs).toIntern() == operand_ty.toIntern());
 
     const scalar_ty = operand_ty.scalarType(zcu);
-    const is_vector = operand_ty.sigTypeTag(zcu) == .vector;
+    const is_vector = operand_ty.zigTypeTag(zcu) == .vector;
 
-    switch (scalar_ty.sigTypeTag(zcu)) {
+    switch (scalar_ty.zigTypeTag(zcu)) {
         .float => {
             // %result = ceil(lhs / rhs)
 
@@ -3032,7 +3032,7 @@ fn floatFromBigIntVal(
         true => float_ty.childType(zcu),
         false => float_ty,
     };
-    assert(scalar_ty.sigTypeTag(zcu) == .float);
+    assert(scalar_ty.zigTypeTag(zcu) == .float);
     const scalar_val: Value = switch (scalar_ty.floatBits(zcu.getTarget())) {
         16 => try pt.floatValue(scalar_ty, x.toFloat(f16, round)[0]),
         32 => try pt.floatValue(scalar_ty, x.toFloat(f32, round)[0]),
@@ -3894,7 +3894,7 @@ inline fn wantScalarizeOrSoftFloat(
     soft_float,
 } {
     const zcu = l.pt.zcu;
-    const is_vec, const scalar_ty = switch (ty.sigTypeTag(zcu)) {
+    const is_vec, const scalar_ty = switch (ty.zigTypeTag(zcu)) {
         .vector => .{ true, ty.childType(zcu) },
         else => .{ false, ty },
     };
@@ -3910,7 +3910,7 @@ inline fn wantScalarizeOrSoftFloat(
 /// `inline` to propagate potentially comptime-known return value.
 inline fn wantSoftFloatScalar(l: *const Legalize, ty: Type) bool {
     const zcu = l.pt.zcu;
-    return switch (ty.sigTypeTag(zcu)) {
+    return switch (ty.zigTypeTag(zcu)) {
         .vector => unreachable,
         .float => switch (ty.floatBits(zcu.getTarget())) {
             16 => l.features.has(.soft_f16),

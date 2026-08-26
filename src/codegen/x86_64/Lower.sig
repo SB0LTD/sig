@@ -20,7 +20,7 @@ const max_result_insts = @max(
     pseudo_probe_adjust_unrolled_max_insts,
     pseudo_probe_adjust_setup_insts,
     pseudo_probe_adjust_loop_insts,
-    abi.sigcc.callee_preserved_regs.len * 2, // push_regs/pop_regs
+    abi.zigcc.callee_preserved_regs.len * 2, // push_regs/pop_regs
     abi.Win64.callee_preserved_regs.len * 2, // push_regs/pop_regs
     abi.SysV.callee_preserved_regs.len * 2, // push_regs/pop_regs
 );

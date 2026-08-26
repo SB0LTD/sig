@@ -16,7 +16,7 @@ pub fn classifyType(ty: Type, zcu: *Zcu, ctx: Context) Class {
     std.debug.assert(ty.hasRuntimeBits(zcu));
 
     const max_direct_size = target.ptrBitWidth() * 2;
-    switch (ty.sigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .@"struct" => {
             if (ty.containerLayout(zcu) == .@"packed") {
                 if (ty.bitSize(zcu) > max_direct_size) return .memory;
@@ -51,7 +51,7 @@ pub fn classifyType(ty: Type, zcu: *Zcu, ctx: Context) Class {
         },
         .vector => {
             const elem_type = ty.childType(zcu);
-            switch (elem_type.sigTypeTag(zcu)) {
+            switch (elem_type.zigTypeTag(zcu)) {
                 .bool, .int => {
                     const bit_size = ty.bitSize(zcu);
                     if (ctx == .ret and bit_size > 128) return .memory;

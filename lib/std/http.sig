@@ -917,7 +917,7 @@ pub const BodyWriter = struct {
     pub fn elidingSendFile(w: *Writer, file_reader: *File.Reader, limit: std.Io.Limit) Writer.FileError!usize {
         const bw: *BodyWriter = @alignCast(@fieldParentPtr("writer", w));
         if (File.Handle == void) return error.Unimplemented;
-        if (builtin.sig_backend == .stage2_aarch64) return error.Unimplemented;
+        if (builtin.zig_backend == .stage2_aarch64) return error.Unimplemented;
         switch (bw.state) {
             .content_length => |*len| len.* -= w.end,
             else => {},

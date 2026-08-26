@@ -29,7 +29,7 @@ pub fn make(
     argv.clearRetainingCapacity();
     try argv.ensureUnusedCapacity(gpa, 2 + 1 + paths.len + 2 * exclude_paths.len);
 
-    argv.appendAssumeCapacity(graph.sig_exe);
+    argv.appendAssumeCapacity(graph.zig_exe);
     argv.appendAssumeCapacity("fmt");
 
     if (conf_fmt.flags.check)

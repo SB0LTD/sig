@@ -754,7 +754,7 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const lhs_ty = self.typeOf(extra.lhs);
         const rhs_ty = self.typeOf(extra.rhs);
 
-        switch (lhs_ty.sigTypeTag(zcu)) {
+        switch (lhs_ty.zigTypeTag(zcu)) {
             .vector => return self.fail("TODO implement add_with_overflow/sub_with_overflow for vectors", .{}),
             .int => {
                 assert(lhs_ty.eql(rhs_ty));
@@ -1191,7 +1191,7 @@ fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
         const operand = try self.resolveInst(ty_op.operand);
         const operand_ty = self.typeOf(ty_op.operand);
-        switch (operand_ty.sigTypeTag(zcu)) {
+        switch (operand_ty.zigTypeTag(zcu)) {
             .vector => return self.fail("TODO byteswap for vectors", .{}),
             .int => {
                 const int_info = operand_ty.intInfo(zcu);
@@ -1268,7 +1268,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.lang.CallModifier) !
     const pt = self.pt;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
-    const fn_ty = switch (ty.sigTypeTag(zcu)) {
+    const fn_ty = switch (ty.zigTypeTag(zcu)) {
         .@"fn" => ty,
         .pointer => ty.childType(zcu),
         else => unreachable,
@@ -1322,7 +1322,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.lang.CallModifier) !
             return self.fail("TODO implement calling bitcasted functions", .{});
         },
     } else {
-        assert(ty.sigTypeTag(zcu) == .pointer);
+        assert(ty.zigTypeTag(zcu) == .pointer);
         const mcv = try self.resolveInst(call.callee);
         try self.genSetReg(ty, .o7, mcv);
 
@@ -1377,7 +1377,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         const rhs = try self.resolveInst(bin_op.rhs);
         const lhs_ty = self.typeOf(bin_op.lhs);
 
-        const int_ty: Type = switch (lhs_ty.sigTypeTag(zcu)) {
+        const int_ty: Type = switch (lhs_ty.zigTypeTag(zcu)) {
             .vector => unreachable, // Handled by cmp_vector.
             .@"enum" => lhs_ty.backingIntType(zcu),
             .int => lhs_ty,
@@ -1960,7 +1960,7 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const lhs_ty = self.typeOf(extra.lhs);
         const rhs_ty = self.typeOf(extra.rhs);
 
-        switch (lhs_ty.sigTypeTag(zcu)) {
+        switch (lhs_ty.zigTypeTag(zcu)) {
             .vector => return self.fail("TODO implement mul_with_overflow for vectors", .{}),
             .int => {
                 assert(lhs_ty.eql(rhs_ty));
@@ -2034,7 +2034,7 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
                 };
             },
             else => {
-                switch (operand_ty.sigTypeTag(zcu)) {
+                switch (operand_ty.zigTypeTag(zcu)) {
                     .bool => {
                         const op_reg = switch (operand) {
                             .register => |r| r,
@@ -2258,7 +2258,7 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const lhs_ty = self.typeOf(extra.lhs);
         const rhs_ty = self.typeOf(extra.rhs);
 
-        switch (lhs_ty.sigTypeTag(zcu)) {
+        switch (lhs_ty.zigTypeTag(zcu)) {
             .vector => if (!rhs_ty.isVector(zcu))
                 return self.fail("TODO implement vector shl_with_overflow with scalar rhs", .{})
             else
@@ -2789,7 +2789,7 @@ fn binOp(
         .xor,
         .cmp_eq,
         => {
-            switch (lhs_ty.sigTypeTag(zcu)) {
+            switch (lhs_ty.zigTypeTag(zcu)) {
                 .float => return self.fail("TODO binary operations on floats", .{}),
                 .vector => return self.fail("TODO binary operations on vectors", .{}),
                 .int => {
@@ -2863,7 +2863,7 @@ fn binOp(
             const result = try self.binOp(base_tag, lhs, rhs, lhs_ty, rhs_ty, metadata);
 
             // Truncate if necessary
-            switch (lhs_ty.sigTypeTag(zcu)) {
+            switch (lhs_ty.zigTypeTag(zcu)) {
                 .vector => return self.fail("TODO binary operations on vectors", .{}),
                 .int => {
                     const int_info = lhs_ty.intInfo(zcu);
@@ -2880,7 +2880,7 @@ fn binOp(
         },
 
         .div_trunc => {
-            switch (lhs_ty.sigTypeTag(zcu)) {
+            switch (lhs_ty.zigTypeTag(zcu)) {
                 .vector => return self.fail("TODO binary operations on vectors", .{}),
                 .int => {
                     assert(lhs_ty.eql(rhs_ty));
@@ -2913,7 +2913,7 @@ fn binOp(
         },
 
         .ptr_add => {
-            switch (lhs_ty.sigTypeTag(zcu)) {
+            switch (lhs_ty.zigTypeTag(zcu)) {
                 .pointer => {
                     const ptr_ty = lhs_ty;
                     const elem_ty = switch (ptr_ty.ptrSize(zcu)) {
@@ -2955,7 +2955,7 @@ fn binOp(
             const result = try self.binOp(base_tag, lhs, rhs, lhs_ty, rhs_ty, metadata);
 
             // Truncate if necessary
-            switch (lhs_ty.sigTypeTag(zcu)) {
+            switch (lhs_ty.zigTypeTag(zcu)) {
                 .vector => if (rhs_ty.isVector(zcu))
                     return self.fail("TODO vector shift with scalar rhs", .{})
                 else
@@ -2980,7 +2980,7 @@ fn binOp(
         .shl_exact,
         .shr_exact,
         => {
-            switch (lhs_ty.sigTypeTag(zcu)) {
+            switch (lhs_ty.zigTypeTag(zcu)) {
                 .vector => if (rhs_ty.isVector(zcu))
                     return self.fail("TODO vector shift with scalar rhs", .{})
                 else
@@ -4240,7 +4240,7 @@ fn minMax(
     const pt = self.pt;
     const zcu = pt.zcu;
     assert(lhs_ty.eql(rhs_ty));
-    switch (lhs_ty.sigTypeTag(zcu)) {
+    switch (lhs_ty.zigTypeTag(zcu)) {
         .float => return self.fail("TODO min/max on floats", .{}),
         .vector => return self.fail("TODO min/max on vectors", .{}),
         .int => {
@@ -4427,7 +4427,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type, role: RegisterView) 
             result.stack_byte_count = next_stack_offset;
             result.stack_align = .@"16";
 
-            if (ret_ty.sigTypeTag(zcu) == .noreturn) {
+            if (ret_ty.zigTypeTag(zcu) == .noreturn) {
                 result.return_value = .{ .unreach = {} };
             } else if (!ret_ty.hasRuntimeBits(zcu)) {
                 result.return_value = .{ .none = {} };

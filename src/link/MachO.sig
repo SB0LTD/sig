@@ -233,13 +233,13 @@ pub fn createEmpty(
     if (opt_zcu) |zcu| {
         if (!use_llvm) {
             const index: File.Index = @intCast(try self.files.addOne(gpa));
-            self.files.set(index, .{ .sig_object = .{
+            self.files.set(index, .{ .zig_object = .{
                 .index = index,
                 .basename = try std.fmt.allocPrint(arena, "{s}.o", .{
                     fs.path.stem(zcu.main_mod.root_src_path),
                 }),
             } });
-            self.sig_object = index;
+            self.zig_object = index;
             const zo = self.getZigObject().?;
             try zo.init(self);
 
@@ -282,7 +282,7 @@ pub fn deinit(self: *MachO) void {
 
     for (self.files.items(.tags), self.files.items(.data)) |tag, *data| switch (tag) {
         .null => {},
-        .sig_object => data.sig_object.deinit(gpa),
+        .zig_object => data.zig_object.deinit(gpa),
         .internal => data.internal.deinit(gpa),
         .object => data.object.deinit(gpa),
         .dylib => data.dylib.deinit(gpa),
@@ -433,7 +433,7 @@ pub fn flush(
         (comp.config.output_mode == .Lib and comp.config.link_mode == .dynamic);
 
     if (comp.config.link_libc and is_exe_or_dyn_lib) {
-        if (comp.sigc_static_lib) |zigc| {
+        if (comp.zigc_static_lib) |zigc| {
             const path = zigc.full_object_path;
             self.classifyInputFile(try link.openArchiveInput(io, diags, path, false, false)) catch |err|
                 diags.addParseError(path, "failed to parse archive: {s}", .{@errorName(err)});
@@ -813,7 +813,7 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
 
         try argv.append("-lSystem");
 
-        if (comp.sigc_static_lib) |lib| try argv.append(try lib.full_object_path.toString(arena));
+        if (comp.zigc_static_lib) |lib| try argv.append(try lib.full_object_path.toString(arena));
         if (comp.compiler_rt_lib) |lib| try argv.append(try lib.full_object_path.toString(arena));
         if (comp.compiler_rt_obj) |obj| try argv.append(try obj.full_object_path.toString(arena));
         if (comp.ubsan_rt_lib) |lib| try argv.append(try lib.full_object_path.toString(arena));
@@ -1867,10 +1867,10 @@ pub fn sortSections(self: *MachO) !void {
     for (&[_]*?u8{
         &self.data_sect_index,
         &self.got_sect_index,
-        &self.sig_text_sect_index,
-        &self.sig_const_sect_index,
-        &self.sig_data_sect_index,
-        &self.sig_bss_sect_index,
+        &self.zig_text_sect_index,
+        &self.zig_const_sect_index,
+        &self.zig_data_sect_index,
+        &self.zig_bss_sect_index,
         &self.stubs_sect_index,
         &self.stubs_helper_sect_index,
         &self.la_symbol_ptr_sect_index,
@@ -2178,10 +2178,10 @@ fn initSegments(self: *MachO) !void {
         &self.pagezero_seg_index,
         &self.text_seg_index,
         &self.linkedit_seg_index,
-        &self.sig_text_seg_index,
-        &self.sig_const_seg_index,
-        &self.sig_data_seg_index,
-        &self.sig_bss_seg_index,
+        &self.zig_text_seg_index,
+        &self.zig_const_seg_index,
+        &self.zig_data_seg_index,
+        &self.zig_bss_seg_index,
     }) |maybe_index| {
         if (maybe_index.*) |*index| {
             index.* = backlinks[index.*];
@@ -2779,7 +2779,7 @@ fn calcSymtabSize(self: *MachO) !void {
     var files = std.array_list.Managed(File.Index).init(gpa);
     defer files.deinit();
     try files.ensureTotalCapacityPrecise(self.objects.items.len + self.dylibs.items.len + 2);
-    if (self.sig_object) |index| files.appendAssumeCapacity(index);
+    if (self.zig_object) |index| files.appendAssumeCapacity(index);
     for (self.objects.items) |index| files.appendAssumeCapacity(index);
     for (self.dylibs.items) |index| files.appendAssumeCapacity(index);
     if (self.internal_object) |index| files.appendAssumeCapacity(index);
@@ -3345,7 +3345,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
         {
             const filesize = options.program_code_size_hint;
             const off = try self.findFreeSpace(filesize, self.getPageSize());
-            self.sig_text_seg_index = try self.addSegment("__TEXT_ZIG", .{
+            self.zig_text_seg_index = try self.addSegment("__TEXT_ZIG", .{
                 .fileoff = off,
                 .filesize = filesize,
                 .vmaddr = base_vmaddr + 0x4000000,
@@ -3357,7 +3357,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
         {
             const filesize: u64 = 1024;
             const off = try self.findFreeSpace(filesize, self.getPageSize());
-            self.sig_const_seg_index = try self.addSegment("__CONST_ZIG", .{
+            self.zig_const_seg_index = try self.addSegment("__CONST_ZIG", .{
                 .fileoff = off,
                 .filesize = filesize,
                 .vmaddr = base_vmaddr + 0xc000000,
@@ -3369,7 +3369,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
         {
             const filesize: u64 = 1024;
             const off = try self.findFreeSpace(filesize, self.getPageSize());
-            self.sig_data_seg_index = try self.addSegment("__DATA_ZIG", .{
+            self.zig_data_seg_index = try self.addSegment("__DATA_ZIG", .{
                 .fileoff = off,
                 .filesize = filesize,
                 .vmaddr = base_vmaddr + 0x10000000,
@@ -3380,7 +3380,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
 
         {
             const memsize: u64 = 1024;
-            self.sig_bss_seg_index = try self.addSegment("__BSS_ZIG", .{
+            self.zig_bss_seg_index = try self.addSegment("__BSS_ZIG", .{
                 .vmaddr = base_vmaddr + 0x14000000,
                 .vmsize = memsize,
                 .prot = .{ .READ = true, .WRITE = true },
@@ -3425,7 +3425,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
     }.allocSect;
 
     {
-        self.sig_text_sect_index = try self.addSection("__TEXT_ZIG", "__text_zig", .{
+        self.zig_text_sect_index = try self.addSection("__TEXT_ZIG", "__text_zig", .{
             .alignment = switch (self.getTarget().cpu.arch) {
                 .aarch64 => 2,
                 .x86_64 => 0,
@@ -3434,38 +3434,38 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
             .flags = macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
         });
         if (self.base.isRelocatable()) {
-            try allocSect(self, self.sig_text_sect_index.?, options.program_code_size_hint);
+            try allocSect(self, self.zig_text_sect_index.?, options.program_code_size_hint);
         } else {
-            appendSect(self, self.sig_text_sect_index.?, self.sig_text_seg_index.?);
+            appendSect(self, self.zig_text_sect_index.?, self.zig_text_seg_index.?);
         }
     }
 
     {
-        self.sig_const_sect_index = try self.addSection("__CONST_ZIG", "__const_zig", .{});
+        self.zig_const_sect_index = try self.addSection("__CONST_ZIG", "__const_zig", .{});
         if (self.base.isRelocatable()) {
-            try allocSect(self, self.sig_const_sect_index.?, 1024);
+            try allocSect(self, self.zig_const_sect_index.?, 1024);
         } else {
-            appendSect(self, self.sig_const_sect_index.?, self.sig_const_seg_index.?);
+            appendSect(self, self.zig_const_sect_index.?, self.zig_const_seg_index.?);
         }
     }
 
     {
-        self.sig_data_sect_index = try self.addSection("__DATA_ZIG", "__data_zig", .{});
+        self.zig_data_sect_index = try self.addSection("__DATA_ZIG", "__data_zig", .{});
         if (self.base.isRelocatable()) {
-            try allocSect(self, self.sig_data_sect_index.?, 1024);
+            try allocSect(self, self.zig_data_sect_index.?, 1024);
         } else {
-            appendSect(self, self.sig_data_sect_index.?, self.sig_data_seg_index.?);
+            appendSect(self, self.zig_data_sect_index.?, self.zig_data_seg_index.?);
         }
     }
 
     {
-        self.sig_bss_sect_index = try self.addSection("__BSS_ZIG", "__bss_zig", .{
+        self.zig_bss_sect_index = try self.addSection("__BSS_ZIG", "__bss_zig", .{
             .flags = macho.S_ZEROFILL,
         });
         if (self.base.isRelocatable()) {
-            try allocSect(self, self.sig_bss_sect_index.?, 1024);
+            try allocSect(self, self.zig_bss_sect_index.?, 1024);
         } else {
-            appendSect(self, self.sig_bss_sect_index.?, self.sig_bss_seg_index.?);
+            appendSect(self, self.zig_bss_sect_index.?, self.zig_bss_seg_index.?);
         }
     }
 
@@ -3667,10 +3667,10 @@ inline fn requiresThunks(self: MachO) bool {
 
 pub fn isZigSegment(self: MachO, seg_id: u8) bool {
     inline for (&[_]?u8{
-        self.sig_text_seg_index,
-        self.sig_const_seg_index,
-        self.sig_data_seg_index,
-        self.sig_bss_seg_index,
+        self.zig_text_seg_index,
+        self.zig_const_seg_index,
+        self.zig_data_seg_index,
+        self.zig_bss_seg_index,
     }) |maybe_index| {
         if (maybe_index) |index| {
             if (index == seg_id) return true;
@@ -3681,10 +3681,10 @@ pub fn isZigSegment(self: MachO, seg_id: u8) bool {
 
 pub fn isZigSection(self: MachO, sect_id: u8) bool {
     inline for (&[_]?u8{
-        self.sig_text_sect_index,
-        self.sig_const_sect_index,
-        self.sig_data_sect_index,
-        self.sig_bss_sect_index,
+        self.zig_text_sect_index,
+        self.zig_const_sect_index,
+        self.zig_data_sect_index,
+        self.zig_bss_sect_index,
     }) |maybe_index| {
         if (maybe_index) |index| {
             if (index == sect_id) return true;
@@ -3801,7 +3801,7 @@ pub fn getFile(self: *MachO, index: File.Index) ?File {
     const tag = self.files.items(.tags)[index];
     return switch (tag) {
         .null => null,
-        .sig_object => .{ .sig_object = &self.files.items(.data)[index].sig_object },
+        .zig_object => .{ .zig_object = &self.files.items(.data)[index].zig_object },
         .internal => .{ .internal = &self.files.items(.data)[index].internal },
         .object => .{ .object = &self.files.items(.data)[index].object },
         .dylib => .{ .dylib = &self.files.items(.data)[index].dylib },
@@ -3809,8 +3809,8 @@ pub fn getFile(self: *MachO, index: File.Index) ?File {
 }
 
 pub fn getZigObject(self: *MachO) ?*ZigObject {
-    const index = self.sig_object orelse return null;
-    return self.getFile(index).?.sig_object;
+    const index = self.zig_object orelse return null;
+    return self.getFile(index).?.zig_object;
 }
 
 pub fn getInternalObject(self: *MachO) ?*InternalObject {

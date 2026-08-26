@@ -443,7 +443,7 @@ test zeroes {
     }
     try testing.expectEqual(@as(@TypeOf(b.vector_u32), @splat(0)), b.vector_u32);
     try testing.expectEqual(@as(@TypeOf(b.vector_f32), @splat(0.0)), b.vector_f32);
-    if (!(builtin.sig_backend == .stage2_llvm and builtin.cpu.arch == .hexagon)) {
+    if (!(builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .hexagon)) {
         try testing.expectEqual(@as(@TypeOf(b.vector_bool), @splat(false)), b.vector_bool);
     }
     try testing.expectEqual(@as(?u8, null), b.optional_int);
@@ -733,7 +733,7 @@ test lessThan {
     try testing.expect(lessThan(u8, "", "a"));
 }
 
-const use_vectors = switch (builtin.sig_backend) {
+const use_vectors = switch (builtin.zig_backend) {
     // These backends don't support vectors yet.
     .stage2_aarch64,
     .stage2_loongarch,
@@ -4827,7 +4827,7 @@ pub fn alignForwardLog2(addr: usize, log2_alignment: u8) usize {
 pub fn doNotOptimizeAway(val: anytype) void {
     if (@inComptime()) return;
 
-    if (builtin.sig_backend == .stage2_c and builtin.abi == .msvc) {
+    if (builtin.zig_backend == .stage2_c and builtin.abi == .msvc) {
         _ = @atomicRmw(*const anyopaque, @as(*volatile *const anyopaque, &struct {
             var escape: *const anyopaque = undefined;
         }.escape), .Xchg, &val, .acq_rel); // TODO: syncscope("singlethreaded")

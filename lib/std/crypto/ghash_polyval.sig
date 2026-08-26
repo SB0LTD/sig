@@ -288,9 +288,9 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
         const has_avx = builtin.cpu.has(.x86, .avx);
         const has_armaes = builtin.cpu.has(.aarch64, .aes);
         // C backend doesn't currently support passing vectors to inline asm.
-        const clmul = if (builtin.cpu.arch == .x86_64 and builtin.sig_backend != .stage2_c and has_pclmul and has_avx) impl: {
+        const clmul = if (builtin.cpu.arch == .x86_64 and builtin.zig_backend != .stage2_c and has_pclmul and has_avx) impl: {
             break :impl clmulPclmul;
-        } else if (builtin.cpu.arch == .aarch64 and builtin.sig_backend != .stage2_c and has_armaes) impl: {
+        } else if (builtin.cpu.arch == .aarch64 and builtin.zig_backend != .stage2_c and has_armaes) impl: {
             break :impl clmulPmull;
         } else impl: {
             break :impl clmulSoft;

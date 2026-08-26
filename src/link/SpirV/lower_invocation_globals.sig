@@ -125,7 +125,7 @@ const ModuleInfo = struct {
                     const set_inst = inst.operands[3];
 
                     const set = binary.ext_inst_map.get(set_id).?;
-                    if (set == .sig and set_inst == 0) {
+                    if (set == .Sig and set_inst == 0) {
                         const initializer: ResultId = if (inst.operands.len >= 5)
                             @fromBackingInt(@intCast(inst.operands[4]))
                         else
@@ -445,13 +445,13 @@ const ModuleBuilder = struct {
                 .OpExtInstImport => {
                     const set_id: ResultId = @fromBackingInt(@intCast(inst.operands[0]));
                     const set = binary.ext_inst_map.get(set_id).?;
-                    if (set == .sig) continue;
+                    if (set == .Sig) continue;
                 },
                 .OpExtInst => {
                     const set_id: ResultId = @fromBackingInt(@intCast(inst.operands[2]));
                     const set_inst = inst.operands[3];
                     const set = binary.ext_inst_map.get(set_id).?;
-                    if (set == .sig and set_inst == 0) {
+                    if (set == .Sig and set_inst == 0) {
                         continue;
                     }
                 },

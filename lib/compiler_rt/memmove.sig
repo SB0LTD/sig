@@ -14,7 +14,7 @@ comptime {
             .visibility = compiler_rt.visibility,
         };
 
-        if (builtin.mode == .small or builtin.sig_backend == .stage2_aarch64)
+        if (builtin.mode == .small or builtin.zig_backend == .stage2_aarch64)
             @export(&memmoveSmall, export_options)
         else
             @export(&memmoveFast, export_options);
@@ -217,7 +217,7 @@ inline fn copyBackwards(
 }
 
 test memmoveFast {
-    if (builtin.sig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const max_len = 1024;
     var buffer: [max_len + @alignOf(Element) - 1]u8 = undefined;

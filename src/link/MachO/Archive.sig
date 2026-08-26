@@ -200,7 +200,7 @@ pub const ArSymtab = struct {
         // Symtab entries
         for (ar.entries.items) |entry| {
             const file_off = switch (macho_file.getFile(entry.file).?) {
-                .sig_object => |x| x.output_ar_state.file_off,
+                .zig_object => |x| x.output_ar_state.file_off,
                 .object => |x| x.output_ar_state.file_off,
                 else => unreachable,
             };
