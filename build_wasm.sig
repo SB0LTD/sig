@@ -78,7 +78,7 @@ fn buildWasm(step: *sig_build.Step_Context) sig_build.SigError!void {
         try cmd.appendArg(ctx.global_cache_dir[0..ctx.global_cache_dir_len]);
     }
     if (ctx.zig_lib_dir_len > 0) {
-        try cmd.appendArg("--Sig-lib-dir");
+        try cmd.appendArg("--zig-lib-dir");
         try cmd.appendArg(ctx.zig_lib_dir[0..ctx.zig_lib_dir_len]);
     }
     try cmd.appendArg(emit);
