@@ -67,9 +67,12 @@ fn buildWasm(step: *sig_build.Step_Context) sig_build.SigError!void {
     try cmd.appendArg("aro");
     try cmd.appendArg("--dep");
     try cmd.appendArg("build_options");
+    try cmd.appendArg("--dep");
+    try cmd.appendArg("std");
     try cmd.appendArg(root_module);
     try cmd.appendArg(aro_module);
     try cmd.appendArg(options_module);
+    try cmd.appendArg("-Mstd=lib/std/std.sig");
     try cmd.appendArg("-lc");
     try cmd.appendArg("--cache-dir");
     try cmd.appendArg(step_cache_path);
