@@ -113,10 +113,10 @@ case "$TARGET" in
     lld_flag=-fno-lld
     ;;
   x86_64-linux-musl|x86_64-linux-gnu|aarch64-linux-musl)
-    # System libc++ path for linking LLVM (which was built with libc++)
-    LIBCXX_DIR="/usr/lib/x86_64-linux-gnu"
+    # Use system linker to resolve system libc++ that LLVM was linked against
+    lld_flag=-fno-lld
     set -- \
-      -L"$LIBCXX_DIR" -lc++ -lc++abi -lm -lz -lzstd -lpthread -ldl -lrt
+      -lc++ -lc++abi -lm -lz -lzstd -lpthread -ldl -lrt
     ;;
   x86_64-windows-gnu)
     set -- \
