@@ -1,9 +1,9 @@
 const std = @import("std");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
-const Token = std.sig.Token;
+const Token = std.zig.Token;
 
-test "Sig fmt: remove extra whitespace at start and end of file with comment between" {
+test "zig fmt: remove extra whitespace at start and end of file with comment between" {
     try testTransform(
         \\
         \\
@@ -16,7 +16,7 @@ test "Sig fmt: remove extra whitespace at start and end of file with comment bet
     );
 }
 
-test "Sig fmt: tuple struct" {
+test "zig fmt: tuple struct" {
     try testCanonical(
         \\const T = struct {
         \\    /// doc comment on tuple field
@@ -30,7 +30,7 @@ test "Sig fmt: tuple struct" {
     );
 }
 
-test "Sig fmt: preserves clobbers in inline asm with stray comma" {
+test "zig fmt: preserves clobbers in inline asm with stray comma" {
     try testCanonical(
         \\fn foo() void {
         \\    asm volatile (""
@@ -46,7 +46,7 @@ test "Sig fmt: preserves clobbers in inline asm with stray comma" {
     );
 }
 
-test "Sig fmt: respect line breaks in struct field value declaration" {
+test "zig fmt: respect line breaks in struct field value declaration" {
     try testCanonical(
         \\const Foo = struct {
         \\    bar: u32 =
@@ -71,7 +71,7 @@ test "Sig fmt: respect line breaks in struct field value declaration" {
     );
 }
 
-test "Sig fmt: respect line breaks before functions" {
+test "zig fmt: respect line breaks before functions" {
     try testCanonical(
         \\const std = @import("std");
         \\
@@ -88,7 +88,7 @@ test "Sig fmt: respect line breaks before functions" {
     );
 }
 
-test "Sig fmt: rewrite callconv(.@\"inline\") to the inline keyword" {
+test "zig fmt: rewrite callconv(.@\"inline\") to the inline keyword" {
     try testTransform(
         \\fn foo() callconv(.@"inline") void {}
         \\const bar: @import("std").builtin.CallingConvention = .@"inline";
@@ -102,7 +102,7 @@ test "Sig fmt: rewrite callconv(.@\"inline\") to the inline keyword" {
     );
 }
 
-test "Sig fmt: simple top level comptime block" {
+test "zig fmt: simple top level comptime block" {
     try testCanonical(
         \\// line comment
         \\comptime {}
@@ -110,7 +110,7 @@ test "Sig fmt: simple top level comptime block" {
     );
 }
 
-test "Sig fmt: two spaced line comments before decl" {
+test "zig fmt: two spaced line comments before decl" {
     try testCanonical(
         \\// line comment
         \\
@@ -120,7 +120,7 @@ test "Sig fmt: two spaced line comments before decl" {
     );
 }
 
-test "Sig fmt: respect line breaks after var declarations" {
+test "zig fmt: respect line breaks after var declarations" {
     try testCanonical(
         \\const crc =
         \\    lookup_tables[0][p[7]] ^
@@ -135,7 +135,7 @@ test "Sig fmt: respect line breaks after var declarations" {
     );
 }
 
-test "Sig fmt: multiline string mixed with comments" {
+test "zig fmt: multiline string mixed with comments" {
     try testCanonical(
         \\const s1 =
         \\    //\\one
@@ -165,13 +165,13 @@ test "Sig fmt: multiline string mixed with comments" {
     );
 }
 
-test "Sig fmt: empty file" {
+test "zig fmt: empty file" {
     try testCanonical(
         \\
     );
 }
 
-test "Sig fmt: file ends in comment" {
+test "zig fmt: file ends in comment" {
     try testTransform(
         \\     //foobar
     ,
@@ -180,7 +180,7 @@ test "Sig fmt: file ends in comment" {
     );
 }
 
-test "Sig fmt: file ends in multi line comment" {
+test "zig fmt: file ends in multi line comment" {
     try testTransform(
         \\     \\foobar
     ,
@@ -189,7 +189,7 @@ test "Sig fmt: file ends in multi line comment" {
     );
 }
 
-test "Sig fmt: file ends in comment after var decl" {
+test "zig fmt: file ends in comment after var decl" {
     try testTransform(
         \\const x = 42;
         \\     //foobar
@@ -200,7 +200,7 @@ test "Sig fmt: file ends in comment after var decl" {
     );
 }
 
-test "Sig fmt: if statement" {
+test "zig fmt: if statement" {
     try testCanonical(
         \\test "" {
         \\    if (optional()) |some|
@@ -210,7 +210,7 @@ test "Sig fmt: if statement" {
     );
 }
 
-test "Sig fmt: top-level fields" {
+test "zig fmt: top-level fields" {
     try testCanonical(
         \\a: did_you_know,
         \\b: all_files_are,
@@ -219,21 +219,21 @@ test "Sig fmt: top-level fields" {
     );
 }
 
-test "Sig fmt: top-level tuple function call type" {
+test "zig fmt: top-level tuple function call type" {
     try testCanonical(
         \\foo()
         \\
     );
 }
 
-test "Sig fmt: top-level enum missing 'const name ='" {
+test "zig fmt: top-level enum missing 'const name ='" {
     try testError(
         \\enum(u32)
         \\
     , &[_]Error{.expected_token});
 }
 
-test "Sig fmt: top-level for/while loop" {
+test "zig fmt: top-level for/while loop" {
     try testCanonical(
         \\for (foo) |_| foo
         \\
@@ -244,28 +244,28 @@ test "Sig fmt: top-level for/while loop" {
     );
 }
 
-test "Sig fmt: top-level bare asterisk+identifier" {
+test "zig fmt: top-level bare asterisk+identifier" {
     try testCanonical(
         \\*x
         \\
     );
 }
 
-test "Sig fmt: top-level bare asterisk+asterisk+identifier" {
+test "zig fmt: top-level bare asterisk+asterisk+identifier" {
     try testCanonical(
         \\**x
         \\
     );
 }
 
-test "Sig fmt: C style containers" {
+test "zig fmt: C style containers" {
     try testError(
         \\struct Foo {
         \\    a: u32,
         \\};
     , &[_]Error{
         .c_style_container,
-        .sig_style_container,
+        .zig_style_container,
     });
     try testError(
         \\test {
@@ -275,11 +275,11 @@ test "Sig fmt: C style containers" {
         \\}
     , &[_]Error{
         .c_style_container,
-        .sig_style_container,
+        .zig_style_container,
     });
 }
 
-test "Sig fmt: decl between fields" {
+test "zig fmt: decl between fields" {
     try testError(
         \\const S = struct {
         \\    const foo = 2;
@@ -298,7 +298,7 @@ test "Sig fmt: decl between fields" {
     });
 }
 
-test "Sig fmt: nosuspend block" {
+test "zig fmt: nosuspend block" {
     try testCanonical(
         \\pub fn main() anyerror!void {
         \\    nosuspend {
@@ -309,7 +309,7 @@ test "Sig fmt: nosuspend block" {
     );
 }
 
-test "Sig fmt: container declaration, single line" {
+test "zig fmt: container declaration, single line" {
     try testCanonical(
         \\const X = struct { foo: i32 };
         \\const X = struct { foo: i32, bar: i32 };
@@ -320,7 +320,7 @@ test "Sig fmt: container declaration, single line" {
     );
 }
 
-test "Sig fmt: container declaration, one item, multi line trailing comma" {
+test "zig fmt: container declaration, one item, multi line trailing comma" {
     try testCanonical(
         \\test "" {
         \\    comptime {
@@ -333,7 +333,7 @@ test "Sig fmt: container declaration, one item, multi line trailing comma" {
     );
 }
 
-test "Sig fmt: container declaration, no trailing comma on separate line" {
+test "zig fmt: container declaration, no trailing comma on separate line" {
     try testTransform(
         \\test "" {
         \\    comptime {
@@ -353,7 +353,7 @@ test "Sig fmt: container declaration, no trailing comma on separate line" {
     );
 }
 
-test "Sig fmt: container declaration, line break, no trailing comma" {
+test "zig fmt: container declaration, line break, no trailing comma" {
     try testTransform(
         \\const X = struct {
         \\    foo: i32, bar: i8 };
@@ -363,7 +363,7 @@ test "Sig fmt: container declaration, line break, no trailing comma" {
     );
 }
 
-test "Sig fmt: container declaration, transform trailing comma" {
+test "zig fmt: container declaration, transform trailing comma" {
     try testTransform(
         \\const X = struct {
         \\    foo: i32, bar: i8, };
@@ -376,7 +376,7 @@ test "Sig fmt: container declaration, transform trailing comma" {
     );
 }
 
-test "Sig fmt: container declaration, comment, add trailing comma" {
+test "zig fmt: container declaration, comment, add trailing comma" {
     try testTransform(
         \\const X = struct {
         \\    foo: i32, // foo
@@ -401,7 +401,7 @@ test "Sig fmt: container declaration, comment, add trailing comma" {
     );
 }
 
-test "Sig fmt: container declaration, multiline string, add trailing comma" {
+test "zig fmt: container declaration, multiline string, add trailing comma" {
     try testTransform(
         \\const X = struct {
         \\    foo: []const u8 =
@@ -420,7 +420,7 @@ test "Sig fmt: container declaration, multiline string, add trailing comma" {
     );
 }
 
-test "Sig fmt: container declaration, doc comment on member, add trailing comma" {
+test "zig fmt: container declaration, doc comment on member, add trailing comma" {
     try testTransform(
         \\pub const Pos = struct {
         \\    /// X-axis.
@@ -439,7 +439,7 @@ test "Sig fmt: container declaration, doc comment on member, add trailing comma"
     );
 }
 
-test "Sig fmt: remove empty lines at start/end of container decl" {
+test "zig fmt: remove empty lines at start/end of container decl" {
     try testTransform(
         \\const X = struct {
         \\
@@ -459,7 +459,7 @@ test "Sig fmt: remove empty lines at start/end of container decl" {
     );
 }
 
-test "Sig fmt: remove empty lines at start/end of block" {
+test "zig fmt: remove empty lines at start/end of block" {
     try testTransform(
         \\test {
         \\
@@ -479,7 +479,7 @@ test "Sig fmt: remove empty lines at start/end of block" {
     );
 }
 
-test "Sig fmt: allow empty line before comment at start of block" {
+test "zig fmt: allow empty line before comment at start of block" {
     try testCanonical(
         \\test {
         \\
@@ -490,7 +490,7 @@ test "Sig fmt: allow empty line before comment at start of block" {
     );
 }
 
-test "Sig fmt: trailing comma in fn parameter list" {
+test "zig fmt: trailing comma in fn parameter list" {
     try testCanonical(
         \\pub fn f(
         \\    a: i32,
@@ -532,7 +532,7 @@ test "Sig fmt: trailing comma in fn parameter list" {
     );
 }
 
-test "Sig fmt: comptime struct field" {
+test "zig fmt: comptime struct field" {
     try testCanonical(
         \\const Foo = struct {
         \\    a: i32,
@@ -542,7 +542,7 @@ test "Sig fmt: comptime struct field" {
     );
 }
 
-test "Sig fmt: break from block" {
+test "zig fmt: break from block" {
     try testCanonical(
         \\const a = blk: {
         \\    break :blk 42;
@@ -560,21 +560,21 @@ test "Sig fmt: break from block" {
     );
 }
 
-test "Sig fmt: grouped expressions (parentheses)" {
+test "zig fmt: grouped expressions (parentheses)" {
     try testCanonical(
         \\const r = (x + y) * (a + b);
         \\
     );
 }
 
-test "Sig fmt: c pointer type" {
+test "zig fmt: c pointer type" {
     try testCanonical(
         \\pub extern fn repro() [*c]const u8;
         \\
     );
 }
 
-test "Sig fmt: builtin call with trailing comma" {
+test "zig fmt: builtin call with trailing comma" {
     try testCanonical(
         \\pub fn main() void {
         \\    @breakpoint();
@@ -589,7 +589,7 @@ test "Sig fmt: builtin call with trailing comma" {
     );
 }
 
-test "Sig fmt: asm expression with comptime content" {
+test "zig fmt: asm expression with comptime content" {
     try testCanonical(
         \\comptime {
         \\    asm ("foo" ++ "bar");
@@ -612,7 +612,7 @@ test "Sig fmt: asm expression with comptime content" {
     );
 }
 
-test "Sig fmt: array types last token" {
+test "zig fmt: array types last token" {
     try testCanonical(
         \\test {
         \\    const x = [40]u32;
@@ -625,7 +625,7 @@ test "Sig fmt: array types last token" {
     );
 }
 
-test "Sig fmt: sentinel-terminated array type" {
+test "zig fmt: sentinel-terminated array type" {
     try testCanonical(
         \\pub fn foobar(s: [*:0]const u8) ![PATH_MAX_WIDE:0]u16 {
         \\    return sliceToPrefixedFileW(mem.toSliceConst(u8, s));
@@ -634,7 +634,7 @@ test "Sig fmt: sentinel-terminated array type" {
     );
 }
 
-test "Sig fmt: sentinel-terminated slice type" {
+test "zig fmt: sentinel-terminated slice type" {
     try testCanonical(
         \\pub fn toSlice(self: Buffer) [:0]u8 {
         \\    return self.list.toSlice()[0..self.len()];
@@ -643,7 +643,7 @@ test "Sig fmt: sentinel-terminated slice type" {
     );
 }
 
-test "Sig fmt: pointer-to-one with modifiers" {
+test "zig fmt: pointer-to-one with modifiers" {
     try testCanonical(
         \\const x: *u32 = undefined;
         \\const y: *allowzero align(8) addrspace(.generic) const volatile u32 = undefined;
@@ -652,7 +652,7 @@ test "Sig fmt: pointer-to-one with modifiers" {
     );
 }
 
-test "Sig fmt: pointer-to-many with modifiers" {
+test "zig fmt: pointer-to-many with modifiers" {
     try testCanonical(
         \\const x: [*]u32 = undefined;
         \\const y: [*]allowzero align(8) addrspace(.generic) const volatile u32 = undefined;
@@ -660,7 +660,7 @@ test "Sig fmt: pointer-to-many with modifiers" {
     );
 }
 
-test "Sig fmt: sentinel pointer with modifiers" {
+test "zig fmt: sentinel pointer with modifiers" {
     try testCanonical(
         \\const x: [*:42]u32 = undefined;
         \\const y: [*:42]allowzero align(8) addrspace(.generic) const volatile u32 = undefined;
@@ -668,7 +668,7 @@ test "Sig fmt: sentinel pointer with modifiers" {
     );
 }
 
-test "Sig fmt: c pointer with modifiers" {
+test "zig fmt: c pointer with modifiers" {
     try testCanonical(
         \\const x: [*c]u32 = undefined;
         \\const y: [*c]allowzero align(8) addrspace(.generic) const volatile u32 = undefined;
@@ -676,7 +676,7 @@ test "Sig fmt: c pointer with modifiers" {
     );
 }
 
-test "Sig fmt: slice with modifiers" {
+test "zig fmt: slice with modifiers" {
     try testCanonical(
         \\const x: []u32 = undefined;
         \\const y: []allowzero align(8) addrspace(.generic) const volatile u32 = undefined;
@@ -684,7 +684,7 @@ test "Sig fmt: slice with modifiers" {
     );
 }
 
-test "Sig fmt: sentinel slice with modifiers" {
+test "zig fmt: sentinel slice with modifiers" {
     try testCanonical(
         \\const x: [:42]u32 = undefined;
         \\const y: [:42]allowzero align(8) addrspace(.generic) const volatile u32 = undefined;
@@ -692,7 +692,7 @@ test "Sig fmt: sentinel slice with modifiers" {
     );
 }
 
-test "Sig fmt: anon literal in array" {
+test "zig fmt: anon literal in array" {
     try testCanonical(
         \\var arr: [2]Foo = .{
         \\    .{ .a = 2 },
@@ -702,7 +702,7 @@ test "Sig fmt: anon literal in array" {
     );
 }
 
-test "Sig fmt: alignment in anonymous literal" {
+test "zig fmt: alignment in anonymous literal" {
     try testTransform(
         \\const a = .{
         \\    "U",     "L",     "F",
@@ -720,7 +720,7 @@ test "Sig fmt: alignment in anonymous literal" {
     );
 }
 
-test "Sig fmt: anon struct literal 0 element" {
+test "zig fmt: anon struct literal 0 element" {
     try testCanonical(
         \\test {
         \\    const x = .{};
@@ -729,7 +729,7 @@ test "Sig fmt: anon struct literal 0 element" {
     );
 }
 
-test "Sig fmt: anon struct literal 1 element" {
+test "zig fmt: anon struct literal 1 element" {
     try testCanonical(
         \\test {
         \\    const x = .{ .a = b };
@@ -738,7 +738,7 @@ test "Sig fmt: anon struct literal 1 element" {
     );
 }
 
-test "Sig fmt: anon struct literal 1 element comma" {
+test "zig fmt: anon struct literal 1 element comma" {
     try testCanonical(
         \\test {
         \\    const x = .{
@@ -749,7 +749,7 @@ test "Sig fmt: anon struct literal 1 element comma" {
     );
 }
 
-test "Sig fmt: anon struct literal 2 element" {
+test "zig fmt: anon struct literal 2 element" {
     try testCanonical(
         \\test {
         \\    const x = .{ .a = b, .c = d };
@@ -758,7 +758,7 @@ test "Sig fmt: anon struct literal 2 element" {
     );
 }
 
-test "Sig fmt: anon struct literal 2 element comma" {
+test "zig fmt: anon struct literal 2 element comma" {
     try testCanonical(
         \\test {
         \\    const x = .{
@@ -770,7 +770,7 @@ test "Sig fmt: anon struct literal 2 element comma" {
     );
 }
 
-test "Sig fmt: anon struct literal 3 element" {
+test "zig fmt: anon struct literal 3 element" {
     try testCanonical(
         \\test {
         \\    const x = .{ .a = b, .c = d, .e = f };
@@ -779,7 +779,7 @@ test "Sig fmt: anon struct literal 3 element" {
     );
 }
 
-test "Sig fmt: anon struct literal 3 element comma" {
+test "zig fmt: anon struct literal 3 element comma" {
     try testCanonical(
         \\test {
         \\    const x = .{
@@ -792,7 +792,7 @@ test "Sig fmt: anon struct literal 3 element comma" {
     );
 }
 
-test "Sig fmt: struct literal 0 element" {
+test "zig fmt: struct literal 0 element" {
     try testCanonical(
         \\test {
         \\    const x = X{};
@@ -801,7 +801,7 @@ test "Sig fmt: struct literal 0 element" {
     );
 }
 
-test "Sig fmt: struct literal 1 element" {
+test "zig fmt: struct literal 1 element" {
     try testCanonical(
         \\test {
         \\    const x = X{ .a = b };
@@ -810,7 +810,7 @@ test "Sig fmt: struct literal 1 element" {
     );
 }
 
-test "Sig fmt: Unicode code point literal larger than u8" {
+test "zig fmt: Unicode code point literal larger than u8" {
     try testCanonical(
         \\test {
         \\    const x = X{
@@ -821,7 +821,7 @@ test "Sig fmt: Unicode code point literal larger than u8" {
     );
 }
 
-test "Sig fmt: struct literal 2 element" {
+test "zig fmt: struct literal 2 element" {
     try testCanonical(
         \\test {
         \\    const x = X{ .a = b, .c = d };
@@ -830,7 +830,7 @@ test "Sig fmt: struct literal 2 element" {
     );
 }
 
-test "Sig fmt: struct literal 2 element comma" {
+test "zig fmt: struct literal 2 element comma" {
     try testCanonical(
         \\test {
         \\    const x = X{
@@ -842,7 +842,7 @@ test "Sig fmt: struct literal 2 element comma" {
     );
 }
 
-test "Sig fmt: struct literal 3 element" {
+test "zig fmt: struct literal 3 element" {
     try testCanonical(
         \\test {
         \\    const x = X{ .a = b, .c = d, .e = f };
@@ -851,7 +851,7 @@ test "Sig fmt: struct literal 3 element" {
     );
 }
 
-test "Sig fmt: struct literal 3 element comma" {
+test "zig fmt: struct literal 3 element comma" {
     try testCanonical(
         \\test {
         \\    const x = X{
@@ -864,7 +864,7 @@ test "Sig fmt: struct literal 3 element comma" {
     );
 }
 
-test "Sig fmt: anon list literal 1 element" {
+test "zig fmt: anon list literal 1 element" {
     try testCanonical(
         \\test {
         \\    const x = .{a};
@@ -873,7 +873,7 @@ test "Sig fmt: anon list literal 1 element" {
     );
 }
 
-test "Sig fmt: anon list literal 1 element comma" {
+test "zig fmt: anon list literal 1 element comma" {
     try testCanonical(
         \\test {
         \\    const x = .{
@@ -884,7 +884,7 @@ test "Sig fmt: anon list literal 1 element comma" {
     );
 }
 
-test "Sig fmt: anon list literal 2 element" {
+test "zig fmt: anon list literal 2 element" {
     try testCanonical(
         \\test {
         \\    const x = .{ a, b };
@@ -893,7 +893,7 @@ test "Sig fmt: anon list literal 2 element" {
     );
 }
 
-test "Sig fmt: anon list literal 2 element comma" {
+test "zig fmt: anon list literal 2 element comma" {
     try testCanonical(
         \\test {
         \\    const x = .{
@@ -905,7 +905,7 @@ test "Sig fmt: anon list literal 2 element comma" {
     );
 }
 
-test "Sig fmt: anon list literal 3 element" {
+test "zig fmt: anon list literal 3 element" {
     try testCanonical(
         \\test {
         \\    const x = .{ a, b, c };
@@ -914,7 +914,7 @@ test "Sig fmt: anon list literal 3 element" {
     );
 }
 
-test "Sig fmt: anon list literal 3 element comma" {
+test "zig fmt: anon list literal 3 element comma" {
     try testCanonical(
         \\test {
         \\    const x = .{
@@ -929,7 +929,7 @@ test "Sig fmt: anon list literal 3 element comma" {
     );
 }
 
-test "Sig fmt: array literal 0 element" {
+test "zig fmt: array literal 0 element" {
     try testCanonical(
         \\test {
         \\    const x = [_]u32{};
@@ -938,7 +938,7 @@ test "Sig fmt: array literal 0 element" {
     );
 }
 
-test "Sig fmt: array literal 1 element" {
+test "zig fmt: array literal 1 element" {
     try testCanonical(
         \\test {
         \\    const x = [_]u32{a};
@@ -947,7 +947,7 @@ test "Sig fmt: array literal 1 element" {
     );
 }
 
-test "Sig fmt: array literal 1 element comma" {
+test "zig fmt: array literal 1 element comma" {
     try testCanonical(
         \\test {
         \\    const x = [1]u32{
@@ -958,7 +958,7 @@ test "Sig fmt: array literal 1 element comma" {
     );
 }
 
-test "Sig fmt: array literal 2 element" {
+test "zig fmt: array literal 2 element" {
     try testCanonical(
         \\test {
         \\    const x = [_]u32{ a, b };
@@ -967,7 +967,7 @@ test "Sig fmt: array literal 2 element" {
     );
 }
 
-test "Sig fmt: array literal 2 element comma" {
+test "zig fmt: array literal 2 element comma" {
     try testCanonical(
         \\test {
         \\    const x = [2]u32{
@@ -979,7 +979,7 @@ test "Sig fmt: array literal 2 element comma" {
     );
 }
 
-test "Sig fmt: array literal 3 element" {
+test "zig fmt: array literal 3 element" {
     try testCanonical(
         \\test {
         \\    const x = [_]u32{ a, b, c };
@@ -988,7 +988,7 @@ test "Sig fmt: array literal 3 element" {
     );
 }
 
-test "Sig fmt: array literal 3 element comma" {
+test "zig fmt: array literal 3 element comma" {
     try testCanonical(
         \\test {
         \\    const x = [3]u32{
@@ -1001,7 +1001,7 @@ test "Sig fmt: array literal 3 element comma" {
     );
 }
 
-test "Sig fmt: sentinel array literal 1 element" {
+test "zig fmt: sentinel array literal 1 element" {
     try testCanonical(
         \\test {
         \\    const x = [_:9000]u32{a};
@@ -1010,7 +1010,7 @@ test "Sig fmt: sentinel array literal 1 element" {
     );
 }
 
-test "Sig fmt: slices" {
+test "zig fmt: slices" {
     try testCanonical(
         \\const a = b[0..];
         \\const c = d[0..1];
@@ -1020,7 +1020,7 @@ test "Sig fmt: slices" {
     );
 }
 
-test "Sig fmt: slices with spaces in bounds" {
+test "zig fmt: slices with spaces in bounds" {
     try testCanonical(
         \\const a = b[0 + 0 ..];
         \\const c = d[0 + 0 .. 1];
@@ -1030,7 +1030,7 @@ test "Sig fmt: slices with spaces in bounds" {
     );
 }
 
-test "Sig fmt: block in slice expression" {
+test "zig fmt: block in slice expression" {
     try testCanonical(
         \\const a = b[{
         \\    _ = x;
@@ -1048,19 +1048,19 @@ test "Sig fmt: block in slice expression" {
     );
 }
 
-test "Sig fmt: whitespace fixes" {
-    try testTransform("test \"\" {\r\n\tconst hi = x;\r\n}\n// Sig fmt: off\ntest \"\"{\r\n\tconst a  = b;}\r\n",
+test "zig fmt: whitespace fixes" {
+    try testTransform("test \"\" {\r\n\tconst hi = x;\r\n}\n// zig fmt: off\ntest \"\"{\r\n\tconst a  = b;}\r\n",
         \\test "" {
         \\    const hi = x;
         \\}
-        \\// Sig fmt: off
+        \\// zig fmt: off
         \\test ""{
         \\    const a  = b;}
         \\
     );
 }
 
-test "Sig fmt: while else err prong with no block" {
+test "zig fmt: while else err prong with no block" {
     try testCanonical(
         \\test "" {
         \\    const result = while (returnError()) |value| {
@@ -1072,7 +1072,7 @@ test "Sig fmt: while else err prong with no block" {
     );
 }
 
-test "Sig fmt: tagged union with enum values" {
+test "zig fmt: tagged union with enum values" {
     try testCanonical(
         \\const MultipleChoice2 = union(enum(u32)) {
         \\    Unspecified1: i32,
@@ -1089,7 +1089,7 @@ test "Sig fmt: tagged union with enum values" {
     );
 }
 
-test "Sig fmt: tagged union enum tag last token" {
+test "zig fmt: tagged union enum tag last token" {
     try testCanonical(
         \\test {
         \\    const U = union(enum(u32)) {};
@@ -1108,14 +1108,14 @@ test "Sig fmt: tagged union enum tag last token" {
     );
 }
 
-test "Sig fmt: allowzero pointer" {
+test "zig fmt: allowzero pointer" {
     try testCanonical(
         \\const T = [*]allowzero const u8;
         \\
     );
 }
 
-test "Sig fmt: empty enum decls" {
+test "zig fmt: empty enum decls" {
     try testCanonical(
         \\const A = enum {};
         \\const B = enum(u32) {};
@@ -1125,7 +1125,7 @@ test "Sig fmt: empty enum decls" {
     );
 }
 
-test "Sig fmt: empty union decls" {
+test "zig fmt: empty union decls" {
     try testCanonical(
         \\const A = union {};
         \\const B = union(enum) {};
@@ -1136,14 +1136,14 @@ test "Sig fmt: empty union decls" {
     );
 }
 
-test "Sig fmt: enum literal" {
+test "zig fmt: enum literal" {
     try testCanonical(
         \\const x = .hi;
         \\
     );
 }
 
-test "Sig fmt: enum literal inside array literal" {
+test "zig fmt: enum literal inside array literal" {
     try testCanonical(
         \\test "enums in arrays" {
         \\    var colors = []Color{.Green};
@@ -1158,14 +1158,14 @@ test "Sig fmt: enum literal inside array literal" {
     );
 }
 
-test "Sig fmt: character literal larger than u8" {
+test "zig fmt: character literal larger than u8" {
     try testCanonical(
         \\const x = '\u{01f4a9}';
         \\
     );
 }
 
-test "Sig fmt: infix operator and then multiline string literal" {
+test "zig fmt: infix operator and then multiline string literal" {
     try testCanonical(
         \\const x = "" ++
         \\    \\ hi
@@ -1174,7 +1174,7 @@ test "Sig fmt: infix operator and then multiline string literal" {
     );
 }
 
-test "Sig fmt: infix operator and then multiline string literal over multiple lines" {
+test "zig fmt: infix operator and then multiline string literal over multiple lines" {
     try testCanonical(
         \\const x = "" ++
         \\    \\ hi0
@@ -1185,21 +1185,21 @@ test "Sig fmt: infix operator and then multiline string literal over multiple li
     );
 }
 
-test "Sig fmt: C pointers" {
+test "zig fmt: C pointers" {
     try testCanonical(
         \\const Ptr = [*c]i32;
         \\
     );
 }
 
-test "Sig fmt: threadlocal" {
+test "zig fmt: threadlocal" {
     try testCanonical(
         \\threadlocal var x: i32 = 1234;
         \\
     );
 }
 
-test "Sig fmt: linksection" {
+test "zig fmt: linksection" {
     try testCanonical(
         \\export var aoeu: u64 linksection(".text.derp") = 1234;
         \\export fn _start() linksection(".text.boot") callconv(.naked) noreturn {}
@@ -1207,7 +1207,7 @@ test "Sig fmt: linksection" {
     );
 }
 
-test "Sig fmt: addrspace" {
+test "zig fmt: addrspace" {
     try testCanonical(
         \\export var python_length: u64 align(1) addrspace(.generic);
         \\export var python_color: Color addrspace(.generic) = .green;
@@ -1217,7 +1217,7 @@ test "Sig fmt: addrspace" {
     );
 }
 
-test "Sig fmt: correctly space struct fields with doc comments" {
+test "zig fmt: correctly space struct fields with doc comments" {
     try testTransform(
         \\pub const S = struct {
         \\    /// A
@@ -1246,7 +1246,7 @@ test "Sig fmt: correctly space struct fields with doc comments" {
     );
 }
 
-test "Sig fmt: doc comments on param decl" {
+test "zig fmt: doc comments on param decl" {
     try testCanonical(
         \\pub const Allocator = struct {
         \\    shrinkFn: fn (
@@ -1267,7 +1267,7 @@ test "Sig fmt: doc comments on param decl" {
     );
 }
 
-test "Sig fmt: aligned struct field" {
+test "zig fmt: aligned struct field" {
     try testCanonical(
         \\pub const S = struct {
         \\    f: i32 align(32),
@@ -1282,62 +1282,62 @@ test "Sig fmt: aligned struct field" {
     );
 }
 
-test "Sig fmt: comment to disable/enable Sig fmt first" {
+test "zig fmt: comment to disable/enable zig fmt first" {
     try testCanonical(
         \\// Test trailing comma syntax
-        \\// Sig fmt: off
+        \\// zig fmt: off
         \\
         \\const struct_trailing_comma = struct { x: i32, y: i32, };
     );
 }
 
-test "Sig fmt: 'Sig fmt: (off|on)' can be surrounded by arbitrary whitespace" {
+test "zig fmt: 'zig fmt: (off|on)' can be surrounded by arbitrary whitespace" {
     try testTransform(
         \\// Test trailing comma syntax
-        \\//     Sig fmt: off
+        \\//     zig fmt: off
         \\
         \\const struct_trailing_comma = struct { x: i32, y: i32, };
         \\
-        \\//   Sig fmt: on
+        \\//   zig fmt: on
     ,
         \\// Test trailing comma syntax
-        \\// Sig fmt: off
+        \\// zig fmt: off
         \\
         \\const struct_trailing_comma = struct { x: i32, y: i32, };
         \\
-        \\// Sig fmt: on
+        \\// zig fmt: on
         \\
     );
 }
 
-test "Sig fmt: comment to disable/enable Sig fmt" {
+test "zig fmt: comment to disable/enable zig fmt" {
     try testTransform(
         \\const  a  =  b;
-        \\// Sig fmt: off
+        \\// zig fmt: off
         \\const  c  =  d;
-        \\// Sig fmt: on
+        \\// zig fmt: on
         \\const  e  =  f;
         \\const g = .{
         \\    h, i,
-        \\    // Sig fmt: off
+        \\    // zig fmt: off
         \\    j,
         \\    k,
-        \\    // Sig fmt: on
+        \\    // zig fmt: on
         \\    l, m, n, o,
         \\};
         \\
     ,
         \\const a = b;
-        \\// Sig fmt: off
+        \\// zig fmt: off
         \\const  c  =  d;
-        \\// Sig fmt: on
+        \\// zig fmt: on
         \\const e = f;
         \\const g = .{
         \\    h, i,
-        \\    // Sig fmt: off
+        \\    // zig fmt: off
         \\    j,
         \\    k,
-        \\    // Sig fmt: on
+        \\    // zig fmt: on
         \\    l, m,
         \\    n, o,
         \\};
@@ -1345,84 +1345,84 @@ test "Sig fmt: comment to disable/enable Sig fmt" {
     );
 }
 
-test "Sig fmt: line comment following 'Sig fmt: off'" {
+test "zig fmt: line comment following 'zig fmt: off'" {
     try testCanonical(
-        \\// Sig fmt: off
+        \\// zig fmt: off
         \\// Test
         \\const  e  =  f;
     );
 }
 
-test "Sig fmt: doc comment following 'Sig fmt: off'" {
+test "zig fmt: doc comment following 'zig fmt: off'" {
     try testCanonical(
-        \\// Sig fmt: off
+        \\// zig fmt: off
         \\/// test
         \\const  e  =  f;
     );
 }
 
-test "Sig fmt: line and doc comment following 'Sig fmt: off'" {
+test "zig fmt: line and doc comment following 'zig fmt: off'" {
     try testCanonical(
-        \\// Sig fmt: off
+        \\// zig fmt: off
         \\// test 1
         \\/// test 2
         \\const  e  =  f;
     );
 }
 
-test "Sig fmt: doc and line comment following 'Sig fmt: off'" {
+test "zig fmt: doc and line comment following 'zig fmt: off'" {
     try testCanonical(
-        \\// Sig fmt: off
+        \\// zig fmt: off
         \\/// test 1
         \\// test 2
         \\const  e  =  f;
     );
 }
 
-test "Sig fmt: alternating 'Sig fmt: off' and 'Sig fmt: on'" {
+test "zig fmt: alternating 'zig fmt: off' and 'zig fmt: on'" {
     try testCanonical(
-        \\// Sig fmt: off
-        \\// Sig fmt: on
-        \\// Sig fmt: off
+        \\// zig fmt: off
+        \\// zig fmt: on
+        \\// zig fmt: off
         \\const  e  =  f;
-        \\// Sig fmt: off
-        \\// Sig fmt: on
-        \\// Sig fmt: off
+        \\// zig fmt: off
+        \\// zig fmt: on
+        \\// zig fmt: off
         \\const  a  =  b;
-        \\// Sig fmt: on
+        \\// zig fmt: on
         \\const c = d;
-        \\// Sig fmt: on
+        \\// zig fmt: on
         \\
     );
 }
 
-test "Sig fmt: line comment following 'Sig fmt: on'" {
+test "zig fmt: line comment following 'zig fmt: on'" {
     try testCanonical(
-        \\// Sig fmt: off
+        \\// zig fmt: off
         \\const  e  =  f;
-        \\// Sig fmt: on
+        \\// zig fmt: on
         \\// test
         \\const e = f;
         \\
     );
 }
 
-test "Sig fmt: doc comment following 'Sig fmt: on'" {
+test "zig fmt: doc comment following 'zig fmt: on'" {
     try testCanonical(
-        \\// Sig fmt: off
+        \\// zig fmt: off
         \\const  e  =  f;
-        \\// Sig fmt: on
+        \\// zig fmt: on
         \\/// test
         \\const e = f;
         \\
     );
 }
 
-test "Sig fmt: line and doc comment following 'Sig fmt: on'" {
+test "zig fmt: line and doc comment following 'zig fmt: on'" {
     try testCanonical(
-        \\// Sig fmt: off
+        \\// zig fmt: off
         \\const  e  =  f;
-        \\// Sig fmt: on
+        \\// zig fmt: on
         \\// test1
         \\/// test2
         \\const e = f;
@@ -1430,11 +1430,11 @@ test "Sig fmt: line and doc comment following 'Sig fmt: on'" {
     );
 }
 
-test "Sig fmt: doc and line comment following 'Sig fmt: on'" {
+test "zig fmt: doc and line comment following 'zig fmt: on'" {
     try testCanonical(
-        \\// Sig fmt: off
+        \\// zig fmt: off
         \\const  e  =  f;
-        \\// Sig fmt: on
+        \\// zig fmt: on
         \\/// test1
         \\// test2
         \\const e = f;
@@ -1442,14 +1442,14 @@ test "Sig fmt: doc and line comment following 'Sig fmt: on'" {
     );
 }
 
-test "Sig fmt: 'Sig fmt: (off|on)' works in the middle of code" {
+test "zig fmt: 'zig fmt: (off|on)' works in the middle of code" {
     try testTransform(
         \\test "" {
         \\    const x = 42;
         \\
         \\    if (foobar) |y| {
-        \\    // Sig fmt: off
-        \\            }// Sig fmt: on
+        \\    // zig fmt: off
+        \\            }// zig fmt: on
         \\
         \\    const  z  = 420;
         \\}
@@ -1459,8 +1459,8 @@ test "Sig fmt: 'Sig fmt: (off|on)' works in the middle of code" {
         \\    const x = 42;
         \\
         \\    if (foobar) |y| {
-        \\        // Sig fmt: off
-        \\            }// Sig fmt: on
+        \\        // zig fmt: off
+        \\            }// zig fmt: on
         \\
         \\    const z = 420;
         \\}
@@ -1468,35 +1468,35 @@ test "Sig fmt: 'Sig fmt: (off|on)' works in the middle of code" {
     );
 }
 
-test "Sig fmt: 'Sig fmt: on' indentation is unchanged" {
+test "zig fmt: 'zig fmt: on' indentation is unchanged" {
     try testCanonical(
         \\fn initOptionsAndLayouts(output: *Output, context: *Context) !void {
-        \\    // Sig fmt: off
+        \\    // zig fmt: off
         \\    try output.main_amount.init(output, "main_amount"); errdefer optput.main_amount.deinit();
         \\    try output.main_factor.init(output, "main_factor"); errdefer optput.main_factor.deinit();
         \\    try output.view_padding.init(output, "view_padding"); errdefer optput.view_padding.deinit();
         \\    try output.outer_padding.init(output, "outer_padding"); errdefer optput.outer_padding.deinit();
-        \\    // Sig fmt: on
+        \\    // zig fmt: on
         \\
-        \\    // Sig fmt: off
+        \\    // zig fmt: off
         \\    try output.top.init(output, .top); errdefer optput.top.deinit();
         \\    try output.right.init(output, .right); errdefer optput.right.deinit();
         \\    try output.bottom.init(output, .bottom); errdefer optput.bottom.deinit();
         \\    try output.left.init(output, .left); errdefer optput.left.deinit();
-        \\        // Sig fmt: on
+        \\        // zig fmt: on
         \\}
         \\
     );
 }
 
-test "Sig fmt: pointer of unknown length" {
+test "zig fmt: pointer of unknown length" {
     try testCanonical(
         \\fn foo(ptr: [*]u8) void {}
         \\
     );
 }
 
-test "Sig fmt: spaces around slice operator" {
+test "zig fmt: spaces around slice operator" {
     try testCanonical(
         \\var a = b[c..d];
         \\var a = b[c..d :0];
@@ -1510,7 +1510,7 @@ test "Sig fmt: spaces around slice operator" {
     );
 }
 
-test "Sig fmt: 2nd arg multiline string" {
+test "zig fmt: 2nd arg multiline string" {
     try testCanonical(
         \\comptime {
         \\    cases.addAsm("hello world linux x86_64",
@@ -1538,7 +1538,7 @@ test "Sig fmt: 2nd arg multiline string" {
     );
 }
 
-test "Sig fmt: 2nd arg multiline string many args" {
+test "zig fmt: 2nd arg multiline string many args" {
     try testCanonical(
         \\comptime {
         \\    cases.addAsm("hello world linux x86_64",
@@ -1549,7 +1549,7 @@ test "Sig fmt: 2nd arg multiline string many args" {
     );
 }
 
-test "Sig fmt: final arg multiline string" {
+test "zig fmt: final arg multiline string" {
     try testCanonical(
         \\comptime {
         \\    cases.addAsm("hello world linux x86_64", "Hello, world!\n",
@@ -1560,7 +1560,7 @@ test "Sig fmt: final arg multiline string" {
     );
 }
 
-test "Sig fmt: if condition wraps" {
+test "zig fmt: if condition wraps" {
     try testTransform(
         \\comptime {
         \\    if (cond and
@@ -1641,7 +1641,7 @@ test "Sig fmt: if condition wraps" {
     );
 }
 
-test "Sig fmt: if condition has line break but must not wrap" {
+test "zig fmt: if condition has line break but must not wrap" {
     try testCanonical(
         \\comptime {
         \\    if (self.user_input_options.put(
@@ -1665,7 +1665,7 @@ test "Sig fmt: if condition has line break but must not wrap" {
     );
 }
 
-test "Sig fmt: if condition has line break but must not wrap (no fn call comma)" {
+test "zig fmt: if condition has line break but must not wrap (no fn call comma)" {
     try testCanonical(
         \\comptime {
         \\    if (self.user_input_options.put(name, UserInputOption{
@@ -1686,7 +1686,7 @@ test "Sig fmt: if condition has line break but must not wrap (no fn call comma)"
     );
 }
 
-test "Sig fmt: function call with multiline argument" {
+test "zig fmt: function call with multiline argument" {
     try testCanonical(
         \\comptime {
         \\    self.user_input_options.put(name, UserInputOption{
@@ -1698,7 +1698,7 @@ test "Sig fmt: function call with multiline argument" {
     );
 }
 
-test "Sig fmt: if-else with comment before else" {
+test "zig fmt: if-else with comment before else" {
     try testCanonical(
         \\comptime {
         \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
@@ -1716,7 +1716,7 @@ test "Sig fmt: if-else with comment before else" {
     );
 }
 
-test "Sig fmt: if nested" {
+test "zig fmt: if nested" {
     try testCanonical(
         \\pub fn foo() void {
         \\    return if ((aInt & bInt) >= 0)
@@ -1739,7 +1739,7 @@ test "Sig fmt: if nested" {
     );
 }
 
-test "Sig fmt: respect line breaks in if-else" {
+test "zig fmt: respect line breaks in if-else" {
     try testCanonical(
         \\comptime {
         \\    return if (cond) a else b;
@@ -1758,7 +1758,7 @@ test "Sig fmt: respect line breaks in if-else" {
     );
 }
 
-test "Sig fmt: respect line breaks after infix operators" {
+test "zig fmt: respect line breaks after infix operators" {
     try testCanonical(
         \\comptime {
         \\    self.crc =
@@ -1775,7 +1775,7 @@ test "Sig fmt: respect line breaks after infix operators" {
     );
 }
 
-test "Sig fmt: fn decl with trailing comma" {
+test "zig fmt: fn decl with trailing comma" {
     try testTransform(
         \\fn foo(a: i32, b: i32,) void {}
     ,
@@ -1787,7 +1787,7 @@ test "Sig fmt: fn decl with trailing comma" {
     );
 }
 
-test "Sig fmt: enum decl with no trailing comma" {
+test "zig fmt: enum decl with no trailing comma" {
     try testTransform(
         \\const StrLitKind = enum {Normal, C};
     ,
@@ -1796,7 +1796,7 @@ test "Sig fmt: enum decl with no trailing comma" {
     );
 }
 
-test "Sig fmt: switch comment before prong" {
+test "zig fmt: switch comment before prong" {
     try testCanonical(
         \\comptime {
         \\    switch (a) {
@@ -1808,7 +1808,7 @@ test "Sig fmt: switch comment before prong" {
     );
 }
 
-test "Sig fmt: switch comment after prong" {
+test "zig fmt: switch comment after prong" {
     try testCanonical(
         \\comptime {
         \\    switch (a) {
@@ -1821,7 +1821,7 @@ test "Sig fmt: switch comment after prong" {
     );
 }
 
-test "Sig fmt: struct literal no trailing comma" {
+test "zig fmt: struct literal no trailing comma" {
     try testTransform(
         \\const a = foo{ .x = 1, .y = 2 };
         \\const a = foo{ .x = 1,
@@ -1839,7 +1839,7 @@ test "Sig fmt: struct literal no trailing comma" {
     );
 }
 
-test "Sig fmt: struct literal containing a multiline expression" {
+test "zig fmt: struct literal containing a multiline expression" {
     try testTransform(
         \\const a = A{ .x = if (f1()) 10 else 20 };
         \\const a = A{ .x = if (f1()) 10 else 20, };
@@ -1900,7 +1900,7 @@ test "Sig fmt: struct literal containing a multiline expression" {
     );
 }
 
-test "Sig fmt: array literal with hint" {
+test "zig fmt: array literal with hint" {
     try testTransform(
         \\const a = []u8{
         \\    1, 2, //
@@ -1977,7 +1977,7 @@ test "Sig fmt: array literal with hint" {
     );
 }
 
-test "Sig fmt: array literal vertical column alignment" {
+test "zig fmt: array literal vertical column alignment" {
     try testTransform(
         \\const a = []u8{
         \\    1000, 200,
@@ -2015,13 +2015,13 @@ test "Sig fmt: array literal vertical column alignment" {
         \\};
         \\const a = .{
         \\    a, a, .{
-        \\        // Sig fmt: off
+        \\        // zig fmt: off
         \\    },
         \\    a*a,  a,
         \\    .{
-        \\        // Sig fmt: on
+        \\        // zig fmt: on
         \\    }, aa,
-        \\    // Sig fmt: off
+        \\    // zig fmt: off
         \\    a*a,
         \\};
         \\
@@ -2089,21 +2089,21 @@ test "Sig fmt: array literal vertical column alignment" {
         \\const a = .{
         \\    a,  a,
         \\    .{
-        \\        // Sig fmt: off
+        \\        // zig fmt: off
         \\    },
         \\    a*a,  a,
         \\    .{
-        \\        // Sig fmt: on
+        \\        // zig fmt: on
         \\    },
         \\    aa,
-        \\    // Sig fmt: off
+        \\    // zig fmt: off
         \\    a*a,
         \\};
         \\
     );
 }
 
-test "Sig fmt: multiline string with backslash at end of line" {
+test "zig fmt: multiline string with backslash at end of line" {
     try testCanonical(
         \\comptime {
         \\    err(
@@ -2114,7 +2114,7 @@ test "Sig fmt: multiline string with backslash at end of line" {
     );
 }
 
-test "Sig fmt: multiline string parameter in fn call with trailing comma" {
+test "zig fmt: multiline string parameter in fn call with trailing comma" {
     try testCanonical(
         \\fn foo() void {
         \\    try stdout.print(
@@ -2123,21 +2123,21 @@ test "Sig fmt: multiline string parameter in fn call with trailing comma" {
         \\        \\ZIG_DIA_GUIDS_LIB    {s}
         \\        \\
         \\    ,
-        \\        std.mem.sliceTo(c.sig_CMAKE_BINARY_DIR, 0),
-        \\        std.mem.sliceTo(c.sig_CXX_COMPILER, 0),
-        \\        std.mem.sliceTo(c.sig_DIA_GUIDS_LIB, 0),
+        \\        std.mem.sliceTo(c.ZIG_CMAKE_BINARY_DIR, 0),
+        \\        std.mem.sliceTo(c.ZIG_CXX_COMPILER, 0),
+        \\        std.mem.sliceTo(c.ZIG_DIA_GUIDS_LIB, 0),
         \\    );
         \\}
         \\
     );
 }
 
-test "Sig fmt: trailing comma on fn call" {
+test "zig fmt: trailing comma on fn call" {
     try testCanonical(
         \\comptime {
         \\    var module = try Module.create(
         \\        allocator,
-        \\        SIG_LIB_DIR,
+        \\        zig_lib_dir,
         \\        full_cache_dir,
         \\    );
         \\}
@@ -2145,7 +2145,7 @@ test "Sig fmt: trailing comma on fn call" {
     );
 }
 
-test "Sig fmt: multi line arguments without last comma" {
+test "zig fmt: multi line arguments without last comma" {
     try testTransform(
         \\pub fn foo(
         \\    a: usize,
@@ -2164,7 +2164,7 @@ test "Sig fmt: multi line arguments without last comma" {
     );
 }
 
-test "Sig fmt: empty block with only comment" {
+test "zig fmt: empty block with only comment" {
     try testCanonical(
         \\comptime {
         \\    {
@@ -2175,7 +2175,7 @@ test "Sig fmt: empty block with only comment" {
     );
 }
 
-test "Sig fmt: trailing commas on struct decl" {
+test "zig fmt: trailing commas on struct decl" {
     try testTransform(
         \\const RoundParam = struct {
         \\    k: usize, s: u32, t: u32
@@ -2194,7 +2194,7 @@ test "Sig fmt: trailing commas on struct decl" {
     );
 }
 
-test "Sig fmt: extra newlines at the end" {
+test "zig fmt: extra newlines at the end" {
     try testTransform(
         \\const a = b;
         \\
@@ -2206,7 +2206,7 @@ test "Sig fmt: extra newlines at the end" {
     );
 }
 
-test "Sig fmt: simple asm" {
+test "zig fmt: simple asm" {
     try testTransform(
         \\comptime {
         \\    asm volatile (
@@ -2243,7 +2243,7 @@ test "Sig fmt: simple asm" {
     );
 }
 
-test "Sig fmt: nested struct literal with one item" {
+test "zig fmt: nested struct literal with one item" {
     try testCanonical(
         \\const a = foo{
         \\    .item = bar{ .a = b },
@@ -2252,7 +2252,7 @@ test "Sig fmt: nested struct literal with one item" {
     );
 }
 
-test "Sig fmt: switch cases trailing comma" {
+test "zig fmt: switch cases trailing comma" {
     try testTransform(
         \\test "switch cases trailing comma"{
         \\    switch (x) {
@@ -2286,7 +2286,7 @@ test "Sig fmt: switch cases trailing comma" {
     );
 }
 
-test "Sig fmt: slice align" {
+test "zig fmt: slice align" {
     try testCanonical(
         \\const A = struct {
         \\    items: []align(A) T,
@@ -2295,7 +2295,7 @@ test "Sig fmt: slice align" {
     );
 }
 
-test "Sig fmt: add trailing comma to array literal" {
+test "zig fmt: add trailing comma to array literal" {
     try testTransform(
         \\comptime {
         \\    return []u16{'m', 's', 'y', 's', '-' // hi
@@ -2316,18 +2316,18 @@ test "Sig fmt: add trailing comma to array literal" {
     );
 }
 
-test "Sig fmt: first thing in file is line comment" {
+test "zig fmt: first thing in file is line comment" {
     try testCanonical(
-        \\// Introspection and determination of system libraries needed by Sig.
+        \\// Introspection and determination of system libraries needed by zig.
         \\
-        \\// Introspection and determination of system libraries needed by Sig.
+        \\// Introspection and determination of system libraries needed by zig.
         \\
         \\const std = @import("std");
         \\
     );
 }
 
-test "Sig fmt: line comment after doc comment" {
+test "zig fmt: line comment after doc comment" {
     try testCanonical(
         \\/// doc comment
         \\// line comment
@@ -2336,7 +2336,7 @@ test "Sig fmt: line comment after doc comment" {
     );
 }
 
-test "Sig fmt: bit field alignment" {
+test "zig fmt: bit field alignment" {
     try testCanonical(
         \\test {
         \\    assert(@TypeOf(&blah.b) == *align(1:3:6) const u3);
@@ -2345,7 +2345,7 @@ test "Sig fmt: bit field alignment" {
     );
 }
 
-test "Sig fmt: nested switch" {
+test "zig fmt: nested switch" {
     try testCanonical(
         \\test {
         \\    switch (state) {
@@ -2359,7 +2359,7 @@ test "Sig fmt: nested switch" {
     );
 }
 
-test "Sig fmt: float literal with exponent" {
+test "zig fmt: float literal with exponent" {
     try testCanonical(
         \\pub const f64_true_min = 4.94065645841246544177e-324;
         \\const threshold = 0x1.a827999fcef32p+1022;
@@ -2367,7 +2367,7 @@ test "Sig fmt: float literal with exponent" {
     );
 }
 
-test "Sig fmt: if-else end of comptime" {
+test "zig fmt: if-else end of comptime" {
     try testCanonical(
         \\comptime {
         \\    if (a) {
@@ -2380,7 +2380,7 @@ test "Sig fmt: if-else end of comptime" {
     );
 }
 
-test "Sig fmt: nested blocks" {
+test "zig fmt: nested blocks" {
     try testCanonical(
         \\comptime {
         \\    {
@@ -2395,7 +2395,7 @@ test "Sig fmt: nested blocks" {
     );
 }
 
-test "Sig fmt: block with same line comment after end brace" {
+test "zig fmt: block with same line comment after end brace" {
     try testCanonical(
         \\comptime {
         \\    {
@@ -2406,7 +2406,7 @@ test "Sig fmt: block with same line comment after end brace" {
     );
 }
 
-test "Sig fmt: statements with comment between" {
+test "zig fmt: statements with comment between" {
     try testCanonical(
         \\comptime {
         \\    a = b;
@@ -2417,7 +2417,7 @@ test "Sig fmt: statements with comment between" {
     );
 }
 
-test "Sig fmt: statements with empty line between" {
+test "zig fmt: statements with empty line between" {
     try testCanonical(
         \\comptime {
         \\    a = b;
@@ -2428,7 +2428,7 @@ test "Sig fmt: statements with empty line between" {
     );
 }
 
-test "Sig fmt: ptr deref operator and unwrap optional operator" {
+test "zig fmt: ptr deref operator and unwrap optional operator" {
     try testCanonical(
         \\const a = b.*;
         \\const a = b.?;
@@ -2436,7 +2436,7 @@ test "Sig fmt: ptr deref operator and unwrap optional operator" {
     );
 }
 
-test "Sig fmt: comment after if before another if" {
+test "zig fmt: comment after if before another if" {
     try testCanonical(
         \\test "aoeu" {
         \\    // comment
@@ -2458,7 +2458,7 @@ test "Sig fmt: comment after if before another if" {
     );
 }
 
-test "Sig fmt: line comment between if block and else keyword" {
+test "zig fmt: line comment between if block and else keyword" {
     try testCanonical(
         \\test "aoeu" {
         \\    // cexp(finite|nan +- i inf|nan) = nan + i nan
@@ -2479,7 +2479,7 @@ test "Sig fmt: line comment between if block and else keyword" {
     );
 }
 
-test "Sig fmt: same line comments in expression" {
+test "zig fmt: same line comments in expression" {
     try testCanonical(
         \\test "aoeu" {
         \\    const x = ( // a
@@ -2490,7 +2490,7 @@ test "Sig fmt: same line comments in expression" {
     );
 }
 
-test "Sig fmt: add comma on last switch prong" {
+test "zig fmt: add comma on last switch prong" {
     try testTransform(
         \\test "aoeu" {
         \\switch (self.init_arg_expr) {
@@ -2519,7 +2519,7 @@ test "Sig fmt: add comma on last switch prong" {
     );
 }
 
-test "Sig fmt: same-line comment after a statement" {
+test "zig fmt: same-line comment after a statement" {
     try testCanonical(
         \\test "" {
         \\    a = b;
@@ -2530,7 +2530,7 @@ test "Sig fmt: same-line comment after a statement" {
     );
 }
 
-test "Sig fmt: same-line comment after var decl in struct" {
+test "zig fmt: same-line comment after var decl in struct" {
     try testCanonical(
         \\pub const vfs_cap_data = extern struct {
         \\    const Data = struct {}; // when on disk.
@@ -2539,7 +2539,7 @@ test "Sig fmt: same-line comment after var decl in struct" {
     );
 }
 
-test "Sig fmt: same-line comment after field decl" {
+test "zig fmt: same-line comment after field decl" {
     try testCanonical(
         \\pub const dirent = extern struct {
         \\    d_name: u8,
@@ -2552,7 +2552,7 @@ test "Sig fmt: same-line comment after field decl" {
     );
 }
 
-test "Sig fmt: same-line comment after switch prong" {
+test "zig fmt: same-line comment after switch prong" {
     try testCanonical(
         \\test "" {
         \\    switch (err) {
@@ -2564,7 +2564,7 @@ test "Sig fmt: same-line comment after switch prong" {
     );
 }
 
-test "Sig fmt: same-line comment after non-block if expression" {
+test "zig fmt: same-line comment after non-block if expression" {
     try testCanonical(
         \\comptime {
         \\    if (sr > n_uword_bits - 1) // d > r
@@ -2574,7 +2574,7 @@ test "Sig fmt: same-line comment after non-block if expression" {
     );
 }
 
-test "Sig fmt: same-line comment on comptime expression" {
+test "zig fmt: same-line comment on comptime expression" {
     try testCanonical(
         \\test "" {
         \\    comptime assert(@typeInfo(T) == .int); // must pass an integer to absInt
@@ -2583,7 +2583,7 @@ test "Sig fmt: same-line comment on comptime expression" {
     );
 }
 
-test "Sig fmt: switch with empty body" {
+test "zig fmt: switch with empty body" {
     try testCanonical(
         \\test "" {
         \\    foo() catch |err| switch (err) {};
@@ -2592,7 +2592,7 @@ test "Sig fmt: switch with empty body" {
     );
 }
 
-test "Sig fmt: line comments in struct initializer" {
+test "zig fmt: line comments in struct initializer" {
     try testCanonical(
         \\fn foo() void {
         \\    return Self{
@@ -2614,7 +2614,7 @@ test "Sig fmt: line comments in struct initializer" {
     );
 }
 
-test "Sig fmt: first line comment in struct initializer" {
+test "zig fmt: first line comment in struct initializer" {
     try testCanonical(
         \\pub fn acquire(self: *Self) HeldLock {
         \\    return HeldLock{
@@ -2627,7 +2627,7 @@ test "Sig fmt: first line comment in struct initializer" {
     );
 }
 
-test "Sig fmt: multiline string literals in struct initializer" {
+test "zig fmt: multiline string literals in struct initializer" {
     try testTransform(
         \\const a = .{ .a = \\
         \\+ 1};
@@ -2640,7 +2640,7 @@ test "Sig fmt: multiline string literals in struct initializer" {
     );
 }
 
-test "Sig fmt: doc comments before struct field" {
+test "zig fmt: doc comments before struct field" {
     try testCanonical(
         \\pub const Allocator = struct {
         \\    /// Allocate byte_count bytes and return them in a slice, with the
@@ -2651,7 +2651,7 @@ test "Sig fmt: doc comments before struct field" {
     );
 }
 
-test "Sig fmt: error set declaration" {
+test "zig fmt: error set declaration" {
     try testCanonical(
         \\const E = error{
         \\    A,
@@ -2683,7 +2683,7 @@ test "Sig fmt: error set declaration" {
     );
 }
 
-test "Sig fmt: union(enum(u32)) with assigned enum values" {
+test "zig fmt: union(enum(u32)) with assigned enum values" {
     try testCanonical(
         \\const MultipleChoice = union(enum(u32)) {
         \\    A = 20,
@@ -2695,7 +2695,7 @@ test "Sig fmt: union(enum(u32)) with assigned enum values" {
     );
 }
 
-test "Sig fmt: resume from suspend block" {
+test "zig fmt: resume from suspend block" {
     try testCanonical(
         \\fn foo() void {
         \\    suspend {
@@ -2706,7 +2706,7 @@ test "Sig fmt: resume from suspend block" {
     );
 }
 
-test "Sig fmt: comments before error set decl" {
+test "zig fmt: comments before error set decl" {
     try testCanonical(
         \\const UnexpectedError = error{
         \\    /// The Operating System returned an undocumented error code.
@@ -2722,7 +2722,7 @@ test "Sig fmt: comments before error set decl" {
     );
 }
 
-test "Sig fmt: comments before switch prong" {
+test "zig fmt: comments before switch prong" {
     try testCanonical(
         \\test "" {
         \\    switch (err) {
@@ -2739,7 +2739,7 @@ test "Sig fmt: comments before switch prong" {
     );
 }
 
-test "Sig fmt: comments before var decl in struct" {
+test "zig fmt: comments before var decl in struct" {
     try testCanonical(
         \\pub const vfs_cap_data = extern struct {
         \\    // All of these are mandated as little endian
@@ -2764,14 +2764,7 @@ test "Sig fmt: comments before var decl in struct" {
     );
 }
 
-test "Sig fmt: array literal with 1 item on 1 line" {
-    try testCanonical(
-        \\var s = []const u64{0} ** 25;
-        \\
-    );
-}
-
-test "Sig fmt: comments before global variables" {
+test "zig fmt: comments before global variables" {
     try testCanonical(
         \\/// Foo copies keys and values before they go into the map, and
         \\/// frees them when they get removed.
@@ -2780,11 +2773,11 @@ test "Sig fmt: comments before global variables" {
     );
 }
 
-test "Sig fmt: comments in statements" {
+test "zig fmt: comments in statements" {
     try testCanonical(
         \\test "std" {
         \\    // statement comment
-        \\    _ = @import("foo/bar.sig");
+        \\    _ = @import("foo/bar.zig");
         \\
         \\    // middle
         \\    // middle2
@@ -2795,7 +2788,7 @@ test "Sig fmt: comments in statements" {
     );
 }
 
-test "Sig fmt: comments before test decl" {
+test "zig fmt: comments before test decl" {
     try testCanonical(
         \\// top level normal comment
         \\test "hi" {}
@@ -2807,7 +2800,7 @@ test "Sig fmt: comments before test decl" {
     );
 }
 
-test "Sig fmt: preserve spacing" {
+test "zig fmt: preserve spacing" {
     try testCanonical(
         \\const std = @import("std");
         \\
@@ -2822,7 +2815,7 @@ test "Sig fmt: preserve spacing" {
     );
 }
 
-test "Sig fmt: return types" {
+test "zig fmt: return types" {
     try testCanonical(
         \\pub fn main() !void {}
         \\pub fn main() FooBar {}
@@ -2831,7 +2824,7 @@ test "Sig fmt: return types" {
     );
 }
 
-test "Sig fmt: imports" {
+test "zig fmt: imports" {
     try testCanonical(
         \\const std = @import("std");
         \\const std = @import();
@@ -2839,7 +2832,7 @@ test "Sig fmt: imports" {
     );
 }
 
-test "Sig fmt: global declarations" {
+test "zig fmt: global declarations" {
     try testCanonical(
         \\const a = b;
         \\pub const a = b;
@@ -2861,21 +2854,21 @@ test "Sig fmt: global declarations" {
     );
 }
 
-test "Sig fmt: extern declaration" {
+test "zig fmt: extern declaration" {
     try testCanonical(
         \\extern var foo: c_int;
         \\
     );
 }
 
-test "Sig fmt: alignment" {
+test "zig fmt: alignment" {
     try testCanonical(
         \\var foo: c_int align(1);
         \\
     );
 }
 
-test "Sig fmt: C main" {
+test "zig fmt: C main" {
     try testCanonical(
         \\fn main(argc: c_int, argv: **u8) c_int {
         \\    const a = b;
@@ -2884,7 +2877,7 @@ test "Sig fmt: C main" {
     );
 }
 
-test "Sig fmt: return" {
+test "zig fmt: return" {
     try testCanonical(
         \\fn foo(argc: c_int, argv: **u8) c_int {
         \\    return 0;
@@ -2897,7 +2890,7 @@ test "Sig fmt: return" {
     );
 }
 
-test "Sig fmt: function attributes" {
+test "zig fmt: function attributes" {
     try testCanonical(
         \\export fn foo() void {}
         \\pub export fn foo() void {}
@@ -2911,7 +2904,7 @@ test "Sig fmt: function attributes" {
     );
 }
 
-test "Sig fmt: nested pointers with ** tokens" {
+test "zig fmt: deeply nested pointers" {
     try testCanonical(
         \\const x: *u32 = undefined;
         \\const x: **u32 = undefined;
@@ -2924,7 +2917,7 @@ test "Sig fmt: nested pointers with ** tokens" {
     );
 }
 
-test "Sig fmt: pointer attributes" {
+test "zig fmt: pointer attributes" {
     try testCanonical(
         \\extern fn f1(s: *align(*u8) u8) c_int;
         \\extern fn f2(s: **align(1) *const *volatile u8) c_int;
@@ -2935,7 +2928,7 @@ test "Sig fmt: pointer attributes" {
     );
 }
 
-test "Sig fmt: slice attributes" {
+test "zig fmt: slice attributes" {
     try testCanonical(
         \\extern fn f1(s: []align(*u8) u8) c_int;
         \\extern fn f2(s: []align(1) []const []volatile u8) c_int;
@@ -2946,7 +2939,7 @@ test "Sig fmt: slice attributes" {
     );
 }
 
-test "Sig fmt: test declaration" {
+test "zig fmt: test declaration" {
     try testCanonical(
         \\test "test name" {
         \\    const a = 1;
@@ -2956,7 +2949,7 @@ test "Sig fmt: test declaration" {
     );
 }
 
-test "Sig fmt: destructure" {
+test "zig fmt: destructure" {
     try testCanonical(
         \\comptime {
         \\    var w: u8, var x: u8 = .{ 1, 2 };
@@ -2976,7 +2969,7 @@ test "Sig fmt: destructure" {
     );
 }
 
-test "Sig fmt: infix operators" {
+test "zig fmt: infix operators" {
     try testCanonical(
         \\test {
         \\    var i = undefined;
@@ -3001,7 +2994,6 @@ test "Sig fmt: infix operators" {
         \\    _ = i.i;
         \\    _ = i || i;
         \\    _ = i!i;
-        \\    _ = i ** i;
         \\    _ = i ++ i;
         \\    _ = i orelse i;
         \\    _ = i % i;
@@ -3028,7 +3020,7 @@ test "Sig fmt: infix operators" {
     );
 }
 
-test "Sig fmt: precedence" {
+test "zig fmt: precedence" {
     try testCanonical(
         \\test "precedence" {
         \\    a!b();
@@ -3060,7 +3052,7 @@ test "Sig fmt: precedence" {
     );
 }
 
-test "Sig fmt: prefix operators" {
+test "zig fmt: prefix operators" {
     try testCanonical(
         \\test "prefix operators" {
         \\    try return --%~!&0;
@@ -3069,7 +3061,7 @@ test "Sig fmt: prefix operators" {
     );
 }
 
-test "Sig fmt: call expression" {
+test "zig fmt: call expression" {
     try testCanonical(
         \\test "test calls" {
         \\    a();
@@ -3081,14 +3073,14 @@ test "Sig fmt: call expression" {
     );
 }
 
-test "Sig fmt: anytype type" {
+test "zig fmt: anytype type" {
     try testCanonical(
         \\fn print(args: anytype) @This() {}
         \\
     );
 }
 
-test "Sig fmt: functions" {
+test "zig fmt: functions" {
     try testCanonical(
         \\extern fn puts(s: *const u8) c_int;
         \\extern "c" fn puts(s: *const u8) c_int;
@@ -3112,7 +3104,7 @@ test "Sig fmt: functions" {
     );
 }
 
-test "Sig fmt: multiline string" {
+test "zig fmt: multiline string" {
     try testCanonical(
         \\test "" {
         \\    const s1 =
@@ -3130,7 +3122,7 @@ test "Sig fmt: multiline string" {
     );
 }
 
-test "Sig fmt: multiline string with CRLF line endings" {
+test "zig fmt: multiline string with CRLF line endings" {
     try testTransform("" ++
         "const s =\r\n" ++
         "    \\\\one\r\n" ++
@@ -3146,7 +3138,7 @@ test "Sig fmt: multiline string with CRLF line endings" {
     );
 }
 
-test "Sig fmt: values" {
+test "zig fmt: values" {
     try testCanonical(
         \\test "values" {
         \\    1;
@@ -3165,7 +3157,7 @@ test "Sig fmt: values" {
     );
 }
 
-test "Sig fmt: indexing" {
+test "zig fmt: indexing" {
     try testCanonical(
         \\test "test index" {
         \\    a[0];
@@ -3185,7 +3177,7 @@ test "Sig fmt: indexing" {
     );
 }
 
-test "Sig fmt: struct declaration" {
+test "zig fmt: struct declaration" {
     try testCanonical(
         \\const S = struct {
         \\    const Self = @This();
@@ -3223,7 +3215,7 @@ test "Sig fmt: struct declaration" {
     );
 }
 
-test "Sig fmt: enum declaration" {
+test "zig fmt: enum declaration" {
     try testCanonical(
         \\const E = enum {
         \\    Ok,
@@ -3251,7 +3243,7 @@ test "Sig fmt: enum declaration" {
     );
 }
 
-test "Sig fmt: union declaration" {
+test "zig fmt: union declaration" {
     try testCanonical(
         \\const U = union {
         \\    Int: u8,
@@ -3291,7 +3283,7 @@ test "Sig fmt: union declaration" {
     );
 }
 
-test "Sig fmt: arrays" {
+test "zig fmt: arrays" {
     try testCanonical(
         \\test "test array" {
         \\    const a: [2]u8 = [2]u8{
@@ -3309,7 +3301,7 @@ test "Sig fmt: arrays" {
     );
 }
 
-test "Sig fmt: container initializers" {
+test "zig fmt: container initializers" {
     try testCanonical(
         \\const a0 = []u8{};
         \\const a1 = []u8{1};
@@ -3329,7 +3321,7 @@ test "Sig fmt: container initializers" {
     );
 }
 
-test "Sig fmt: catch" {
+test "zig fmt: catch" {
     try testCanonical(
         \\test "catch" {
         \\    const a: anyerror!u8 = 0;
@@ -3344,7 +3336,7 @@ test "Sig fmt: catch" {
     );
 }
 
-test "Sig fmt: blocks" {
+test "zig fmt: blocks" {
     try testCanonical(
         \\test "blocks" {
         \\    {
@@ -3366,7 +3358,7 @@ test "Sig fmt: blocks" {
     );
 }
 
-test "Sig fmt: switch" {
+test "zig fmt: switch" {
     try testCanonical(
         \\test "switch" {
         \\    switch (0) {
@@ -3421,7 +3413,7 @@ test "Sig fmt: switch" {
     );
 }
 
-test "Sig fmt: switch multiline string" {
+test "zig fmt: switch multiline string" {
     try testCanonical(
         \\test "switch multiline string" {
         \\    const x: u32 = 0;
@@ -3452,7 +3444,7 @@ test "Sig fmt: switch multiline string" {
     );
 }
 
-test "Sig fmt: while" {
+test "zig fmt: while" {
     try testCanonical(
         \\test "while" {
         \\    while (10 < 1) unreachable;
@@ -3527,7 +3519,7 @@ test "Sig fmt: while" {
     );
 }
 
-test "Sig fmt: for" {
+test "zig fmt: for" {
     try testCanonical(
         \\test "for" {
         \\    for (a) |v| {
@@ -3628,7 +3620,7 @@ test "Sig fmt: for" {
     );
 }
 
-test "Sig fmt: for if" {
+test "zig fmt: for if" {
     try testCanonical(
         \\test {
         \\    for (a) |x| if (x) f(x);
@@ -3653,7 +3645,7 @@ test "Sig fmt: for if" {
     );
 }
 
-test "Sig fmt: if for" {
+test "zig fmt: if for" {
     try testCanonical(
         \\test {
         \\    if (a) for (x) |x| f(x);
@@ -3678,7 +3670,7 @@ test "Sig fmt: if for" {
     );
 }
 
-test "Sig fmt: while if" {
+test "zig fmt: while if" {
     try testCanonical(
         \\test {
         \\    while (a) if (x) f(x);
@@ -3703,7 +3695,7 @@ test "Sig fmt: while if" {
     );
 }
 
-test "Sig fmt: if while" {
+test "zig fmt: if while" {
     try testCanonical(
         \\test {
         \\    if (a) while (x) : (cont) f(x);
@@ -3728,7 +3720,7 @@ test "Sig fmt: if while" {
     );
 }
 
-test "Sig fmt: while for" {
+test "zig fmt: while for" {
     try testCanonical(
         \\test {
         \\    while (a) for (x) |x| f(x);
@@ -3753,7 +3745,7 @@ test "Sig fmt: while for" {
     );
 }
 
-test "Sig fmt: for while" {
+test "zig fmt: for while" {
     try testCanonical(
         \\test {
         \\    for (a) |a| while (x) |x| f(x);
@@ -3778,7 +3770,7 @@ test "Sig fmt: for while" {
     );
 }
 
-test "Sig fmt: if" {
+test "zig fmt: if" {
     try testCanonical(
         \\test "if" {
         \\    if (10 < 0) {
@@ -3827,7 +3819,7 @@ test "Sig fmt: if" {
     );
 }
 
-test "Sig fmt: fix single statement if/for/while line breaks" {
+test "zig fmt: fix single statement if/for/while line breaks" {
     try testTransform(
         \\test {
         \\    if (cond) a
@@ -3879,7 +3871,7 @@ test "Sig fmt: fix single statement if/for/while line breaks" {
     );
 }
 
-test "Sig fmt: anon struct/array literal in if" {
+test "zig fmt: anon struct/array literal in if" {
     try testCanonical(
         \\test {
         \\    const a = if (cond) .{
@@ -3903,7 +3895,7 @@ test "Sig fmt: anon struct/array literal in if" {
     );
 }
 
-test "Sig fmt: defer" {
+test "zig fmt: defer" {
     try testCanonical(
         \\test "defer" {
         \\    var i: usize = 0;
@@ -3923,7 +3915,7 @@ test "Sig fmt: defer" {
     );
 }
 
-test "Sig fmt: comptime" {
+test "zig fmt: comptime" {
     try testCanonical(
         \\fn a() u8 {
         \\    return 5;
@@ -3962,7 +3954,7 @@ test "Sig fmt: comptime" {
     );
 }
 
-test "Sig fmt: fn type" {
+test "zig fmt: fn type" {
     try testCanonical(
         \\fn a(i: u8) u8 {
         \\    return i + 1;
@@ -3975,7 +3967,7 @@ test "Sig fmt: fn type" {
     );
 }
 
-test "Sig fmt: inline asm" {
+test "zig fmt: inline asm" {
     try testCanonical(
         \\pub fn syscall1(number: usize, arg1: usize) usize {
         \\    return asm volatile ("syscall"
@@ -3988,14 +3980,14 @@ test "Sig fmt: inline asm" {
     );
 }
 
-test "Sig fmt: nosuspend" {
+test "zig fmt: nosuspend" {
     try testCanonical(
         \\const a = nosuspend foo();
         \\
     );
 }
 
-test "Sig fmt: Block after if" {
+test "zig fmt: Block after if" {
     try testCanonical(
         \\test {
         \\    if (true) {
@@ -4010,7 +4002,7 @@ test "Sig fmt: Block after if" {
     );
 }
 
-test "Sig fmt: string identifier" {
+test "zig fmt: string identifier" {
     try testCanonical(
         \\const @"a b" = @"c d".@"e f";
         \\fn @"g h"() void {}
@@ -4018,7 +4010,7 @@ test "Sig fmt: string identifier" {
     );
 }
 
-test "Sig fmt: error return" {
+test "zig fmt: error return" {
     try testCanonical(
         \\fn err() anyerror {
         \\    call();
@@ -4028,7 +4020,7 @@ test "Sig fmt: error return" {
     );
 }
 
-test "Sig fmt: comptime block in container" {
+test "zig fmt: comptime block in container" {
     try testCanonical(
         \\pub fn container() type {
         \\    return struct {
@@ -4043,7 +4035,7 @@ test "Sig fmt: comptime block in container" {
     );
 }
 
-test "Sig fmt: inline asm parameter alignment" {
+test "zig fmt: inline asm parameter alignment" {
     try testCanonical(
         \\pub fn main() void {
         \\    asm volatile (
@@ -4080,7 +4072,7 @@ test "Sig fmt: inline asm parameter alignment" {
     );
 }
 
-test "Sig fmt: multiline string in array" {
+test "zig fmt: multiline string in array" {
     try testCanonical(
         \\const Foo = [][]const u8{
         \\    \\aaa
@@ -4117,7 +4109,7 @@ test "Sig fmt: multiline string in array" {
     );
 }
 
-test "Sig fmt: if type expr" {
+test "zig fmt: if type expr" {
     try testCanonical(
         \\const mycond = true;
         \\pub fn foo() if (mycond) i32 else void {
@@ -4128,14 +4120,14 @@ test "Sig fmt: if type expr" {
         \\
     );
 }
-test "Sig fmt: file ends with struct field" {
+test "zig fmt: file ends with struct field" {
     try testCanonical(
         \\a: bool
         \\
     );
 }
 
-test "Sig fmt: comment after empty comment" {
+test "zig fmt: comment after empty comment" {
     try testCanonical(
         \\const x = true; //
         \\//
@@ -4145,7 +4137,7 @@ test "Sig fmt: comment after empty comment" {
     );
 }
 
-test "Sig fmt: line comment in array" {
+test "zig fmt: line comment in array" {
     try testTransform(
         \\test "a" {
         \\    var arr = [_]u32{
@@ -4177,7 +4169,7 @@ test "Sig fmt: line comment in array" {
     );
 }
 
-test "Sig fmt: comment after params" {
+test "zig fmt: comment after params" {
     try testTransform(
         \\fn a(
         \\    b: u32
@@ -4203,7 +4195,7 @@ test "Sig fmt: comment after params" {
     );
 }
 
-test "Sig fmt: comment in array initializer/access" {
+test "zig fmt: comment in array initializer/access" {
     try testCanonical(
         \\test "a" {
         \\    var a = x{ //aa
@@ -4239,7 +4231,7 @@ test "Sig fmt: comment in array initializer/access" {
     );
 }
 
-test "Sig fmt: comments at several places in struct init" {
+test "zig fmt: comments at several places in struct init" {
     try testTransform(
         \\var bar = Bar{
         \\    .x = 10, // test
@@ -4266,7 +4258,7 @@ test "Sig fmt: comments at several places in struct init" {
     );
 }
 
-test "Sig fmt: container doc comments" {
+test "zig fmt: container doc comments" {
     try testCanonical(
         \\//! tld 1
         \\//! tld 2
@@ -4322,7 +4314,7 @@ test "Sig fmt: container doc comments" {
     );
 }
 
-test "Sig fmt: remove newlines surrounding doc comment" {
+test "zig fmt: remove newlines surrounding doc comment" {
     try testTransform(
         \\
         \\
@@ -4338,7 +4330,7 @@ test "Sig fmt: remove newlines surrounding doc comment" {
     );
 }
 
-test "Sig fmt: remove newlines surrounding doc comment between members" {
+test "zig fmt: remove newlines surrounding doc comment between members" {
     try testTransform(
         \\f1: i32,
         \\
@@ -4356,7 +4348,7 @@ test "Sig fmt: remove newlines surrounding doc comment between members" {
     );
 }
 
-test "Sig fmt: remove newlines surrounding doc comment between members within container decl (1)" {
+test "zig fmt: remove newlines surrounding doc comment between members within container decl (1)" {
     try testTransform(
         \\const Foo = struct {
         \\    fn foo() void {}
@@ -4379,7 +4371,7 @@ test "Sig fmt: remove newlines surrounding doc comment between members within co
     );
 }
 
-test "Sig fmt: remove newlines surrounding doc comment between members within container decl (2)" {
+test "zig fmt: remove newlines surrounding doc comment between members within container decl (2)" {
     try testTransform(
         \\const Foo = struct {
         \\    fn foo() void {}
@@ -4401,7 +4393,7 @@ test "Sig fmt: remove newlines surrounding doc comment between members within co
     );
 }
 
-test "Sig fmt: remove newlines surrounding doc comment within container decl" {
+test "zig fmt: remove newlines surrounding doc comment within container decl" {
     try testTransform(
         \\const Foo = struct {
         \\
@@ -4420,7 +4412,7 @@ test "Sig fmt: remove newlines surrounding doc comment within container decl" {
     );
 }
 
-test "Sig fmt: comptime before comptime field" {
+test "zig fmt: comptime before comptime field" {
     try testError(
         \\const Foo = struct {
         \\    a: i32,
@@ -4432,7 +4424,7 @@ test "Sig fmt: comptime before comptime field" {
     });
 }
 
-test "Sig fmt: invalid doc comments on comptime and test blocks" {
+test "zig fmt: invalid doc comments on comptime and test blocks" {
     try testError(
         \\/// This is a doc comment for a comptime block.
         \\comptime {}
@@ -4444,7 +4436,7 @@ test "Sig fmt: invalid doc comments on comptime and test blocks" {
     });
 }
 
-test "Sig fmt: comments with CRLF line endings" {
+test "zig fmt: comments with CRLF line endings" {
     try testTransform("" ++
         "//! Top-level doc comment\r\n" ++
         "//! Continuing to another line\r\n" ++
@@ -4466,7 +4458,7 @@ test "Sig fmt: comments with CRLF line endings" {
     );
 }
 
-test "Sig fmt: else comptime expr" {
+test "zig fmt: else comptime expr" {
     try testCanonical(
         \\comptime {
         \\    if (true) {} else comptime foo();
@@ -4481,7 +4473,7 @@ test "Sig fmt: else comptime expr" {
     );
 }
 
-test "Sig fmt: invalid else branch statement" {
+test "zig fmt: invalid else branch statement" {
     try testError(
         \\comptime {
         \\    if (true) {} else var a = 0;
@@ -4505,7 +4497,7 @@ test "Sig fmt: invalid else branch statement" {
     });
 }
 
-test "Sig fmt: anytype struct field" {
+test "zig fmt: anytype struct field" {
     try testError(
         \\pub const Pointer = struct {
         \\    sentinel: anytype,
@@ -4516,7 +4508,7 @@ test "Sig fmt: anytype struct field" {
     });
 }
 
-test "Sig fmt: extern without container keyword returns error" {
+test "zig fmt: extern without container keyword returns error" {
     try testError(
         \\const container = extern {};
         \\
@@ -4525,7 +4517,7 @@ test "Sig fmt: extern without container keyword returns error" {
     });
 }
 
-test "Sig fmt: same line doc comment returns error" {
+test "zig fmt: same line doc comment returns error" {
     try testError(
         \\const Foo = struct{
         \\    bar: u32, /// comment
@@ -4549,7 +4541,7 @@ test "Sig fmt: same line doc comment returns error" {
     });
 }
 
-test "Sig fmt: integer literals with underscore separators" {
+test "zig fmt: integer literals with underscore separators" {
     try testTransform(
         \\const
         \\ x     =
@@ -4562,10 +4554,10 @@ test "Sig fmt: integer literals with underscore separators" {
     );
 }
 
-test "Sig fmt: hex literals with underscore separators" {
+test "zig fmt: hex literals with underscore separators" {
     try testTransform(
         \\pub fn orMask(a: [ 1_000 ]u64, b: [  1_000]  u64) [1_000]u64 {
-        \\    var c: [1_000]u64 =  [1]u64{ 0xFFFF_FFFF_FFFF_FFFF}**1_000;
+        \\    var c: [1_000]u64 = @splat(0xFFFF_FFFF_FFFF_FFFF);
         \\    for (c [ 1_0 .. ], 0..) |_, i| {
         \\        c[i] = (a[i] | b[i]) & 0xCCAA_CCAA_CCAA_CCAA;
         \\    }
@@ -4575,7 +4567,7 @@ test "Sig fmt: hex literals with underscore separators" {
         \\
     ,
         \\pub fn orMask(a: [1_000]u64, b: [1_000]u64) [1_000]u64 {
-        \\    var c: [1_000]u64 = [1]u64{0xFFFF_FFFF_FFFF_FFFF} ** 1_000;
+        \\    var c: [1_000]u64 = @splat(0xFFFF_FFFF_FFFF_FFFF);
         \\    for (c[1_0..], 0..) |_, i| {
         \\        c[i] = (a[i] | b[i]) & 0xCCAA_CCAA_CCAA_CCAA;
         \\    }
@@ -4585,7 +4577,7 @@ test "Sig fmt: hex literals with underscore separators" {
     );
 }
 
-test "Sig fmt: decimal float literals with underscore separators" {
+test "zig fmt: decimal float literals with underscore separators" {
     try testTransform(
         \\pub fn main() void {
         \\    const a:f64=(10.0e-0+(10.0e+0))+10_00.00_00e-2+20_00.00_10e+4;
@@ -4602,7 +4594,7 @@ test "Sig fmt: decimal float literals with underscore separators" {
     );
 }
 
-test "Sig fmt: hexadecimal float literals with underscore separators" {
+test "zig fmt: hexadecimal float literals with underscore separators" {
     try testTransform(
         \\pub fn main() void {
         \\    const a: f64 = (0x10.0p-0+(0x10.0p+0))+0x10_00.00_00p-8+0x00_00.00_10p+16;
@@ -4619,16 +4611,16 @@ test "Sig fmt: hexadecimal float literals with underscore separators" {
     );
 }
 
-test "Sig fmt: C var args" {
+test "zig fmt: C var args" {
     try testCanonical(
         \\pub extern "c" fn printf(format: [*:0]const u8, ...) c_int;
         \\
     );
 }
 
-test "Sig fmt: Only indent multiline string literals in function calls" {
+test "zig fmt: Only indent multiline string literals in function calls" {
     try testCanonical(
-        \\test "Sig fmt:" {
+        \\test "zig fmt:" {
         \\    try testTransform(
         \\        \\const X = struct {
         \\        \\    foo: i32, bar: i8 };
@@ -4643,7 +4635,7 @@ test "Sig fmt: Only indent multiline string literals in function calls" {
     );
 }
 
-test "Sig fmt: Don't add extra newline after if" {
+test "zig fmt: Don't add extra newline after if" {
     try testCanonical(
         \\pub fn atomicSymLink(allocator: Allocator, existing_path: []const u8, new_path: []const u8) !void {
         \\    if (foo().bar(existing_path, new_path, .{})) {
@@ -4654,7 +4646,7 @@ test "Sig fmt: Don't add extra newline after if" {
     );
 }
 
-test "Sig fmt: comments in ternary ifs" {
+test "zig fmt: comments in ternary ifs" {
     try testCanonical(
         \\const x = if (true) {
         \\    1;
@@ -4673,7 +4665,7 @@ test "Sig fmt: comments in ternary ifs" {
     );
 }
 
-test "Sig fmt: while statement in blockless if" {
+test "zig fmt: while statement in blockless if" {
     try testCanonical(
         \\pub fn main() void {
         \\    const zoom_node = if (focused_node == layout_first)
@@ -4687,7 +4679,7 @@ test "Sig fmt: while statement in blockless if" {
     );
 }
 
-test "Sig fmt: test comments in field access chain" {
+test "zig fmt: test comments in field access chain" {
     try testCanonical(
         \\pub const str = struct {
         \\    pub const Thing = more.more //
@@ -4722,7 +4714,7 @@ test "Sig fmt: test comments in field access chain" {
     );
 }
 
-test "Sig fmt: allow line break before field access" {
+test "zig fmt: allow line break before field access" {
     try testCanonical(
         \\test {
         \\    const w = foo.bar().zippy(zag).iguessthisisok();
@@ -4770,7 +4762,7 @@ test "Sig fmt: allow line break before field access" {
     );
 }
 
-test "Sig fmt: Indent comma correctly after multiline string literals in arg list (trailing comma)" {
+test "zig fmt: Indent comma correctly after multiline string literals in arg list (trailing comma)" {
     try testCanonical(
         \\fn foo() void {
         \\    z.display_message_dialog(
@@ -4795,7 +4787,7 @@ test "Sig fmt: Indent comma correctly after multiline string literals in arg lis
     );
 }
 
-test "Sig fmt: Control flow statement as body of blockless if" {
+test "zig fmt: Control flow statement as body of blockless if" {
     try testCanonical(
         \\pub fn main() void {
         \\    const zoom_node = if (focused_node == layout_first)
@@ -4830,7 +4822,7 @@ test "Sig fmt: Control flow statement as body of blockless if" {
     );
 }
 
-test "Sig fmt: regression test for #5722" {
+test "zig fmt: regression test for #5722" {
     try testCanonical(
         \\pub fn sendViewTags(self: Self) void {
         \\    var it = ViewStack(View).iterator(self.output.views.first, std.math.maxInt(u32));
@@ -4845,14 +4837,14 @@ test "Sig fmt: regression test for #5722" {
     );
 }
 
-test "Sig fmt: regression test for #8974" {
+test "zig fmt: regression test for #8974" {
     try testCanonical(
         \\pub const VARIABLE;
         \\
     );
 }
 
-test "Sig fmt: allow trailing line comments to do manual array formatting" {
+test "zig fmt: allow trailing line comments to do manual array formatting" {
     try testCanonical(
         \\fn foo() void {
         \\    self.code.appendSliceAssumeCapacity(&[_]u8{
@@ -4890,7 +4882,7 @@ test "Sig fmt: allow trailing line comments to do manual array formatting" {
     );
 }
 
-test "Sig fmt: multiline string literals should play nice with array initializers" {
+test "zig fmt: multiline string literals should play nice with array initializers" {
     try testCanonical(
         \\fn main() void {
         \\    var a = .{.{.{.{.{.{.{.{
@@ -4953,7 +4945,7 @@ test "Sig fmt: multiline string literals should play nice with array initializer
     );
 }
 
-test "Sig fmt: use of comments and multiline string literals may force the parameters over multiple lines" {
+test "zig fmt: use of comments and multiline string literals may force the parameters over multiple lines" {
     try testCanonical(
         \\pub fn makeMemUndefined(qzz: []u8) i1 {
         \\    cases.add( // fixed bug foo
@@ -4962,7 +4954,7 @@ test "Sig fmt: use of comments and multiline string literals may force the param
         \\        \\    var foo: u32 = @This(){};
         \\        \\}
         \\    , &[_][]const u8{
-        \\        "tmp.sig:2:27: error: type 'u32' does not support array initialization",
+        \\        "tmp.zig:2:27: error: type 'u32' does not support array initialization",
         \\    });
         \\    @compileError(
         \\        \\ unknown-length pointers and C pointers cannot be hashed deeply.
@@ -4993,7 +4985,7 @@ test "Sig fmt: use of comments and multiline string literals may force the param
     );
 }
 
-test "Sig fmt: single argument trailing commas in @builtins()" {
+test "zig fmt: single argument trailing commas in @builtins()" {
     try testCanonical(
         \\pub fn foo(qzz: []u8) i1 {
         \\    @panic(
@@ -5011,7 +5003,7 @@ test "Sig fmt: single argument trailing commas in @builtins()" {
     );
 }
 
-test "Sig fmt: trailing comma should force multiline 1 column" {
+test "zig fmt: trailing comma should force multiline 1 column" {
     try testTransform(
         \\pub const UUID_NULL: uuid_t = [16]u8{0,0,0,0,};
         \\
@@ -5026,7 +5018,7 @@ test "Sig fmt: trailing comma should force multiline 1 column" {
     );
 }
 
-test "Sig fmt: function params should align nicely" {
+test "zig fmt: function params should align nicely" {
     try testCanonical(
         \\pub fn foo() void {
         \\    cases.addRuntimeSafety("slicing operator with sentinel",
@@ -5042,7 +5034,7 @@ test "Sig fmt: function params should align nicely" {
     );
 }
 
-test "Sig fmt: fn proto end with anytype and comma" {
+test "zig fmt: fn proto end with anytype and comma" {
     try testCanonical(
         \\pub fn format(
         \\    out_stream: anytype,
@@ -5051,7 +5043,7 @@ test "Sig fmt: fn proto end with anytype and comma" {
     );
 }
 
-test "Sig fmt: space after top level doc comment" {
+test "zig fmt: space after top level doc comment" {
     try testCanonical(
         \\//! top level doc comment
         \\
@@ -5060,7 +5052,7 @@ test "Sig fmt: space after top level doc comment" {
     );
 }
 
-test "Sig fmt: remove trailing whitespace after container doc comment" {
+test "zig fmt: remove trailing whitespace after container doc comment" {
     try testTransform(
         \\//! top level doc comment 
         \\
@@ -5070,7 +5062,7 @@ test "Sig fmt: remove trailing whitespace after container doc comment" {
     );
 }
 
-test "Sig fmt: remove trailing whitespace after doc comment" {
+test "zig fmt: remove trailing whitespace after doc comment" {
     try testTransform(
         \\/// doc comment 
         \\a = 0,
@@ -5082,7 +5074,7 @@ test "Sig fmt: remove trailing whitespace after doc comment" {
     );
 }
 
-test "Sig fmt: for loop with ptr payload and index" {
+test "zig fmt: for loop with ptr payload and index" {
     try testCanonical(
         \\test {
         \\    for (self.entries.items, 0..) |*item, i| {}
@@ -5094,7 +5086,7 @@ test "Sig fmt: for loop with ptr payload and index" {
     );
 }
 
-test "Sig fmt: proper indent line comment after multi-line single expr while loop" {
+test "zig fmt: proper indent line comment after multi-line single expr while loop" {
     try testCanonical(
         \\test {
         \\    while (a) : (b)
@@ -5107,7 +5099,7 @@ test "Sig fmt: proper indent line comment after multi-line single expr while loo
     );
 }
 
-test "Sig fmt: function with labeled block as return type" {
+test "zig fmt: function with labeled block as return type" {
     try testCanonical(
         \\fn foo() t: {
         \\    break :t bar;
@@ -5118,7 +5110,7 @@ test "Sig fmt: function with labeled block as return type" {
     );
 }
 
-test "Sig fmt: extern function with missing param name" {
+test "zig fmt: extern function with missing param name" {
     try testCanonical(
         \\extern fn a(
         \\    *b,
@@ -5129,7 +5121,7 @@ test "Sig fmt: extern function with missing param name" {
     );
 }
 
-test "Sig fmt: line comment after multiline single expr if statement with multiline string" {
+test "zig fmt: line comment after multiline single expr if statement with multiline string" {
     try testCanonical(
         \\test {
         \\    if (foo)
@@ -5161,7 +5153,7 @@ test "Sig fmt: line comment after multiline single expr if statement with multil
     );
 }
 
-test "Sig fmt: respect extra newline between switch items" {
+test "zig fmt: respect extra newline between switch items" {
     try testCanonical(
         \\const a = switch (b) {
         \\    .c => {},
@@ -5174,7 +5166,7 @@ test "Sig fmt: respect extra newline between switch items" {
     );
 }
 
-test "Sig fmt: assignment with inline for and inline while" {
+test "zig fmt: assignment with inline for and inline while" {
     try testCanonical(
         \\const tmp = inline for (items) |item| {};
         \\
@@ -5186,7 +5178,7 @@ test "Sig fmt: assignment with inline for and inline while" {
     );
 }
 
-test "Sig fmt: saturating arithmetic" {
+test "zig fmt: saturating arithmetic" {
     try testCanonical(
         \\test {
         \\    const actual = switch (op) {
@@ -5206,7 +5198,7 @@ test "Sig fmt: saturating arithmetic" {
     );
 }
 
-test "Sig fmt: insert trailing comma if there are comments between switch values" {
+test "zig fmt: insert trailing comma if there are comments between switch values" {
     try testTransform(
         \\const a = switch (b) {
         \\    .c => {},
@@ -5237,7 +5229,7 @@ test "Sig fmt: insert trailing comma if there are comments between switch values
     );
 }
 
-test "Sig fmt: insert trailing comma if comments in array init" {
+test "zig fmt: insert trailing comma if comments in array init" {
     try testTransform(
         \\var a = .{
         \\    "foo", //
@@ -5274,7 +5266,7 @@ test "Sig fmt: insert trailing comma if comments in array init" {
     );
 }
 
-test "Sig fmt: make single-line if no trailing comma" {
+test "zig fmt: make single-line if no trailing comma" {
     try testTransform(
         \\test "function call no trailing comma" {
         \\    foo(
@@ -5321,7 +5313,7 @@ test "Sig fmt: make single-line if no trailing comma" {
     );
 }
 
-test "Sig fmt: preserve container doc comment in container without trailing comma" {
+test "zig fmt: preserve container doc comment in container without trailing comma" {
     try testTransform(
         \\const A = enum(u32) {
         \\//! comment
@@ -5336,10 +5328,10 @@ test "Sig fmt: preserve container doc comment in container without trailing comm
     );
 }
 
-test "Sig fmt: make single-line if no trailing comma, fmt: off" {
+test "zig fmt: make single-line if no trailing comma, fmt: off" {
     try testCanonical(
         \\// Test trailing comma syntax
-        \\// Sig fmt: off
+        \\// zig fmt: off
         \\
         \\extern var a: c_int;
         \\extern "c" var b: c_int;
@@ -5407,7 +5399,7 @@ test "Sig fmt: make single-line if no trailing comma, fmt: off" {
     );
 }
 
-test "Sig fmt: variable initialized with ==" {
+test "zig fmt: variable initialized with ==" {
     try testError(
         \\comptime {
         \\    var z: u32 == 12 + 1;
@@ -5415,7 +5407,7 @@ test "Sig fmt: variable initialized with ==" {
     , &.{.wrong_equal_var_decl});
 }
 
-test "Sig fmt: missing const/var before local variable in comptime block" {
+test "zig fmt: missing const/var before local variable in comptime block" {
     try testError(
         \\comptime {
         \\    z: u32;
@@ -5441,7 +5433,7 @@ test "Sig fmt: missing const/var before local variable in comptime block" {
     });
 }
 
-test "Sig fmt: missing const/var before local variable" {
+test "zig fmt: missing const/var before local variable" {
     try testError(
         \\std = foo,
         \\std = foo;
@@ -5453,7 +5445,7 @@ test "Sig fmt: missing const/var before local variable" {
     });
 }
 
-test "Sig fmt: while continue expr" {
+test "zig fmt: while continue expr" {
     try testCanonical(
         \\test {
         \\    while (i > 0)
@@ -5466,7 +5458,7 @@ test "Sig fmt: while continue expr" {
     );
 }
 
-test "Sig fmt: canonicalize symbols (simple)" {
+test "zig fmt: canonicalize symbols (simple)" {
     try testTransform(
         \\const val_normal: Normal = .{};
         \\const @"val_unesc_me": @"UnescMe" = .{};
@@ -5615,7 +5607,7 @@ test "Sig fmt: canonicalize symbols (simple)" {
 }
 
 // Contextually unescape when shadowing primitive types and values.
-test "Sig fmt: canonicalize symbols (primitive types)" {
+test "zig fmt: canonicalize symbols (primitive types)" {
     try testTransform(
         \\const @"anyopaque" = struct {
         \\    @"u8": @"type" = true,
@@ -5723,7 +5715,7 @@ test "Sig fmt: canonicalize symbols (primitive types)" {
     );
 }
 
-test "Sig fmt: no space before newline before multiline string" {
+test "zig fmt: no space before newline before multiline string" {
     try testCanonical(
         \\const S = struct {
         \\    text: []const u8,
@@ -5763,7 +5755,7 @@ test "Sig fmt: no space before newline before multiline string" {
 }
 
 // Normalize \xNN and \u{NN} escapes and unicode inside @"" escapes.
-test "Sig fmt: canonicalize symbols (character escapes)" {
+test "zig fmt: canonicalize symbols (character escapes)" {
     try testTransform(
         \\const @"\x46\x6f\x6f\x64" = struct {
         \\    @"\x62\x61\x72\x6E": @"\x43\x72\x61\x62" = false,
@@ -5805,7 +5797,7 @@ test "Sig fmt: canonicalize symbols (character escapes)" {
     );
 }
 
-test "Sig fmt: canonicalize symbols (asm)" {
+test "zig fmt: canonicalize symbols (asm)" {
     try testTransform(
         \\test "asm" {
         \\    const @"null" = usize;
@@ -5851,7 +5843,7 @@ test "Sig fmt: canonicalize symbols (asm)" {
     );
 }
 
-test "Sig fmt: don't canonicalize _ in enums" {
+test "zig fmt: don't canonicalize _ in enums" {
     try testTransform(
         \\const A = enum {
         \\    first,
@@ -5907,7 +5899,7 @@ test "Sig fmt: don't canonicalize _ in enums" {
     );
 }
 
-test "Sig fmt: error for missing sentinel value in sentinel slice" {
+test "zig fmt: error for missing sentinel value in sentinel slice" {
     try testError(
         \\const foo = foo[0..:];
     , &[_]Error{
@@ -5915,7 +5907,7 @@ test "Sig fmt: error for missing sentinel value in sentinel slice" {
     });
 }
 
-test "Sig fmt: error for invalid bit range" {
+test "zig fmt: error for invalid bit range" {
     try testError(
         \\var x: [*]align(0:0:0)u8 = bar;
     , &[_]Error{
@@ -5933,7 +5925,7 @@ test "Sig fmt: error for invalid bit range" {
     });
 }
 
-test "Sig fmt: error for ptr mod on array child type" {
+test "zig fmt: error for ptr mod on array child type" {
     try testError(
         \\var a: [10]align(10) u8 = e;
         \\var b: [10]const u8 = f;
@@ -5947,7 +5939,7 @@ test "Sig fmt: error for ptr mod on array child type" {
     });
 }
 
-test "Sig fmt: pointer type syntax to index" {
+test "zig fmt: pointer type syntax to index" {
     try testCanonical(
         \\test {
         \\    _ = .{}[*0];
@@ -5956,7 +5948,7 @@ test "Sig fmt: pointer type syntax to index" {
     );
 }
 
-test "Sig fmt: binop indentation in if statement" {
+test "zig fmt: binop indentation in if statement" {
     try testCanonical(
         \\test {
         \\    if (first_param_type.isGenericPoison() or
@@ -5972,7 +5964,7 @@ test "Sig fmt: binop indentation in if statement" {
     );
 }
 
-test "Sig fmt: test indentation after equals sign" {
+test "zig fmt: test indentation after equals sign" {
     try testCanonical(
         \\test {
         \\    const foo =
@@ -6046,7 +6038,7 @@ test "Sig fmt: test indentation after equals sign" {
     );
 }
 
-test "Sig fmt: test indentation of if expressions" {
+test "zig fmt: test indentation of if expressions" {
     try testCanonical(
         \\test {
         \\    const foo = 1 +
@@ -6082,7 +6074,7 @@ test "Sig fmt: test indentation of if expressions" {
     );
 }
 
-test "Sig fmt: indentation of comments within catch, else, orelse" {
+test "zig fmt: indentation of comments within catch, else, orelse" {
     try testCanonical(
         \\comptime {
         \\    _ = foo() catch
@@ -6101,7 +6093,7 @@ test "Sig fmt: indentation of comments within catch, else, orelse" {
     );
 }
 
-test "Sig fmt: canonicalize cast builtins" {
+test "zig fmt: canonicalize cast builtins" {
     try testTransform(
         \\const foo = @alignCast(@ptrCast(bar));
         \\const baz = @constCast(@ptrCast(@addrSpaceCast(@volatileCast(@alignCast(bar)))));
@@ -6113,14 +6105,14 @@ test "Sig fmt: canonicalize cast builtins" {
     );
 }
 
-test "Sig fmt: do not canonicalize invalid cast builtins" {
+test "zig fmt: do not canonicalize invalid cast builtins" {
     try testCanonical(
         \\const foo = @alignCast(@volatileCast(@ptrCast(@alignCast(bar))));
         \\
     );
 }
 
-test "Sig fmt: canonicalize cast builtins at file start" {
+test "zig fmt: canonicalize cast builtins at file start" {
     try testTransform(
         \\@alignCast(@ptrCast(a)),
         \\
@@ -6130,7 +6122,7 @@ test "Sig fmt: canonicalize cast builtins at file start" {
     );
 }
 
-test "Sig fmt: extern addrspace in struct" {
+test "zig fmt: extern addrspace in struct" {
     try testCanonical(
         \\const namespace = struct {
         \\    extern const num: u8 addrspace(.generic);
@@ -6140,7 +6132,7 @@ test "Sig fmt: extern addrspace in struct" {
     );
 }
 
-test "Sig fmt: seperate errors in error sets with comments" {
+test "zig fmt: seperate errors in error sets with comments" {
     try testTransform(
         \\error{
         \\    /// This error is very bad!
@@ -6171,7 +6163,7 @@ test "Sig fmt: seperate errors in error sets with comments" {
     );
 }
 
-test "Sig fmt: proper escape checks" {
+test "zig fmt: proper escape checks" {
     try testTransform(
         \\@"\x41\x42\!"
         \\
@@ -6181,7 +6173,7 @@ test "Sig fmt: proper escape checks" {
     );
 }
 
-test "Sig fmt: field accesses on number literals" {
+test "zig fmt: field accesses on number literals" {
     try testCanonical(
         \\const a = 0xF .A;
         \\const a = 0xF
@@ -6190,7 +6182,7 @@ test "Sig fmt: field accesses on number literals" {
     );
 }
 
-test "Sig fmt: array indent when inner becomes multi-line" {
+test "zig fmt: array indent when inner becomes multi-line" {
     try testTransform(
         \\const access_block = x[{{}}];
         \\
@@ -6432,7 +6424,7 @@ test "Sig fmt: array indent when inner becomes multi-line" {
     );
 }
 
-test "Sig fmt: whitespace with multiline strings" {
+test "zig fmt: whitespace with multiline strings" {
     try testCanonical(
         \\const a = .{
         \\    .b =
@@ -6720,7 +6712,7 @@ test "Sig fmt: whitespace with multiline strings" {
     );
 }
 
-test "Sig fmt: doc comments on fn parameters" {
+test "zig fmt: doc comments on fn parameters" {
     try testTransform(
         \\extern fn foo(
         \\    /// Bitmap
@@ -6761,7 +6753,7 @@ test "Sig fmt: doc comments on fn parameters" {
     );
 }
 
-test "Sig fmt: array literal formatting when element becomes multiline" {
+test "zig fmt: array literal formatting when element becomes multiline" {
     try testTransform(
         \\const a = .{a,{{}},
         \\            b,c,};
@@ -6778,7 +6770,7 @@ test "Sig fmt: array literal formatting when element becomes multiline" {
     );
 }
 
-test "Sig fmt: proper tracking of indentation" {
+test "zig fmt: proper tracking of indentation" {
     try testCanonical(
         \\const a = {
         \\    {}
@@ -6795,7 +6787,7 @@ test "Sig fmt: proper tracking of indentation" {
     );
 }
 
-test "Sig fmt: canonicalize stray backslashes in identifiers" {
+test "zig fmt: canonicalize stray backslashes in identifiers" {
     try testTransform(
         \\const @"\x" = undefined;
         \\const @"\x3" = undefined;
@@ -6813,7 +6805,7 @@ test "Sig fmt: canonicalize stray backslashes in identifiers" {
     );
 }
 
-test "Sig fmt: error set with extra newline before comma" {
+test "zig fmt: error set with extra newline before comma" {
     try testTransform(
         \\const E = error{
         \\    A
@@ -6829,7 +6821,60 @@ test "Sig fmt: error set with extra newline before comma" {
     );
 }
 
-test "Sig fmt: extern container in tuple" {
+test "zig fmt: error set with only comment" {
+    try testCanonical(
+        \\const E = error{
+        \\    // line comment
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: error set with only one identifier and one comment" {
+    try testTransform(
+        \\const A = error{
+        \\    // line comment
+        \\    X,
+        \\};
+        \\
+        \\const B = error{
+        \\// line comment
+        \\X};
+        \\
+        \\const C = error{
+        \\    /// doc comment
+        \\    X,
+        \\};
+        \\
+        \\const D = error{
+        \\/// doc comment
+        \\X};
+        \\
+    ,
+        \\const A = error{
+        \\    // line comment
+        \\    X,
+        \\};
+        \\
+        \\const B = error{
+        \\    // line comment
+        \\    X,
+        \\};
+        \\
+        \\const C = error{
+        \\    /// doc comment
+        \\    X,
+        \\};
+        \\
+        \\const D = error{
+        \\    /// doc comment
+        \\    X,
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: extern container in tuple" {
     try testCanonical(
         \\const T = struct {
         \\    extern struct {},
@@ -6840,14 +6885,14 @@ test "Sig fmt: extern container in tuple" {
     );
 }
 
-test "Sig fmt: break followed by colon" {
+test "zig fmt: break followed by colon" {
     try testCanonical(
         \\const a = [if (cond) len else break:0]u8;
         \\
     );
 }
 
-test "Sig fmt: array init of labeled block" {
+test "zig fmt: array init of labeled block" {
     try testCanonical(
         \\const a = blk: {
         \\    break :blk T;
@@ -6856,7 +6901,7 @@ test "Sig fmt: array init of labeled block" {
     );
 }
 
-test "Sig fmt: nested asm indentation" {
+test "zig fmt: nested asm indentation" {
     try testCanonical(
         \\const A = asm (""
         \\    : [_] "" (_),
@@ -6868,28 +6913,28 @@ test "Sig fmt: nested asm indentation" {
     );
 }
 
-test "Sig fmt: asm with Sig fmt on" {
+test "zig fmt: asm with zig fmt on" {
     try testCanonical(
-        \\// Sig fmt: off
-        \\const A = asm("a" // Sig fmt: on
+        \\// zig fmt: off
+        \\const A = asm("a" // zig fmt: on
         \\    : [_] "" (_),
         \\);
         \\
     );
 }
 
-test "Sig fmt: array init with multiline string literal with fmt on/off" {
+test "zig fmt: array init with multiline string literal with fmt on/off" {
     try testCanonical(
         \\const array = .{
         \\    \\
-        \\    // Sig fmt: on
-        \\    // Sig fmt: off
+        \\    // zig fmt: on
+        \\    // zig fmt: off
         \\};
         \\
     );
 }
 
-test "Sig fmt: render extra colons with comments" {
+test "zig fmt: render extra colons with comments" {
     try testCanonical(
         \\const a = asm (""
         \\    : // testing
@@ -6906,18 +6951,18 @@ test "Sig fmt: render extra colons with comments" {
     );
 }
 
-test "Sig fmt: cast builtins are not reordered with comments" {
+test "zig fmt: cast builtins are not reordered with comments" {
     try testCanonical(
         \\const a = @volatileCast(@constCast( // ...
         \\    @alignCast(@ptrCast(a))));
         \\
-        \\const b = @alignCast(@ptrCast( // Sig fmt: off
+        \\const b = @alignCast(@ptrCast( // zig fmt: off
         \\    c));
         \\
     );
 }
 
-test "Sig fmt: inner over-indented if expressions becoming multiline" {
+test "zig fmt: inner over-indented if expressions becoming multiline" {
     try testTransform(
         \\const a = (b or
         \\c) and [if (d) {}]T; // If the if-statement is kept on the same line it becomes multiline
@@ -6946,7 +6991,7 @@ test "Sig fmt: inner over-indented if expressions becoming multiline" {
     );
 }
 
-test "Sig fmt: canonicalize @intFromEnum(x) to @backingInt(x)" {
+test "zig fmt: canonicalize @intFromEnum(x) to @backingInt(x)" {
     try testTransform(
         \\const a = @intFromEnum(x);
         \\
@@ -6976,7 +7021,7 @@ test "Sig fmt: canonicalize @intFromEnum(x) to @backingInt(x)" {
     );
 }
 
-test "Sig fmt: canonicalize @enumFromInt(x) to @fromBackingInt(@intCast(x))" {
+test "zig fmt: canonicalize @enumFromInt(x) to @fromBackingInt(@intCast(x))" {
     try testTransform(
         \\const a: E = @enumFromInt(x);
         \\
@@ -7109,7 +7154,7 @@ test "recovery: missing semicolon" {
     });
 }
 
-// TODO after https://github.com/ziglang/Sig/issues/35 is implemented,
+// TODO after https://github.com/ziglang/zig/issues/35 is implemented,
 // we should be able to recover from this *at any indentation level*,
 // reporting a parse error and yet also parsing all the decls even
 // inside structs.
@@ -7141,25 +7186,6 @@ test "recovery: invalid global error set access" {
         \\}
     , &[_]Error{
         .expected_token,
-    });
-}
-
-test "recovery: invalid asterisk after pointer dereference" {
-    try testError(
-        \\test "" {
-        \\    var sequence = "repeat".*** 10;
-        \\}
-    , &[_]Error{
-        .asterisk_after_ptr_deref,
-        .mismatched_binary_op_whitespace,
-    });
-    try testError(
-        \\test "" {
-        \\    var sequence = "repeat".** 10&a;
-        \\}
-    , &[_]Error{
-        .asterisk_after_ptr_deref,
-        .mismatched_binary_op_whitespace,
     });
 }
 
@@ -7318,7 +7344,7 @@ test "ampersand" {
 test "Ast: pointer types with subexprs containing qualifiers" {
     var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
     const allocator = fixed_allocator.allocator();
-    var tree = try std.sig.Ast.parse(allocator, "**addrspace(*align(1)T)T", .{ .mode = .zon });
+    var tree = try std.zig.Ast.parse(allocator, "**addrspace(*align(1)T)T", .{ .mode = .zon });
     defer tree.deinit(allocator);
 
     const regular_ptr_node = tree.nodeData(.root).node;
@@ -7340,7 +7366,7 @@ fn testParse(io: Io, source: [:0]const u8, allocator: Allocator, anything_change
     defer io.unlockStderr();
     const writer = &stderr.file_writer.interface;
 
-    var tree = try std.sig.Ast.parse(allocator, source, .{});
+    var tree = try std.zig.Ast.parse(allocator, source, .{});
     defer tree.deinit(allocator);
 
     for (tree.errors) |parse_error| {
@@ -7380,7 +7406,7 @@ fn testTransformImpl(
     try std.testing.expectEqualStrings(expected_source, result_source);
     const changes_expected = source.ptr != expected_source.ptr;
     if (anything_changed != changes_expected) {
-        std.debug.print("std.sig.render returned {} instead of {}\n", .{ anything_changed, changes_expected });
+        std.debug.print("std.zig.render returned {} instead of {}\n", .{ anything_changed, changes_expected });
         return error.TestFailed;
     }
     try std.testing.expect(anything_changed == changes_expected);
@@ -7397,10 +7423,10 @@ fn testCanonical(source: [:0]const u8) !void {
     return testTransform(source, source);
 }
 
-const Error = std.sig.Ast.Error.Tag;
+const Error = std.zig.Ast.Error.Tag;
 
 fn testError(source: [:0]const u8, expected_errors: []const Error) !void {
-    var tree = try std.sig.Ast.parse(std.testing.allocator, source, .{});
+    var tree = try std.zig.Ast.parse(std.testing.allocator, source, .{});
     defer tree.deinit(std.testing.allocator);
 
     std.testing.expectEqual(expected_errors.len, tree.errors.len) catch |err| {
@@ -7417,10 +7443,10 @@ test "fuzz ast parse" {
 }
 
 fn fuzzTestOneParse(_: void, smith: *std.testing.Smith) !void {
-    const mode = smith.value(std.sig.Ast.Mode);
-    var tokens: std.sig.TokenSmith = .gen(smith);
+    const mode = smith.value(std.zig.Ast.Mode);
+    var tokens: std.zig.TokenSmith = .gen(smith);
     var fba: std.heap.FixedBufferAllocator = .init(&fixed_buffer_mem);
-    _ = std.sig.Ast.parseTokens(fba.allocator(), tokens.source(), tokens.list(), .{
+    _ = std.zig.Ast.parseTokens(fba.allocator(), tokens.source(), tokens.list(), .{
         .recover = false,
         .mode = mode,
     }) catch return;
