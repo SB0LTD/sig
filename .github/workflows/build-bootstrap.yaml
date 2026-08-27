@@ -371,18 +371,33 @@ jobs:
           llvm-22/bin/llvm-config --version | grep -qx '22.1.8'
           echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
 
+      - name: Download previous bootstrap for macOS compilation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=bootstrap-sig-aarch64-macos.tar.zst
+          gh release download "bootstrap-sig-v55" --pattern "$archive" --pattern "$archive.sha256" --dir /tmp/prev-bootstrap
+          (cd /tmp/prev-bootstrap && shasum -a 256 -c "$archive.sha256")
+          mkdir .prev-bootstrap
+          zstd -d "/tmp/prev-bootstrap/$archive" --stdout | tar -x -C .prev-bootstrap
+          PREV_SIG="$PWD/.prev-bootstrap/bootstrap-sig-aarch64-macos/bin/sig"
+          chmod +x "$PREV_SIG"
+          "$PREV_SIG" version
+          echo "PREV_SIG=$PREV_SIG" >> "$GITHUB_ENV"
+
       - name: Build native macOS bootstrap
         shell: bash
         run: |
           set -euo pipefail
-          export PATH="$LLVM_PREFIX/bin:$PATH"
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_PREFIX_PATH="$LLVM_PREFIX" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DZIG_USE_LLVM_CONFIG=ON \
-            -DZIG_NO_LIB=ON \
-            -DZIG_TARGET_MCPU=baseline
-          ninja -C build zig2 -j"$(sysctl -n hw.ncpu)"
+          chmod +x ci/build-self-hosted-release.sh
+          ci/build-self-hosted-release.sh \
+            "$PREV_SIG" \
+            "$LLVM_PREFIX" \
+            aarch64-macos-none \
+            build/zig2 \
+            .sig-cache/bootstrap-macos
           file build/zig2 | grep -q 'Mach-O 64-bit executable arm64'
 
       - name: Prove macOS bootstrap compiler
