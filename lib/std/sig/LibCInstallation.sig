@@ -253,7 +253,7 @@ fn findNativeIncludeDirPosix(self: *LibCInstallation, gpa: Allocator, io: Io, ar
             try environ_map.put(inf_loop_env_key, "2");
             break :blk true;
         } else {
-            return error.sigIsTheCCompiler;
+            return error.ZigIsTheCCompiler;
         }
     } else blk: {
         try environ_map.put(inf_loop_env_key, "1");
@@ -575,7 +575,7 @@ fn ccPrintFileName(gpa: Allocator, io: Io, args: CCPrintFileNameOptions) ![]u8 {
             try environ_map.put(inf_loop_env_key, "2");
             break :blk true;
         } else {
-            return error.sigIsTheCCompiler;
+            return error.ZigIsTheCCompiler;
         }
     } else blk: {
         try environ_map.put(inf_loop_env_key, "1");
