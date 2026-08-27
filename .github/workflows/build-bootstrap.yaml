@@ -144,18 +144,34 @@ jobs:
           test -f llvm-22-aarch64/lib/libLLVMCore.a
           echo "LLVM_AARCH64_PREFIX=$PWD/llvm-22-aarch64" >> "$GITHUB_ENV"
 
+      - name: Download previous bootstrap for compilation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Use v55 as the stage0 compiler to build the new bootstrap
+          archive=bootstrap-sig-x86_64-linux.tar.zst
+          gh release download "bootstrap-sig-v55" --pattern "$archive" --pattern "$archive.sha256" --dir /tmp/prev-bootstrap
+          (cd /tmp/prev-bootstrap && sha256sum --check --strict "$archive.sha256")
+          mkdir .prev-bootstrap
+          zstd -d "/tmp/prev-bootstrap/$archive" --stdout | tar -x -C .prev-bootstrap
+          PREV_SIG="$PWD/.prev-bootstrap/bootstrap-sig-x86_64-linux/bin/sig"
+          chmod +x "$PREV_SIG"
+          "$PREV_SIG" version
+          echo "PREV_SIG=$PREV_SIG" >> "$GITHUB_ENV"
+
       - name: Build native Linux bootstrap
         shell: bash
         run: |
           set -euo pipefail
-          export PATH="$LLVM_PREFIX/bin:$PATH"
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_PREFIX_PATH="$LLVM_PREFIX" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DZIG_USE_LLVM_CONFIG=ON \
-            -DZIG_NO_LIB=ON \
-            -DZIG_TARGET_MCPU=baseline
-          ninja -C build zig2 -j"$(nproc)"
+          chmod +x ci/build-self-hosted-release.sh
+          ci/build-self-hosted-release.sh \
+            "$PREV_SIG" \
+            "$LLVM_PREFIX" \
+            x86_64-linux-musl \
+            build/zig2 \
+            .sig-cache/bootstrap-linux
           file build/zig2 | grep -q 'ELF 64-bit.*x86-64'
 
       - name: Prove Linux bootstrap compiler
