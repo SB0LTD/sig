@@ -112,6 +112,10 @@ case "$TARGET" in
     # release must use Apple's system linker from the runner toolchain.
     lld_flag=-fno-lld
     ;;
+  x86_64-linux-musl|aarch64-linux-musl)
+    set -- \
+      -lstdc++ -lm -lz -lzstd -lpthread -ldl -lrt
+    ;;
   x86_64-windows-gnu)
     set -- \
       -lole32 -luuid -lversion -ladvapi32 -lshell32 -luser32 -lws2_32
