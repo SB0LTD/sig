@@ -113,10 +113,10 @@ case "$TARGET" in
     lld_flag=-fno-lld
     ;;
   x86_64-linux-musl|x86_64-linux-gnu|aarch64-linux-musl)
-    # System libstdc++ path for linking LLVM (which was built with GCC)
-    LIBSTDCXX_DIR="$(dirname "$(gcc -print-file-name=libstdc++.a)" 2>/dev/null || echo /usr/lib/x86_64-linux-gnu)"
+    # System libc++ path for linking LLVM (which was built with libc++)
+    LIBCXX_DIR="/usr/lib/x86_64-linux-gnu"
     set -- \
-      -lc++ -lc++abi -L"$LIBSTDCXX_DIR" -lstdc++ -lm -lz -lzstd -lpthread -ldl -lrt
+      -L"$LIBCXX_DIR" -lc++ -lc++abi -lm -lz -lzstd -lpthread -ldl -lrt
     ;;
   x86_64-windows-gnu)
     set -- \
