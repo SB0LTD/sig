@@ -284,7 +284,7 @@ fn mainArgs(
     args: []const [:0]const u8,
     environ_map: *process.Environ.Map,
 ) !void {
-    if (process.can_replace and EnvVar.ZIG_IS_DETECTING_LIBC_PATHS_PATHS.isSet(environ_map)) {
+    if (process.can_replace and EnvVar.ZIG_IS_DETECTING_LIBC_PATHS.isSet(environ_map)) {
         dev.check(.cc_command);
         // In this case we have accidentally invoked ourselves as "the system C compiler"
         // to figure out where libc is installed. This is essentially infinite recursion

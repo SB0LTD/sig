@@ -146,11 +146,12 @@ cd "$ROOT"
   src/zig_clang_cc1as_main.cpp \
   --dep build_options \
   --dep aro \
+  --dep std \
   -Mroot=src/main.sig \
   "-Mbuild_options=$BUILD_OPTIONS" \
   -Maro=lib/compiler/aro/aro.sig \
+  "-Mstd=$ROOT/lib/std/std.sig" \
   --name sig \
-  --Sig-lib-dir "$ROOT/lib" \
   --cache-dir "$CACHE/compiler" \
   -lc \
   -lc++ \
