@@ -14,9 +14,12 @@
 ///   [6..] = user arguments: step names, -Dkey=value, -jN, --prefix, etc.
 ///
 /// All stack buffers, no allocator.
-const std = @import("std");
 const sig = @import("sig");
 const sig_build = @import("sig_build");
+
+const sig_io = sig.io;
+const sig_mem = sig.mem;
+const sig_fmt = sig.fmt;
 
 // ── Re-exports from sig_build for convenience ───────────────────────────────
 const Runner_Args = sig_build.Runner_Args;
@@ -160,7 +163,7 @@ pub fn parseUserArgs(args_it: anytype, config: *Cli_Config) Parse_Error!void {
             } else {
                 // -j N form: next arg is the count.
                 if (args_it.next() catch return error.DecodeError) |next_arg| {
-                    config.thread_count = std.fmt.parseInt(usize, next_arg, 10) catch {
+                    config.thread_count = sig_fmt.parseInt(usize, next_arg, 10) catch {
                         return error.InvalidThreadCount;
                     };
                 } else {
@@ -181,7 +184,7 @@ pub fn parseUserArgs(args_it: anytype, config: *Cli_Config) Parse_Error!void {
 
 /// Parse a single long option (arg starts with "--").
 fn parseLongOption(args_it: anytype, config: *Cli_Config, arg: []const u8) Parse_Error!void {
-    if (std.mem.eql(u8, arg, "--prefix")) {
+    if (sig_mem.eql(u8, arg, "--prefix")) {
         if (args_it.next() catch return error.DecodeError) |value| {
             if (value.len > PATH_BUF_SIZE) return error.PathTooLong;
             @memcpy(config.install_prefix[0..value.len], value);
@@ -189,7 +192,7 @@ fn parseLongOption(args_it: anytype, config: *Cli_Config, arg: []const u8) Parse
         } else {
             return error.MissingPrefixPath;
         }
-    } else if (std.mem.eql(u8, arg, "--Sig-lib-dir")) {
+    } else if (sig_mem.eql(u8, arg, "--Sig-lib-dir")) {
         // Override Sig lib directory (user-facing flag for release workflows).
         // This user-level --Sig-lib-dir is distinct from argv[2] which is the
         // positional SIG_LIB_DIR passed by the compiler. The user-level flag
@@ -202,7 +205,7 @@ fn parseLongOption(args_it: anytype, config: *Cli_Config, arg: []const u8) Parse
         } else {
             return error.MissingZigLibDir;
         }
-    } else if (std.mem.eql(u8, arg, "--search-prefix")) {
+    } else if (sig_mem.eql(u8, arg, "--search-prefix")) {
         // Additional search prefix for LLVM discovery, headers, etc.
         if (args_it.next() catch return error.DecodeError) |value| {
             if (value.len > PATH_BUF_SIZE) return error.PathTooLong;
@@ -211,7 +214,7 @@ fn parseLongOption(args_it: anytype, config: *Cli_Config, arg: []const u8) Parse
         } else {
             return error.MissingSearchPrefix;
         }
-    } else if (std.mem.eql(u8, arg, "--cache-dir")) {
+    } else if (sig_mem.eql(u8, arg, "--cache-dir")) {
         // Override local cache directory.
         if (args_it.next() catch return error.DecodeError) |value| {
             if (value.len > PATH_BUF_SIZE) return error.PathTooLong;
@@ -219,18 +222,18 @@ fn parseLongOption(args_it: anytype, config: *Cli_Config, arg: []const u8) Parse
         } else {
             return error.MissingCacheDir;
         }
-    } else if (std.mem.eql(u8, arg, "--verbose")) {
+    } else if (sig_mem.eql(u8, arg, "--verbose")) {
         config.verbose = true;
-    } else if (std.mem.eql(u8, arg, "--benchmark")) {
+    } else if (sig_mem.eql(u8, arg, "--benchmark")) {
         config.benchmark = true;
-    } else if (std.mem.eql(u8, arg, "--self-test") or std.mem.startsWith(u8, arg, "--self-test=")) {
+    } else if (sig_mem.eql(u8, arg, "--self-test") or sig_mem.startsWith(u8, arg, "--self-test=")) {
         config.self_test = true;
         if (sig_build.parseLongOptionValue(arg)) |value| {
             if (value.len > PATH_BUF_SIZE) return error.PathTooLong;
             @memcpy(config.self_test_compiler[0..value.len], value);
             config.self_test_compiler_len = value.len;
         }
-    } else if (std.mem.eql(u8, arg, "--maxrss")) {
+    } else if (sig_mem.eql(u8, arg, "--maxrss")) {
         // --maxrss: skip the value (Sig compat, ignored).
         _ = args_it.next() catch {};
     } else {
@@ -250,7 +253,7 @@ fn parseLongOption(args_it: anytype, config: *Cli_Config, arg: []const u8) Parse
 ///   - --Sig-lib-dir override (from user args, takes precedence over argv[2])
 ///
 /// The io parameter is needed for fatal error reporting during path construction.
-pub fn populateContext(ctx: *sig_build.Build_Context, result: *const Parse_Result, io: std.Io) void {
+pub fn populateContext(ctx: *sig_build.Build_Context, result: *const Parse_Result, io: sig_io.Io) void {
     const runner_args = &result.runner_args;
     const config = &result.config;
 

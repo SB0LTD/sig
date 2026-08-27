@@ -14,8 +14,9 @@
 //! Inference takes ~2-5 seconds for a 0.6B Q4_K model on modern hardware.
 //! Results are cached by build.sig content hash, so subsequent builds are instant.
 
-const std = @import("std");
 const sig = @import("sig");
+
+const sig_io = sig.io;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Model File Resolution
@@ -37,7 +38,7 @@ pub const ModelPath = struct {
 };
 
 /// Resolve the model file path. Returns a valid path or empty (not found).
-pub fn resolveModelPath(io: std.Io) ModelPath {
+pub fn resolveModelPath(io: sig_io.Io) ModelPath {
     var result = ModelPath{};
 
     // 1. SIG_MODEL_PATH environment variable
@@ -93,8 +94,8 @@ pub const ModelState = struct {
 };
 
 const FileContext = struct {
-    io: std.Io = undefined,
-    file: ?std.Io.File = null,
+    io: sig_io.Io = undefined,
+    file: ?sig_io.File = null,
     size: u64 = 0,
     path: []const u8 = "",
 };
@@ -134,13 +135,13 @@ pub fn generate(prompt: []const u8, output: []u8) usize {
 }
 
 /// Check if a local model is available for inference.
-pub fn isModelAvailable(io: std.Io) bool {
+pub fn isModelAvailable(io: sig_io.Io) bool {
     const path = resolveModelPath(io);
     return path.valid();
 }
 
 /// Print model availability status (for --verbose output).
-pub fn printStatus(io: std.Io) void {
+pub fn printStatus(io: sig_io.Io) void {
     const path = resolveModelPath(io);
     if (path.valid()) {
         sig.io.print(io, "smart capacity: model found at {s}\n", .{path.slice()});
@@ -154,8 +155,8 @@ pub fn printStatus(io: std.Io) void {
 // Platform Helpers
 // ══════════════════════════════════════════════════════════════════════════════
 
-fn fileExists(io: std.Io, path: []const u8) bool {
-    const cwd: std.Io.Dir = .cwd();
+fn fileExists(io: sig_io.Io, path: []const u8) bool {
+    const cwd: sig_io.Dir = .cwd();
     var file = cwd.openFile(io, path, .{}) catch return false;
     file.close(io);
     return true;

@@ -4,7 +4,6 @@
 //! reports accuracy by comparing predictions to actual compilation results.
 //! Also measures prediction latency.
 
-const std = @import("std");
 const smart_cap = @import("smart_capacity.sig");
 
 // ══════════════════════════════════════════════════════════════════════════════

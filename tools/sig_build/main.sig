@@ -14,6 +14,7 @@ const compile = @import("compile");
 
 // ── sig module aliases ──────────────────────────────────────────────────────
 const containers = sig.containers;
+const sig_mem = sig.mem;
 const sig_fmt = sig.fmt;
 const sig_fs = sig.fs;
 const sig_string = sig.string;
@@ -101,7 +102,7 @@ pub const Step_Context = struct {
     /// Pointer to the Build_Context (read-only access for paths, options, compiler path).
     build_ctx: *Build_Context = undefined,
     /// I/O context for file operations and process spawning.
-    io: std.Io = undefined,
+    io: sig_io.Io = undefined,
     /// Path to the sig compiler binary (for invoking build-exe, test, etc.).
     compiler_path: []const u8 = "",
 };
@@ -135,7 +136,7 @@ pub const Step_Registry = struct {
 
         // Duplicate name check via linear scan.
         for (self.entries[0..self.count]) |*entry| {
-            if (entry.name_len == name.len and std.mem.eql(u8, entry.name[0..entry.name_len], name)) {
+            if (entry.name_len == name.len and sig_mem.eql(u8, entry.name[0..entry.name_len], name)) {
                 return error.CapacityExceeded;
             }
         }
@@ -171,7 +172,7 @@ pub const Step_Registry = struct {
     /// Find a step by name via linear scan. Returns the handle or null.
     pub fn findByName(self: *const Step_Registry, name: []const u8) ?Step_Handle {
         for (self.entries[0..self.count], 0..) |entry, i| {
-            if (entry.name_len == name.len and std.mem.eql(u8, entry.name[0..entry.name_len], name)) {
+            if (entry.name_len == name.len and sig_mem.eql(u8, entry.name[0..entry.name_len], name)) {
                 return @intCast(i);
             }
         }
@@ -213,7 +214,7 @@ pub const Module_Registry = struct {
 
         // Duplicate name check via linear scan.
         for (self.entries[0..self.count]) |*entry| {
-            if (entry.name_len == name.len and std.mem.eql(u8, entry.name[0..entry.name_len], name)) {
+            if (entry.name_len == name.len and sig_mem.eql(u8, entry.name[0..entry.name_len], name)) {
                 return error.CapacityExceeded;
             }
         }
@@ -244,7 +245,7 @@ pub const Module_Registry = struct {
         const dependency = if (self.findByName(name)) |existing| validate: {
             const existing_entry = &self.entries[existing];
             if (existing_entry.source_path_len != path.len or
-                !std.mem.eql(u8, existing_entry.source_path[0..existing_entry.source_path_len], path))
+                !sig_mem.eql(u8, existing_entry.source_path[0..existing_entry.source_path_len], path))
             {
                 return error.CapacityExceeded;
             }
@@ -263,7 +264,7 @@ pub const Module_Registry = struct {
     /// Find a module by name via linear scan. Returns the handle or null.
     pub fn findByName(self: *const Module_Registry, name: []const u8) ?Module_Handle {
         for (self.entries[0..self.count], 0..) |entry, i| {
-            if (entry.name_len == name.len and std.mem.eql(u8, entry.name[0..entry.name_len], name)) {
+            if (entry.name_len == name.len and sig_mem.eql(u8, entry.name[0..entry.name_len], name)) {
                 return @intCast(i);
             }
         }
@@ -287,7 +288,7 @@ pub const Option_Map = containers.BoundedStringMap(NAME_BUF_SIZE, VALUE_BUF_SIZE
 /// If no "=" is found, stores value as "true" (boolean shorthand).
 pub fn parseOption(map: *Option_Map, arg: []const u8) SigError!void {
     const rest = arg[2..];
-    if (std.mem.indexOfScalar(u8, rest, '=')) |eq_pos| {
+    if (sig_mem.indexOfScalar(u8, rest, '=')) |eq_pos| {
         try map.put(rest[0..eq_pos], rest[eq_pos + 1 ..]);
     } else {
         try map.put(rest, "true");
@@ -303,11 +304,11 @@ pub fn getOption(comptime T: type, map: *const Option_Map, name: []const u8) ?T 
     const value = map.getValue(name) orelse return null;
     return switch (@typeInfo(T)) {
         .bool => {
-            if (std.mem.eql(u8, value, "true")) return true;
-            if (std.mem.eql(u8, value, "false")) return false;
+            if (sig_mem.eql(u8, value, "true")) return true;
+            if (sig_mem.eql(u8, value, "false")) return false;
             return null;
         },
-        .int => std.fmt.parseInt(T, value, 10) catch return null,
+        .int => sig_fmt.parseInt(T, value, 10) catch return null,
         .pointer => |ptr| {
             if (ptr.size == .slice and ptr.child == u8 and ptr.attrs.@"const") {
                 return value;
@@ -316,7 +317,7 @@ pub fn getOption(comptime T: type, map: *const Option_Map, name: []const u8) ?T 
         },
         .@"enum" => {
             inline for (@typeInfo(T).@"enum".field_names) |field_name| {
-                if (std.mem.eql(u8, value, field_name)) {
+                if (sig_mem.eql(u8, value, field_name)) {
                     return @field(T, field_name);
                 }
             }
@@ -329,7 +330,7 @@ pub fn getOption(comptime T: type, map: *const Option_Map, name: []const u8) ?T 
 // ── Path operations ──────────────────────────────────────────────────────
 
 /// Platform-native path separator: '/' on POSIX, '\\' on Windows.
-const path_sep = std.fs.path.sep;
+const path_sep: u8 = if (builtin.os.tag == .windows) '\\' else '/';
 
 /// Join path segments into a caller-provided buffer using the platform-native separator.
 /// Delegates to `sig.fs.joinPath`.
@@ -352,9 +353,9 @@ fn normalizePath(out: *[PATH_BUF_SIZE]u8, path: []const u8) SigError![]const u8 
     while (i <= path.len) {
         if (i == path.len or path[i] == path_sep) {
             const seg = path[start..i];
-            if (seg.len == 0 or std.mem.eql(u8, seg, ".")) {
+            if (seg.len == 0 or sig_mem.eql(u8, seg, ".")) {
                 // Skip empty segments and "."
-            } else if (std.mem.eql(u8, seg, "..")) {
+            } else if (sig_mem.eql(u8, seg, "..")) {
                 if (segments.len == 0) {
                     if (is_absolute) return error.DepthExceeded;
                     // For relative paths, keep the ".." — but in our use case
@@ -449,7 +450,7 @@ pub fn pathRelative(buf: *[PATH_BUF_SIZE]u8, base: []const u8, target: []const u
     const target_sl = target_segs.slice();
     var common: usize = 0;
     while (common < base_sl.len and common < target_sl.len) {
-        if (!std.mem.eql(u8, base_sl[common], target_sl[common])) break;
+        if (!sig_mem.eql(u8, base_sl[common], target_sl[common])) break;
         common += 1;
     }
 
@@ -527,7 +528,7 @@ pub fn pathStem(buf: *[NAME_BUF_SIZE]u8, path: []const u8) SigError![]const u8 {
 /// Returns a slice into `buf` containing e.g. "sig.exe" or "sig".
 fn resolveOutputBinName(buf: *[NAME_BUF_SIZE]u8, base_name: []const u8, target: ?*const Target_Triple) []const u8 {
     const is_windows = if (target) |t|
-        (t.os_len >= 7 and std.mem.eql(u8, t.os[0..7], "windows"))
+        (t.os_len >= 7 and sig_mem.eql(u8, t.os[0..7], "windows"))
     else
         (builtin.os.tag == .windows);
 
@@ -586,9 +587,9 @@ pub const Target_Triple = struct {
     /// Parse from "arch-os-abi" string.
     /// Parse from "arch-os" or "arch-os-abi" string.
     pub fn parse(s: []const u8) SigError!Target_Triple {
-        const first_dash = std.mem.indexOfScalar(u8, s, '-') orelse return error.BufferTooSmall;
+        const first_dash = sig_mem.indexOfScalar(u8, s, '-') orelse return error.BufferTooSmall;
         const rest = s[first_dash + 1 ..];
-        const second_dash = std.mem.indexOfScalar(u8, rest, '-');
+        const second_dash = sig_mem.indexOfScalar(u8, rest, '-');
 
         const arch = s[0..first_dash];
         const os = if (second_dash) |sd| rest[0..sd] else rest;
@@ -860,13 +861,13 @@ pub const Content_Hash = [16]u8;
 /// Streams file contents in 8KB chunks, normalizing CR+LF to LF before
 /// hashing for cross-platform consistency. Uses two XxHash64 instances
 /// with different seeds to produce 128 bits of output.
-pub fn computeContentHash(io_ctx: std.Io, paths: []const []const u8) Content_Hash {
-    var h0 = std.hash.XxHash64.init(0);
-    var h1 = std.hash.XxHash64.init(0x9e3779b97f4a7c15);
+pub fn computeContentHash(io_ctx: sig_io.Io, paths: []const []const u8) Content_Hash {
+    var h0 = sig.hash.XxHash64.init(0);
+    var h1 = sig.hash.XxHash64.init(0x9e3779b97f4a7c15);
     var chunk: [HASH_CHUNK_SIZE]u8 = undefined;
 
     for (paths) |p| {
-        const cwd: std.Io.Dir = .cwd();
+        const cwd: sig_io.Dir = .cwd();
         var file = cwd.openFile(io_ctx, p, .{}) catch continue;
         defer file.close(io_ctx);
         var reader = file.reader(io_ctx, &.{});
@@ -897,8 +898,8 @@ pub fn computeContentHash(io_ctx: std.Io, paths: []const []const u8) Content_Has
     const lo = h0.final();
     const hi = h1.final();
     var result: Content_Hash = undefined;
-    std.mem.writeInt(u64, result[0..8], lo, .little);
-    std.mem.writeInt(u64, result[8..16], hi, .little);
+    sig_mem.writeInt(u64, result[0..8], lo, .little);
+    sig_mem.writeInt(u64, result[8..16], hi, .little);
     return result;
 }
 
@@ -922,7 +923,7 @@ pub const Cache_Map = struct {
     pub fn lookup(self: *const Cache_Map, step_name: []const u8) ?Content_Hash {
         for (self.entries[0..MAX_CACHE_ENTRIES]) |*entry| {
             if (entry.valid and entry.step_name_len == step_name.len and
-                std.mem.eql(u8, entry.step_name[0..entry.step_name_len], step_name))
+                sig_mem.eql(u8, entry.step_name[0..entry.step_name_len], step_name))
             {
                 return entry.hash;
             }
@@ -939,7 +940,7 @@ pub const Cache_Map = struct {
         // Check for existing entry with same name → update in place.
         for (self.entries[0..MAX_CACHE_ENTRIES]) |*entry| {
             if (entry.valid and entry.step_name_len == step_name.len and
-                std.mem.eql(u8, entry.step_name[0..entry.step_name_len], step_name))
+                sig_mem.eql(u8, entry.step_name[0..entry.step_name_len], step_name))
             {
                 entry.hash = hash;
                 entry.timestamp = timestamp;
@@ -977,7 +978,7 @@ pub const Cache_Map = struct {
         while (self.count > target_count) {
             // Find the valid entry with the smallest timestamp.
             var oldest_idx: ?usize = null;
-            var oldest_ts: i64 = std.math.maxInt(i64);
+            var oldest_ts: i64 = 0x7FFFFFFFFFFFFFFF;
             for (self.entries[0..MAX_CACHE_ENTRIES], 0..) |*entry, idx| {
                 if (entry.valid and entry.timestamp < oldest_ts) {
                     oldest_ts = entry.timestamp;
@@ -1002,16 +1003,16 @@ pub const Cache_Map = struct {
     /// Persist the cache map to a binary file.
     /// Format: "SIGC" magic (4B) + version u32 LE (4B) + count u32 LE (4B)
     ///         + N × 96-byte records (hash 16B + name 64B + timestamp i64 LE 8B + reserved 8B).
-    pub fn save(self: *const Cache_Map, io_ctx: std.Io, path: []const u8) SigError!void {
-        const cwd: std.Io.Dir = .cwd();
+    pub fn save(self: *const Cache_Map, io_ctx: sig_io.Io, path: []const u8) SigError!void {
+        const cwd: sig_io.Dir = .cwd();
         var file = cwd.createFile(io_ctx, path, .{}) catch return error.BufferTooSmall;
         defer file.close(io_ctx);
 
         // Write header: magic + version + entry count.
         var header: [HEADER_SIZE]u8 = undefined;
         @memcpy(header[0..4], &CACHE_MAGIC);
-        std.mem.writeInt(u32, header[4..8], CACHE_VERSION, .little);
-        std.mem.writeInt(u32, header[8..12], @intCast(self.count), .little);
+        sig_mem.writeInt(u32, header[4..8], CACHE_VERSION, .little);
+        sig_mem.writeInt(u32, header[8..12], @intCast(self.count), .little);
         file.writeStreamingAll(io_ctx, &header) catch return error.BufferTooSmall;
 
         // Write each valid entry as a 96-byte record.
@@ -1023,7 +1024,7 @@ pub const Cache_Map = struct {
             // Bytes 16-79: step_name (64 bytes, zero-padded)
             @memcpy(record[16..80], &entry.step_name);
             // Bytes 80-87: timestamp (i64 little-endian)
-            std.mem.writeInt(i64, record[80..88], entry.timestamp, .little);
+            sig_mem.writeInt(i64, record[80..88], entry.timestamp, .little);
             // Bytes 88-95: reserved (already zeroed)
             file.writeStreamingAll(io_ctx, &record) catch return error.BufferTooSmall;
         }
@@ -1033,14 +1034,14 @@ pub const Cache_Map = struct {
     /// or has an unrecognized version, the cache starts empty (no error).
     /// If the file has more entries than MAX_CACHE_ENTRIES, only the most
     /// recent entries (by timestamp) are kept.
-    pub fn load(self: *Cache_Map, io_ctx: std.Io, path: []const u8) void {
+    pub fn load(self: *Cache_Map, io_ctx: sig_io.Io, path: []const u8) void {
         // Reset to empty state.
         self.count = 0;
         for (&self.entries) |*entry| {
             entry.valid = false;
         }
 
-        const cwd: std.Io.Dir = .cwd();
+        const cwd: sig_io.Dir = .cwd();
         var file = cwd.openFile(io_ctx, path, .{}) catch return; // Missing file → empty cache.
         defer file.close(io_ctx);
         var reader = file.reader(io_ctx, &.{});
@@ -1055,13 +1056,13 @@ pub const Cache_Map = struct {
         }
 
         // Verify magic.
-        if (!std.mem.eql(u8, header[0..4], &CACHE_MAGIC)) return;
+        if (!sig_mem.eql(u8, header[0..4], &CACHE_MAGIC)) return;
 
         // Verify version.
-        const version = std.mem.readInt(u32, header[4..8], .little);
+        const version = sig_mem.readInt(u32, header[4..8], .little);
         if (version != CACHE_VERSION) return;
 
-        const file_count = std.mem.readInt(u32, header[8..12], .little);
+        const file_count = sig_mem.readInt(u32, header[8..12], .little);
         if (file_count == 0) return;
 
         // Read entries. If file has more than capacity, we load all into a
@@ -1091,7 +1092,7 @@ pub const Cache_Map = struct {
             } else {
                 entry.step_name_len = NAME_BUF_SIZE;
             }
-            entry.timestamp = std.mem.readInt(i64, record[80..88], .little);
+            entry.timestamp = sig_mem.readInt(i64, record[80..88], .little);
             entry.valid = true;
             loaded += 1;
         }
@@ -1128,7 +1129,7 @@ pub fn runCommand(
     cmd: *const Command_Buffer,
     stderr_buf: *[STDERR_CAPTURE_SIZE]u8,
     stderr_len: *usize,
-    io_ctx: std.Io,
+    io_ctx: sig_io.Io,
 ) SigError!u8 {
     return sig_process.runCommand(io_ctx, cmd, stderr_buf, stderr_len, .{});
 }
@@ -1140,14 +1141,14 @@ pub fn runCommand(
 fn isolatedStepCacheDir(
     build_ctx: *const Build_Context,
     step_handle: Step_Handle,
-    io: std.Io,
+    io: sig_io.Io,
     path_buf: *[PATH_BUF_SIZE]u8,
     id_buf: *[32]u8,
 ) SigError![]const u8 {
     const base = build_ctx.cache_dir[0..build_ctx.cache_dir_len];
-    const step_id = std.fmt.bufPrint(id_buf, "step-{d}", .{step_handle}) catch return error.BufferTooSmall;
+    const step_id = sig_fmt.bufPrint(id_buf, "step-{d}", .{step_handle}) catch return error.BufferTooSmall;
     const path = sig_fs.joinPath(path_buf, &.{ base, "steps", step_id }) catch return error.BufferTooSmall;
-    std.Io.Dir.cwd().createDirPath(io, path) catch return error.BufferTooSmall;
+    sig_io.Dir.cwd().createDirPath(io, path) catch return error.BufferTooSmall;
     return path;
 }
 
@@ -1178,7 +1179,7 @@ pub fn resolveVersionString(
     buf: *[VERSION_BUF_SIZE]u8,
     base_version: []const u8,
     is_dev: bool,
-    io: std.Io,
+    io: sig_io.Io,
 ) []const u8 {
     // Release builds: no dev suffix, just return base version as-is.
     if (!is_dev) {
@@ -1229,7 +1230,7 @@ pub fn resolveVersionString(
 
 /// Run `git rev-list --count HEAD` and return the trimmed output, or null on failure.
 /// Uses a stack-allocated Command_Buffer and a static capture buffer.
-fn getGitCommitCount(io: std.Io) ?[]const u8 {
+fn getGitCommitCount(io: sig_io.Io) ?[]const u8 {
     const S = struct {
         var stdout_buf: [GIT_OUTPUT_BUF_SIZE]u8 = undefined;
     };
@@ -1245,7 +1246,7 @@ fn getGitCommitCount(io: std.Io) ?[]const u8 {
 
 /// Run `git rev-parse --short=9 HEAD` and return the trimmed output, or null on failure.
 /// Uses a stack-allocated Command_Buffer and a static capture buffer.
-fn getGitCommitHash(io: std.Io) ?[]const u8 {
+fn getGitCommitHash(io: sig_io.Io) ?[]const u8 {
     const S = struct {
         var stdout_buf: [GIT_OUTPUT_BUF_SIZE]u8 = undefined;
     };
@@ -1264,7 +1265,7 @@ fn getGitCommitHash(io: std.Io) ?[]const u8 {
 ///
 /// Uses sig_process.spawn directly (not runCommand) because we need stdout
 /// capture, not stderr capture.
-fn runGitCommand(cmd: *const Command_Buffer, stdout_buf: *[GIT_OUTPUT_BUF_SIZE]u8, io: std.Io) ?[]const u8 {
+fn runGitCommand(cmd: *const Command_Buffer, stdout_buf: *[GIT_OUTPUT_BUF_SIZE]u8, io: sig_io.Io) ?[]const u8 {
     var child = sig_process.spawn(io, cmd, .{
         .stdout = .pipe,
         .stderr = .ignore,
@@ -1295,7 +1296,7 @@ fn runGitCommand(cmd: *const Command_Buffer, stdout_buf: *[GIT_OUTPUT_BUF_SIZE]u
 
     // Trim trailing whitespace/newlines.
     const output = stdout_buf[0..stdout_len];
-    const trimmed = std.mem.trimEnd(u8, output, &[_]u8{ '\n', '\r', ' ', '\t' });
+    const trimmed = sig_mem.trimEnd(u8, output, &[_]u8{ '\n', '\r', ' ', '\t' });
     if (trimmed.len == 0) return null;
 
     return trimmed;
@@ -1314,7 +1315,7 @@ pub fn generateBuildOptions(
     build_ctx: *const Build_Context,
     version: []const u8,
     cache_dir: []const u8,
-    io: std.Io,
+    io: sig_io.Io,
 ) SigError!void {
     // 1. Build output path: <cache_dir>/build_options.sig
     var path_buf: [PATH_BUF_SIZE]u8 = undefined;
@@ -1350,7 +1351,7 @@ pub fn generateBuildOptions(
     const is_strip = optBool(&build_ctx.options, "strip", false);
     const mem_leak_frames: u32 = blk: {
         if (build_ctx.options.getValue("mem-leak-frames")) |v| {
-            break :blk std.fmt.parseInt(u32, v, 10) catch 0;
+            break :blk sig_fmt.parseInt(u32, v, 10) catch 0;
         }
         if (is_strip) break :blk 0;
         if (!is_debug) break :blk 0;
@@ -1372,7 +1373,7 @@ pub fn generateBuildOptions(
 
     // 5. Format all declarations into the stack buffer
     var buf: [BUILD_OPTIONS_BUF_SIZE]u8 = undefined;
-    const content = std.fmt.bufPrint(&buf,
+    const content = sig_fmt.bufPrint(&buf,
         \\pub const mem_leak_frames: u32 = {d};
         \\pub const skip_non_native: bool = {s};
         \\pub const have_llvm: bool = {s};
@@ -1466,15 +1467,15 @@ fn boolStr(val: bool) []const u8 {
 /// Read a boolean option from the map, returning `default` if absent.
 fn optBool(map: *const Option_Map, name: []const u8, default: bool) bool {
     const value = map.getValue(name) orelse return default;
-    if (std.mem.eql(u8, value, "true")) return true;
-    if (std.mem.eql(u8, value, "false")) return false;
+    if (sig_mem.eql(u8, value, "true")) return true;
+    if (sig_mem.eql(u8, value, "false")) return false;
     return default;
 }
 
 /// Read a u32 option from the map, returning `default` if absent or unparseable.
 fn optU32(map: *const Option_Map, name: []const u8, default: u32) u32 {
     const value = map.getValue(name) orelse return default;
-    return std.fmt.parseInt(u32, value, 10) catch default;
+    return sig_fmt.parseInt(u32, value, 10) catch default;
 }
 
 /// Parse a semver version string into its components.
@@ -1491,20 +1492,20 @@ fn parseSemver(
     var core_part = version;
     var extra_part: []const u8 = "";
 
-    if (std.mem.indexOfScalar(u8, version, '-')) |dash_pos| {
+    if (sig_mem.indexOfScalar(u8, version, '-')) |dash_pos| {
         core_part = version[0..dash_pos];
         extra_part = version[dash_pos + 1 ..];
     }
 
     // Parse M.N.P from core_part
-    var dot_iter = std.mem.splitScalar(u8, core_part, '.');
+    var dot_iter = sig_mem.splitScalar(u8, core_part, '.');
     major.* = dot_iter.next() orelse "0";
     minor.* = dot_iter.next() orelse "0";
     patch.* = dot_iter.next() orelse "0";
 
     // Parse pre and build from extra_part
     if (extra_part.len > 0) {
-        if (std.mem.indexOfScalar(u8, extra_part, '+')) |plus_pos| {
+        if (sig_mem.indexOfScalar(u8, extra_part, '+')) |plus_pos| {
             pre.* = extra_part[0..plus_pos];
             build_meta.* = extra_part[plus_pos + 1 ..];
         } else {
@@ -1524,7 +1525,7 @@ fn parseSemver(
 /// Returns true if the file should be EXCLUDED (skipped).
 pub fn shouldExcludeFile(filename: []const u8) bool {
     // Check exact filename matches first.
-    if (std.mem.eql(u8, filename, "README.md")) return true;
+    if (sig_mem.eql(u8, filename, "README.md")) return true;
 
     // Check suffix-based exclusion rules.
     const excluded_suffixes = [_][]const u8{
@@ -1542,7 +1543,7 @@ pub fn shouldExcludeFile(filename: []const u8) bool {
 
     for (excluded_suffixes) |suffix| {
         if (filename.len >= suffix.len and
-            std.mem.eql(u8, filename[filename.len - suffix.len ..], suffix))
+            sig_mem.eql(u8, filename[filename.len - suffix.len ..], suffix))
         {
             return true;
         }
@@ -1555,7 +1556,7 @@ pub fn shouldExcludeFile(filename: []const u8) bool {
 /// exclusion rules. Both paths are provided as slices. Uses `sig.fs` for
 /// directory listing and file copying. Returns the number of files installed.
 pub fn installFiles(
-    io_ctx: std.Io,
+    io_ctx: sig_io.Io,
     src_dir_path: []const u8,
     dst_dir_path: []const u8,
 ) SigError!usize {
@@ -1564,7 +1565,7 @@ pub fn installFiles(
     const entries = sig_fs.listDir(io_ctx, src_dir_path, &entries_buf) catch return error.BufferTooSmall;
 
     // Ensure destination directory exists.
-    const cwd: std.Io.Dir = .cwd();
+    const cwd: sig_io.Dir = .cwd();
     cwd.createDirPath(io_ctx, dst_dir_path) catch {};
 
     var installed: usize = 0;
@@ -1608,17 +1609,17 @@ pub const Work_Item = struct {
 /// Bounded thread pool for parallel step execution.
 /// Workers pull from a shared BoundedDeque work queue. Each worker buffers
 /// its step's output in a 64KB stack buffer and flushes atomically on
-/// completion. All synchronization uses std.Io.Mutex and std.Io.Condition.
+/// completion. All synchronization uses sig_io.Mutex and sig_io.Condition.
 pub const Thread_Pool = struct {
-    threads: [MAX_THREADS]std.Thread = undefined,
+    threads: [MAX_THREADS]sig_io.Thread = undefined,
     thread_count: usize = 0,
     work_queue: containers.BoundedDeque(Work_Item, MAX_WORK_QUEUE) = .{},
-    mutex: std.Io.Mutex = std.Io.Mutex.init,
-    cond: std.Io.Condition = std.Io.Condition.init,
-    done_cond: std.Io.Condition = std.Io.Condition.init,
+    mutex: sig_io.Mutex = sig_io.Mutex.init,
+    cond: sig_io.Condition = sig_io.Condition.init,
+    done_cond: sig_io.Condition = sig_io.Condition.init,
     shutdown: bool = false,
     active_count: usize = 0,
-    io: std.Io = undefined,
+    io: sig_io.Io = undefined,
     /// Pointer to the Build_Context — set once before scheduling starts.
     /// Workers read this (read-only) when constructing Step_Context.
     build_ctx: ?*Build_Context = null,
@@ -1643,7 +1644,7 @@ pub const Thread_Pool = struct {
 
     /// Initialize the pool and spawn `num_threads` worker threads.
     /// `num_threads` is clamped to [1, MAX_THREADS].
-    pub fn init(self: *Thread_Pool, num_threads: usize, io: std.Io) void {
+    pub fn init(self: *Thread_Pool, num_threads: usize, io: sig_io.Io) void {
         self.io = io;
         self.shutdown = false;
         self.active_count = 0;
@@ -1654,7 +1655,7 @@ pub const Thread_Pool = struct {
         self.thread_count = count;
 
         for (0..count) |i| {
-            self.threads[i] = std.Thread.spawn(.{}, workerLoop, .{self}) catch {
+            self.threads[i] = sig_io.Thread.spawn(.{}, workerLoop, .{self}) catch {
                 // If we can't spawn a thread, reduce the count and continue
                 // with however many we managed to create.
                 self.thread_count = i;
@@ -1836,7 +1837,7 @@ pub fn runScheduler(
     graph: *const Dependency_Graph,
     cache: *Cache_Map,
     pool: *Thread_Pool,
-    io: std.Io,
+    io: sig_io.Io,
     verbose: bool,
     keep_going: bool,
 ) Schedule_Summary {
@@ -1954,7 +1955,7 @@ fn processCompletions(
     done_bits: *containers.BoundedBitSet(MAX_STEPS),
     dispatched_bits: *containers.BoundedBitSet(MAX_STEPS),
     summary: *Schedule_Summary,
-    io: std.Io,
+    io: sig_io.Io,
     verbose: bool,
 ) void {
     var results: [MAX_WORK_QUEUE]Thread_Pool.Completion_Result = undefined;
@@ -1982,7 +1983,7 @@ fn processCompletions(
             if (results[i].output_len > 0) {
                 // Write the step's buffered output to stdout in one shot.
                 const output = results[i].output_buf[0..results[i].output_len];
-                const stdout = std.Io.File.stdout();
+                const stdout = sig_io.File.stdout();
                 stdout.writeStreamingAll(io, output) catch {};
             }
         } else {
@@ -2141,7 +2142,7 @@ pub const Llvm_Link_Options = struct {
 fn tryCppCandidate(
     candidate: []const u8,
     version_arg: []const u8,
-    io: std.Io,
+    io: sig_io.Io,
 ) bool {
     var cmd = Command_Buffer{};
     cmd.appendArg(candidate) catch return false;
@@ -2287,10 +2288,10 @@ fn inferCompilerKind(path: []const u8) Cpp_Compiler_Kind {
     }
     const basename = path[basename_start..];
 
-    if (basename.len >= 6 and std.mem.eql(u8, basename[0..6], "cl.exe")) return .cl_exe;
-    if (basename.len >= 2 and std.mem.eql(u8, basename[0..2], "cl") and
+    if (basename.len >= 6 and sig_mem.eql(u8, basename[0..6], "cl.exe")) return .cl_exe;
+    if (basename.len >= 2 and sig_mem.eql(u8, basename[0..2], "cl") and
         (basename.len == 2 or basename[2] == '.' or basename[2] == ' ')) return .cl_exe;
-    if (std.mem.indexOf(u8, basename, "g++") != null) return .gpp;
+    if (sig_mem.indexOf(u8, basename, "g++") != null) return .gpp;
     // Default to clangpp for clang++, c++, or anything else.
     return .clangpp;
 }
@@ -2300,7 +2301,7 @@ fn storeCompiler(
     build_ctx: *Build_Context,
     name: []const u8,
     kind: Cpp_Compiler_Kind,
-    io: std.Io,
+    io: sig_io.Io,
 ) SigError!void {
     if (name.len > PATH_BUF_SIZE) return error.BufferTooSmall;
     @memcpy(build_ctx.llvm_config.cpp_compiler[0..name.len], name);
@@ -2381,7 +2382,7 @@ const llvm_config_candidates = [_][]const u8{
 /// Run an llvm-config command with stdout piped and capture the output.
 /// Returns the trimmed stdout content, or null on failure.
 /// Uses LLVM_OUTPUT_BUF_SIZE for the capture buffer.
-fn runLlvmConfigCommand(cmd: *const Command_Buffer, stdout_buf: *[LLVM_OUTPUT_BUF_SIZE]u8, io: std.Io) ?[]const u8 {
+fn runLlvmConfigCommand(cmd: *const Command_Buffer, stdout_buf: *[LLVM_OUTPUT_BUF_SIZE]u8, io: sig_io.Io) ?[]const u8 {
     var child = sig_process.spawn(io, cmd, .{
         .stdout = .pipe,
         .stderr = .ignore,
@@ -2412,7 +2413,7 @@ fn runLlvmConfigCommand(cmd: *const Command_Buffer, stdout_buf: *[LLVM_OUTPUT_BU
 
     // Trim trailing whitespace/newlines.
     const output = stdout_buf[0..stdout_len];
-    const trimmed = std.mem.trimEnd(u8, output, &[_]u8{ '\n', '\r', ' ', '\t' });
+    const trimmed = sig_mem.trimEnd(u8, output, &[_]u8{ '\n', '\r', ' ', '\t' });
     if (trimmed.len == 0) return null;
 
     return trimmed;
@@ -2424,16 +2425,16 @@ fn runLlvmConfigCommand(cmd: *const Command_Buffer, stdout_buf: *[LLVM_OUTPUT_BU
 fn validateLlvmVersion(version_str: []const u8) bool {
     // Expected format: "22.x.y" or "22.x.y-suffix"
     // We need the major version to be exactly 22.
-    const dot_pos = std.mem.indexOfScalar(u8, version_str, '.') orelse return false;
+    const dot_pos = sig_mem.indexOfScalar(u8, version_str, '.') orelse return false;
     if (dot_pos == 0) return false;
     const major_str = version_str[0..dot_pos];
-    const major = std.fmt.parseInt(u32, major_str, 10) catch return false;
+    const major = sig_fmt.parseInt(u32, major_str, 10) catch return false;
     return major == 22;
 }
 
 /// Try a single llvm-config candidate: run --version, validate 22.x.
 /// Returns true if this candidate is valid.
-fn tryLlvmConfigCandidate(candidate: []const u8, io: std.Io) bool {
+fn tryLlvmConfigCandidate(candidate: []const u8, io: sig_io.Io) bool {
     var cmd = Command_Buffer{};
     cmd.appendArg(candidate) catch return false;
     cmd.appendArg("--version") catch return false;
@@ -2523,8 +2524,8 @@ fn parseSystemLibList(
 }
 
 /// Check if a file exists by attempting to open and immediately close it.
-fn fileExists(io: std.Io, file_path: []const u8) bool {
-    const cwd: std.Io.Dir = .cwd();
+fn fileExists(io: sig_io.Io, file_path: []const u8) bool {
+    const cwd: sig_io.Dir = .cwd();
     var file = cwd.openFile(io, file_path, .{}) catch return false;
     file.close(io);
     return true;
@@ -2573,7 +2574,7 @@ pub fn discoverLlvm(ctx: *Step_Context) SigError!void {
 
     // Read options.
     const static_llvm = build_ctx.options.getValue("static-llvm") != null and
-        std.mem.eql(u8, build_ctx.options.getValue("static-llvm").?, "true");
+        sig_mem.eql(u8, build_ctx.options.getValue("static-llvm").?, "true");
     const search_prefix_opt = build_ctx.options.getValue("search-prefix");
     const llvm_prefix_opt = build_ctx.options.getValue("llvm-prefix");
 
@@ -2699,7 +2700,7 @@ fn discoverViaLlvmConfig(
     build_ctx: *Build_Context,
     llvm_config_exe: []const u8,
     static_llvm: bool,
-    io: std.Io,
+    io: sig_io.Io,
 ) bool {
     var stdout_buf: [LLVM_OUTPUT_BUF_SIZE]u8 = undefined;
 
@@ -2787,7 +2788,7 @@ fn discoverViaLlvmConfig(
 fn discoverViaPrefix(
     build_ctx: *Build_Context,
     prefix: []const u8,
-    io: std.Io,
+    io: sig_io.Io,
 ) bool {
     // Check for LLVM headers: <prefix>/include/llvm/IR/IRBuilder.h
     var header_path_buf: [PATH_BUF_SIZE]u8 = undefined;
@@ -2853,7 +2854,7 @@ fn discoverViaPrefix(
 /// Discover Clang libraries (shared or static).
 /// In shared mode, looks for libclang-cpp.so.22 / clang-cpp.
 /// In static mode, uses the static library list.
-fn discoverClangLibs(build_ctx: *Build_Context, io: std.Io) void {
+fn discoverClangLibs(build_ctx: *Build_Context, io: sig_io.Io) void {
     const lib_dir = build_ctx.llvm_config.llvm_lib_dir[0..build_ctx.llvm_config.llvm_lib_dir_len];
 
     if (build_ctx.llvm_config.link_mode == .shared) {
@@ -2886,7 +2887,7 @@ fn discoverClangLibs(build_ctx: *Build_Context, io: std.Io) void {
 /// Discover LLD libraries (shared or static).
 /// In shared mode, looks for liblld-22.0, lld220, lld.
 /// In static mode, uses the static library list.
-fn discoverLldLibs(build_ctx: *Build_Context, io: std.Io) void {
+fn discoverLldLibs(build_ctx: *Build_Context, io: sig_io.Io) void {
     const lib_dir = build_ctx.llvm_config.llvm_lib_dir[0..build_ctx.llvm_config.llvm_lib_dir_len];
 
     if (build_ctx.llvm_config.link_mode == .shared) {
@@ -2899,10 +2900,10 @@ fn discoverLldLibs(build_ctx: *Build_Context, io: std.Io) void {
                 if (fileExists(io, shared_path)) {
                     // Extract the library name (strip "lib" prefix and ".so" suffix).
                     var lib_name = shared_name;
-                    if (lib_name.len > 3 and std.mem.eql(u8, lib_name[0..3], "lib")) {
+                    if (lib_name.len > 3 and sig_mem.eql(u8, lib_name[0..3], "lib")) {
                         lib_name = lib_name[3..];
                     }
-                    if (lib_name.len > 3 and std.mem.eql(u8, lib_name[lib_name.len - 3 ..], ".so")) {
+                    if (lib_name.len > 3 and sig_mem.eql(u8, lib_name[lib_name.len - 3 ..], ".so")) {
                         lib_name = lib_name[0 .. lib_name.len - 3];
                     }
                     @memcpy(build_ctx.llvm_config.lld_libs[0][0..lib_name.len], lib_name);
@@ -2930,7 +2931,7 @@ fn discoverLldLibs(build_ctx: *Build_Context, io: std.Io) void {
 /// Serialize a compilation context for diagnostics and parity tooling. This is
 /// deliberately not registered as a compile step: the output is a receipt,
 /// not an executable artifact.
-fn writeCompileRequestReceipt(ctx: *compile.Compilation_Context, result: *compile.Compilation_Result, io: std.Io) void {
+fn writeCompileRequestReceipt(ctx: *compile.Compilation_Context, result: *compile.Compilation_Result, io: sig_io.Io) void {
     const cache_dir = if (ctx.cache_dir_len > 0) ctx.cache_dir[0..ctx.cache_dir_len] else ".sig-cache";
     var path_buf: [PATH_BUF_SIZE]u8 = undefined;
     const req_segs = [_][]const u8{ cache_dir, "compile_request.bin" };
@@ -2938,8 +2939,8 @@ fn writeCompileRequestReceipt(ctx: *compile.Compilation_Context, result: *compil
         inProcessFailResult(result, "path error");
         return;
     };
-    const ctx_bytes = std.mem.asBytes(ctx);
-    const cwd: std.Io.Dir = .cwd();
+    const ctx_bytes = sig_mem.asBytes(ctx);
+    const cwd: sig_io.Dir = .cwd();
     cwd.createDirPath(io, cache_dir) catch {};
     var file = cwd.createFile(io, req_path, .{}) catch {
         inProcessFailResult(result, "create file error");
@@ -3024,9 +3025,9 @@ pub fn generateConfig(ctx: *Step_Context) SigError!void {
     const version_override = build_ctx.options.getValue("version-string");
     const version_str = if (version_override) |v| v else blk: {
         const sig_ver = build_ctx.sig_version[0..build_ctx.sig_version_len];
-        const is_dev = std.mem.indexOfScalar(u8, sig_ver, '-') != null;
+        const is_dev = sig_mem.indexOfScalar(u8, sig_ver, '-') != null;
         var base_buf: [64]u8 = undefined;
-        const base_version = std.fmt.bufPrint(&base_buf, "{d}.{d}.{d}", .{
+        const base_version = sig_fmt.bufPrint(&base_buf, "{d}.{d}.{d}", .{
             build_ctx.sig_version_major,
             build_ctx.sig_version_minor,
             build_ctx.sig_version_patch,
@@ -3202,7 +3203,7 @@ pub const Build_Context = struct {
     optimize: Optimize_Mode = .Debug,
     /// I/O context for file system operations (directory listing, file probing).
     /// Set by the build runner before calling build.sig's build function.
-    io_ctx: std.Io = undefined,
+    io_ctx: sig_io.Io = undefined,
     /// Path to the sig compiler binary. Set from Runner_Args.compiler_path
     /// before calling build.sig's build function.
     compiler_path: [PATH_BUF_SIZE]u8 = undefined,
@@ -3553,7 +3554,7 @@ pub const Build_Context = struct {
 
         var bin_dir_buf: [PATH_BUF_SIZE]u8 = undefined;
         const bin_dir = sig_fs.joinPath(&bin_dir_buf, &.{ build_ctx.install_prefix[0..build_ctx.install_prefix_len], "bin" }) catch return error.BufferTooSmall;
-        std.Io.Dir.cwd().createDirPath(io, bin_dir) catch return error.BufferTooSmall;
+        sig_io.Dir.cwd().createDirPath(io, bin_dir) catch return error.BufferTooSmall;
         var bin_name_buf: [NAME_BUF_SIZE]u8 = undefined;
         const bin_name = resolveOutputBinName(&bin_name_buf, entry.name[0..entry.name_len], if (build_ctx.target.arch_len > 0) &build_ctx.target else null);
         var output_buf: [PATH_BUF_SIZE]u8 = undefined;
@@ -3576,17 +3577,17 @@ pub const Build_Context = struct {
 
         // A successful executable step must produce an executable container,
         // never an opaque request/receipt blob.
-        var file = std.Io.Dir.cwd().openFile(io, output, .{}) catch return error.BufferTooSmall;
+        var file = sig_io.Dir.cwd().openFile(io, output, .{}) catch return error.BufferTooSmall;
         defer file.close(io);
         var header: [4]u8 = undefined;
         var reader = file.readerStreaming(io, &.{});
         const header_len = reader.interface.readSliceShort(&header) catch return error.BufferTooSmall;
-        const valid_magic = header_len == header.len and (std.mem.eql(u8, &header, "\x7fELF") or
+        const valid_magic = header_len == header.len and (sig_mem.eql(u8, &header, "\x7fELF") or
             (header[0] == 'M' and header[1] == 'Z') or
-            std.mem.eql(u8, &header, "\xcf\xfa\xed\xfe") or
-            std.mem.eql(u8, &header, "\xfe\xed\xfa\xcf") or
-            std.mem.eql(u8, &header, "\xca\xfe\xba\xbe") or
-            std.mem.eql(u8, &header, "\x00asm"));
+            sig_mem.eql(u8, &header, "\xcf\xfa\xed\xfe") or
+            sig_mem.eql(u8, &header, "\xfe\xed\xfa\xcf") or
+            sig_mem.eql(u8, &header, "\xca\xfe\xba\xbe") or
+            sig_mem.eql(u8, &header, "\x00asm"));
         if (!valid_magic) {
             printMsg(io, "compile step '{s}' produced a non-executable artifact", .{entry.name[0..entry.name_len]});
             return error.BufferTooSmall;
@@ -3877,27 +3878,27 @@ pub const Build_Context = struct {
 
     /// Map a string architecture name to the compile module's Arch enum.
     fn mapArch(arch_str: []const u8) compile.Target_Triple.Arch {
-        if (std.mem.eql(u8, arch_str, "x86_64")) return .x86_64;
-        if (std.mem.eql(u8, arch_str, "aarch64")) return .aarch64;
-        if (std.mem.eql(u8, arch_str, "arm")) return .arm;
+        if (sig_mem.eql(u8, arch_str, "x86_64")) return .x86_64;
+        if (sig_mem.eql(u8, arch_str, "aarch64")) return .aarch64;
+        if (sig_mem.eql(u8, arch_str, "arm")) return .arm;
         return .native;
     }
 
     /// Map a string OS name to the compile module's Os enum.
     fn mapOs(os_str: []const u8) compile.Target_Triple.Os {
-        if (std.mem.eql(u8, os_str, "linux")) return .linux;
-        if (std.mem.eql(u8, os_str, "windows")) return .windows;
-        if (std.mem.eql(u8, os_str, "macos")) return .macos;
-        if (std.mem.eql(u8, os_str, "darwin")) return .macos;
+        if (sig_mem.eql(u8, os_str, "linux")) return .linux;
+        if (sig_mem.eql(u8, os_str, "windows")) return .windows;
+        if (sig_mem.eql(u8, os_str, "macos")) return .macos;
+        if (sig_mem.eql(u8, os_str, "darwin")) return .macos;
         return .native;
     }
 
     /// Map a string ABI name to the compile module's Abi enum.
     fn mapAbi(abi_str: []const u8) compile.Target_Triple.Abi {
-        if (std.mem.eql(u8, abi_str, "musl")) return .musl;
-        if (std.mem.eql(u8, abi_str, "gnu")) return .gnu;
-        if (std.mem.eql(u8, abi_str, "msvc")) return .msvc;
-        if (std.mem.eql(u8, abi_str, "none")) return .none;
+        if (sig_mem.eql(u8, abi_str, "musl")) return .musl;
+        if (sig_mem.eql(u8, abi_str, "gnu")) return .gnu;
+        if (sig_mem.eql(u8, abi_str, "msvc")) return .msvc;
+        if (sig_mem.eql(u8, abi_str, "none")) return .none;
         return .native;
     }
 
@@ -4027,7 +4028,7 @@ pub const Build_Context = struct {
         const name = entry.name[0..entry.name_len];
         const install_prefix_str = "install-";
         const dest_suffix = if (name.len > install_prefix_str.len and
-            std.mem.eql(u8, name[0..install_prefix_str.len], install_prefix_str))
+            sig_mem.eql(u8, name[0..install_prefix_str.len], install_prefix_str))
             name[install_prefix_str.len..]
         else
             name;
@@ -4060,7 +4061,7 @@ fn formatHash(buf: *[32]u8, hash: Content_Hash) []const u8 {
 /// Returns the formatted slice, e.g. "123" or "1456".
 fn formatMs(buf: *[32]u8, ns: u64) []const u8 {
     const ms = ns / 1_000_000;
-    return std.fmt.bufPrint(buf, "{d}", .{ms}) catch "?";
+    return sig_fmt.bufPrint(buf, "{d}", .{ms}) catch "?";
 }
 
 /// Format a percentage (0–100) with one decimal place into a caller buffer.
@@ -4071,14 +4072,14 @@ fn formatPct(buf: *[32]u8, numerator: usize, denominator: usize) []const u8 {
     const pct_x10 = (numerator * 1000) / denominator;
     const whole = pct_x10 / 10;
     const frac = pct_x10 % 10;
-    return std.fmt.bufPrint(buf, "{d}.{d}%", .{ whole, frac }) catch "?";
+    return sig_fmt.bufPrint(buf, "{d}.{d}%", .{ whole, frac }) catch "?";
 }
 
 /// Run --benchmark mode: measure sig build performance.
 /// Prints a sig-only timing report: wall-clock time, cache hit rate,
 /// and absolute performance targets.
 pub fn runBenchmark(
-    io: std.Io,
+    io: sig_io.Io,
     sig_elapsed_ns: u64,
     summary: *const Schedule_Summary,
 ) void {
@@ -4149,7 +4150,7 @@ pub fn runBenchmark(
 ///
 /// Returns true if the rebuilt binary is byte-identical to the original.
 pub fn verifySelfHosting(
-    io: std.Io,
+    io: sig_io.Io,
     original_binary_path: []const u8,
     compiler_path: []const u8,
 ) bool {
@@ -4218,7 +4219,7 @@ pub fn verifySelfHosting(
     printMsg(io, "original hash: {s}", .{orig_hex[0..32]});
     printMsg(io, "rebuilt hash:  {s}", .{rebuilt_hex[0..32]});
 
-    if (std.mem.eql(u8, &original_hash, &rebuilt_hash)) {
+    if (sig_mem.eql(u8, &original_hash, &rebuilt_hash)) {
         printMsg(io, "RESULT: PASS — rebuilt binary is byte-identical", .{});
         return true;
     } else {
@@ -4278,7 +4279,7 @@ test "requested build steps own argument storage" {
     var transient = [_]u8{ 'u', 'p', 'd', 'a', 't', 'e', '-', 'z', 'i', 'g', '1' };
     try requested.push(&transient);
     @memset(&transient, 'x');
-    try std.testing.expectEqualStrings("update-zig1", requested.get(0));
+    if (!sig_mem.eql(u8, "update-zig1", requested.get(0))) return error.TestUnexpectedResult;
 }
 
 pub const Cli_Config = struct {
@@ -4318,7 +4319,7 @@ const DEFAULT_CACHE_FILE = "cache.bin";
 pub fn parseThreadCount(arg: []const u8) ?usize {
     // "-jN" form: digits immediately follow "-j".
     if (arg.len > 2) {
-        return std.fmt.parseInt(usize, arg[2..], 10) catch null;
+        return sig_fmt.parseInt(usize, arg[2..], 10) catch null;
     }
     return null;
 }
@@ -4326,17 +4327,17 @@ pub fn parseThreadCount(arg: []const u8) ?usize {
 /// Parse a `--key=value` long option. Returns the value after `=`, or null
 /// if the argument doesn't contain `=` (value is in the next arg).
 pub fn parseLongOptionValue(arg: []const u8) ?[]const u8 {
-    if (std.mem.indexOfScalar(u8, arg, '=')) |eq_pos| {
+    if (sig_mem.indexOfScalar(u8, arg, '=')) |eq_pos| {
         return arg[eq_pos + 1 ..];
     }
     return null;
 }
 
 /// Write an error message to stderr and exit with code 1.
-pub fn fatal(io: std.Io, comptime fmt: []const u8, args: anytype) noreturn {
-    const stderr = std.Io.File.stderr();
+pub fn fatal(io: sig_io.Io, comptime fmt: []const u8, args: anytype) noreturn {
+    const stderr = sig_io.File.stderr();
     var buf: [4096]u8 = undefined;
-    if (std.fmt.bufPrint(&buf, "error: " ++ fmt ++ "\n", args)) |msg| {
+    if (sig_fmt.bufPrint(&buf, "error: " ++ fmt ++ "\n", args)) |msg| {
         stderr.writeStreamingAll(io, msg) catch {};
     } else |_| {
         stderr.writeStreamingAll(io, "error: fatal\n") catch {};
@@ -4345,18 +4346,18 @@ pub fn fatal(io: std.Io, comptime fmt: []const u8, args: anytype) noreturn {
 }
 
 /// Write an informational message to stdout.
-pub fn printMsg(io: std.Io, comptime fmt: []const u8, args: anytype) void {
-    const stdout = std.Io.File.stdout();
+pub fn printMsg(io: sig_io.Io, comptime fmt: []const u8, args: anytype) void {
+    const stdout = sig_io.File.stdout();
     var buf: [4096]u8 = undefined;
-    const msg = std.fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
+    const msg = sig_fmt.bufPrint(&buf, fmt ++ "\n", args) catch return;
     stdout.writeStreamingAll(io, msg) catch {};
 }
 
 /// Print the schedule summary to stdout, including wall-clock time.
-pub fn printSummary(io: std.Io, summary: *const Schedule_Summary, wall_time_ns: u64) void {
+pub fn printSummary(io: sig_io.Io, summary: *const Schedule_Summary, wall_time_ns: u64) void {
     var buf: [512]u8 = undefined;
     const wall_ms = wall_time_ns / 1_000_000;
-    const msg = std.fmt.bufPrint(&buf, "\nBuild summary: {d} total, {d} succeeded, {d} cached, {d} failed, {d} skipped in {d} ms\n", .{
+    const msg = sig_fmt.bufPrint(&buf, "\nBuild summary: {d} total, {d} succeeded, {d} cached, {d} failed, {d} skipped in {d} ms\n", .{
         summary.total,
         summary.succeeded,
         summary.cached,
@@ -4364,13 +4365,13 @@ pub fn printSummary(io: std.Io, summary: *const Schedule_Summary, wall_time_ns: 
         summary.skipped,
         wall_ms,
     }) catch return;
-    const stdout = std.Io.File.stdout();
+    const stdout = sig_io.File.stdout();
     stdout.writeStreamingAll(io, msg) catch {};
 }
 
 /// Format a capacity error message with registry/buffer name and limits.
 /// Called by build_host.sig and build.sig when catching capacity errors.
-pub fn reportCapacityError(io: std.Io, registry_name: []const u8, current: usize, maximum: usize) void {
+pub fn reportCapacityError(io: sig_io.Io, registry_name: []const u8, current: usize, maximum: usize) void {
     printMsg(io, "CapacityExceeded: {s} ({d}/{d})", .{ registry_name, current, maximum });
 }
 
@@ -4395,7 +4396,7 @@ pub fn reportCapacityError(io: std.Io, registry_name: []const u8, current: usize
 /// Returns the path to the compiled host binary on success.
 /// On failure, prints diagnostics and calls fatal() (does not return).
 fn compileBuildSig(
-    io: std.Io,
+    io: sig_io.Io,
     build_file_path: []const u8,
     runner_args: *const Runner_Args,
     verbose: bool,
@@ -4687,7 +4688,7 @@ pub fn main(init: std.process.Init) !void {
             } else {
                 // -j N form: next arg is the count.
                 if (args_it.next() catch fatal(io, "argv decode error", .{})) |next_arg| {
-                    config.thread_count = std.fmt.parseInt(usize, next_arg, 10) catch {
+                    config.thread_count = sig_fmt.parseInt(usize, next_arg, 10) catch {
                         fatal(io, "invalid thread count: '{s}'", .{next_arg});
                     };
                 } else {
@@ -4696,15 +4697,15 @@ pub fn main(init: std.process.Init) !void {
             }
         } else if (arg.len >= 2 and arg[0] == '-' and arg[1] == '-') {
             // Long options: --benchmark, --verbose, --keep-going, --self-test
-            if (std.mem.eql(u8, arg, "--benchmark")) {
+            if (sig_mem.eql(u8, arg, "--benchmark")) {
                 config.benchmark = true;
-            } else if (std.mem.eql(u8, arg, "--help")) {
+            } else if (sig_mem.eql(u8, arg, "--help")) {
                 config.help = true;
-            } else if (std.mem.eql(u8, arg, "--verbose")) {
+            } else if (sig_mem.eql(u8, arg, "--verbose")) {
                 config.verbose = true;
-            } else if (std.mem.eql(u8, arg, "--keep-going")) {
+            } else if (sig_mem.eql(u8, arg, "--keep-going")) {
                 config.keep_going = true;
-            } else if (std.mem.eql(u8, arg, "--self-test") or std.mem.startsWith(u8, arg, "--self-test=")) {
+            } else if (sig_mem.eql(u8, arg, "--self-test") or sig_mem.startsWith(u8, arg, "--self-test=")) {
                 config.self_test = true;
                 // Optional: --self-test=<compiler-path> to specify the compiler binary.
                 if (parseLongOptionValue(arg)) |value| {
@@ -4712,12 +4713,12 @@ pub fn main(init: std.process.Init) !void {
                     @memcpy(config.self_test_compiler[0..value.len], value);
                     config.self_test_compiler_len = value.len;
                 }
-            } else if (std.mem.eql(u8, arg, "--prefix") or
-                std.mem.eql(u8, arg, "--maxrss") or
-                std.mem.eql(u8, arg, "--summary"))
+            } else if (sig_mem.eql(u8, arg, "--prefix") or
+                sig_mem.eql(u8, arg, "--maxrss") or
+                sig_mem.eql(u8, arg, "--summary"))
             {
                 // Store --prefix for forwarding to build host.
-                if (std.mem.eql(u8, arg, "--prefix")) {
+                if (sig_mem.eql(u8, arg, "--prefix")) {
                     if (args_it.next() catch null) |value| {
                         if (value.len <= PATH_BUF_SIZE) {
                             @memcpy(config.install_prefix[0..value.len], value);
@@ -4729,12 +4730,12 @@ pub fn main(init: std.process.Init) !void {
                     // native runner, which always prints its bounded summary.
                     _ = args_it.next() catch {};
                 }
-            } else if (std.mem.eql(u8, arg, "--search-prefix")) {
+            } else if (sig_mem.eql(u8, arg, "--search-prefix")) {
                 // Store as option for LLVM discovery steps.
                 if (args_it.next() catch null) |value| {
                     config.options.put("search-prefix", value) catch {};
                 }
-            } else if (std.mem.eql(u8, arg, "--Sig-lib-dir")) {
+            } else if (sig_mem.eql(u8, arg, "--Sig-lib-dir")) {
                 // User-level override for Sig lib directory.
                 if (args_it.next() catch null) |value| {
                     config.options.put("Sig-lib-dir", value) catch {};
@@ -4758,7 +4759,7 @@ pub fn main(init: std.process.Init) !void {
 
     // Verify build.sig exists by attempting to open it.
     {
-        const cwd: std.Io.Dir = .cwd();
+        const cwd: sig_io.Dir = .cwd();
         var file = cwd.openFile(io, build_file_path, .{}) catch {
             fatal(io, "build file not found: '{s}'", .{build_file_path});
         };
@@ -4824,7 +4825,7 @@ pub fn main(init: std.process.Init) !void {
     // Forward -j if specified
     if (config.thread_count > 0) {
         var j_buf: [32]u8 = undefined;
-        const j_str = std.fmt.bufPrint(&j_buf, "-j{d}", .{config.thread_count}) catch "-j4";
+        const j_str = sig_fmt.bufPrint(&j_buf, "-j{d}", .{config.thread_count}) catch "-j4";
         host_cmd.appendArg(j_str) catch {};
     }
 
@@ -4874,7 +4875,7 @@ pub fn main(init: std.process.Init) !void {
 
     // Propagate stderr output from the host.
     if (stderr_len > 0) {
-        const stderr_file = std.Io.File.stderr();
+        const stderr_file = sig_io.File.stderr();
         stderr_file.writeStreamingAll(io, stderr_buf[0..stderr_len]) catch {};
     }
 

@@ -20,8 +20,10 @@
 //!   2. ~/.sig/models/qwen3-0.6b-q4k.gguf (default)
 //!   3. (none) — graceful fallback to static limits
 
-const std = @import("std");
 const sig = @import("sig");
+
+const sig_io = sig.io;
+const sig_mem = sig.mem;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Capacity Prediction Result
@@ -77,11 +79,11 @@ const CacheEntry = extern struct {
 };
 
 /// Try to load a cached prediction for the given build.sig hash.
-pub fn loadCached(cache_dir: []const u8, source_hash: [16]u8, io: std.Io) ?Prediction {
+pub fn loadCached(cache_dir: []const u8, source_hash: [16]u8, io: sig_io.Io) ?Prediction {
     var path_buf: [4096]u8 = undefined;
     const path = formatCachePath(&path_buf, cache_dir) catch return null;
 
-    const cwd: std.Io.Dir = .cwd();
+    const cwd: sig_io.Dir = .cwd();
     var file = cwd.openFile(io, path, .{}) catch return null;
     defer file.close(io);
 
@@ -91,9 +93,9 @@ pub fn loadCached(cache_dir: []const u8, source_hash: [16]u8, io: std.Io) ?Predi
     if ((n catch 0) != @sizeOf(CacheEntry)) return null;
 
     // Validate
-    if (!std.mem.eql(u8, &entry.magic, &CACHE_MAGIC)) return null;
+    if (!sig_mem.eql(u8, &entry.magic, &CACHE_MAGIC)) return null;
     if (entry.version != CACHE_VERSION) return null;
-    if (!std.mem.eql(u8, &entry.source_hash, &source_hash)) return null;
+    if (!sig_mem.eql(u8, &entry.source_hash, &source_hash)) return null;
 
     return .{
         .module_count = entry.module_count,
@@ -107,11 +109,11 @@ pub fn loadCached(cache_dir: []const u8, source_hash: [16]u8, io: std.Io) ?Predi
 }
 
 /// Save a prediction to the cache.
-pub fn saveCached(cache_dir: []const u8, source_hash: [16]u8, pred: Prediction, io: std.Io) void {
+pub fn saveCached(cache_dir: []const u8, source_hash: [16]u8, pred: Prediction, io: sig_io.Io) void {
     var path_buf: [4096]u8 = undefined;
     const path = formatCachePath(&path_buf, cache_dir) catch return;
 
-    const cwd: std.Io.Dir = .cwd();
+    const cwd: sig_io.Dir = .cwd();
     var file = cwd.createFile(io, path, .{}) catch return;
     defer file.close(io);
 
@@ -164,7 +166,7 @@ pub fn predictFromSource(source: []const u8) Prediction {
     // Count lines containing key patterns
     var i: usize = 0;
     while (i < source.len) {
-        const line_end = std.mem.indexOfScalar(u8, source[i..], '\n') orelse source.len - i;
+        const line_end = sig_mem.indexOfScalar(u8, source[i..], '\n') orelse source.len - i;
         const line = source[i..][0..line_end];
 
         if (containsPattern(line, "addModule(")) module_count += 1;
@@ -268,8 +270,8 @@ pub fn predictWithModel(
 /// Parse the model's JSON response into a Prediction.
 fn parseCapacityResponse(response: []const u8) ?Prediction {
     // Find JSON object boundaries
-    const start = std.mem.indexOfScalar(u8, response, '{') orelse return null;
-    const end_idx = std.mem.lastIndexOfScalar(u8, response, '}') orelse return null;
+    const start = sig_mem.indexOfScalar(u8, response, '{') orelse return null;
+    const end_idx = sig_mem.lastIndexOfScalar(u8, response, '}') orelse return null;
     if (end_idx <= start) return null;
 
     const json = response[start .. end_idx + 1];
@@ -298,7 +300,7 @@ fn extractNumber(json: []const u8, key: []const u8) ?u64 {
     var i: usize = 0;
     while (i + key.len + 3 < json.len) : (i += 1) {
         if (json[i] == '"' and i + 1 + key.len + 1 < json.len and
-            std.mem.eql(u8, json[i + 1 ..][0..key.len], key) and
+            sig_mem.eql(u8, json[i + 1 ..][0..key.len], key) and
             json[i + 1 + key.len] == '"')
         {
             // Found the key, skip to the colon and number
@@ -325,7 +327,7 @@ pub fn predict(
     build_source: []const u8,
     source_hash: [16]u8,
     cache_dir: []const u8,
-    io: std.Io,
+    io: sig_io.Io,
     generate_fn: ?*const fn ([]const u8, []u8) usize,
 ) Prediction {
     // 1. Try cache
@@ -356,7 +358,7 @@ fn containsPattern(line: []const u8, pattern: []const u8) bool {
     if (line.len < pattern.len) return false;
     var i: usize = 0;
     while (i + pattern.len <= line.len) : (i += 1) {
-        if (std.mem.eql(u8, line[i..][0..pattern.len], pattern)) return true;
+        if (sig_mem.eql(u8, line[i..][0..pattern.len], pattern)) return true;
     }
     return false;
 }

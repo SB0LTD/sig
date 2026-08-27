@@ -1,7 +1,17 @@
+//! Process management — spawn, wait, env, exit.
+//!
+//! Uses os.sig primitives (CreateProcess/fork+exec) instead of std.process.
+//! The Argv_Iterator and Env_Iterator still use std for unicode/environ access
+//! (separate migration).
+
 const std = @import("std");
+const os = @import("os.sig");
+const sig_io = @import("io.sig");
+const sig_mem = @import("mem.sig");
 const SigError = @import("errors.sig").SigError;
 
-const native_os = @import("builtin").os.tag;
+const builtin = @import("builtin");
+const native_os = builtin.os.tag;
 
 // ── Capacity constants ──────────────────────────────────────────────────
 
@@ -11,6 +21,9 @@ pub const MAX_CWD_LEN = 4096;
 pub const MAX_ENV_PAIRS = 256;
 pub const MAX_ENV_KEY_LEN = 256;
 pub const MAX_ENV_VALUE_LEN = 4096;
+
+/// Maximum command-line length in UTF-16 code units for Windows CreateProcessW.
+const MAX_CMDLINE_WIDE = 32768;
 
 // ── Command_Buffer ──────────────────────────────────────────────────────
 
@@ -99,6 +112,68 @@ pub const Spawn_Options = struct {
     env: ?*const Env_Pairs = null,
 
     pub const Stdio = enum { inherit, pipe, close, ignore };
+};
+
+// ── Child Process ───────────────────────────────────────────────────────
+
+/// Result of waiting for a child process to terminate.
+pub const TermResult = union(enum) {
+    exited: u8,
+    signal: u32,
+    stopped: u32,
+    unknown: u32,
+};
+
+/// Child process handle. Wraps the OS process handle (HANDLE on Windows, pid on POSIX)
+/// and optional piped file descriptors for stdout/stderr capture.
+pub const Child = struct {
+    handle: if (native_os == .windows) os.HANDLE else i32,
+    /// Readable end of stdout pipe (if spawned with stdout = .pipe).
+    stdout: ?os.fd_t = null,
+    /// Readable end of stderr pipe (if spawned with stderr = .pipe).
+    stderr: ?os.fd_t = null,
+
+    /// Wait for the child process to exit and return the termination result.
+    pub fn wait(self: *Child, io: sig_io.Io) SigError!TermResult {
+        _ = io;
+        if (native_os == .windows) {
+            _ = os.kernel32.WaitForSingleObject(self.handle, os.INFINITE);
+            var exit_code: os.DWORD = 0;
+            const ok = os.kernel32.GetExitCodeProcess(self.handle, &exit_code);
+            if (ok == os.FALSE) return error.BufferTooSmall;
+            return .{ .exited = @intCast(exit_code & 0xFF) };
+        } else {
+            var status: c_int = 0;
+            const ret = os.posix.waitpid(self.handle, &status, 0);
+            if (ret < 0) return error.BufferTooSmall;
+            if (os.posix.WIFEXITED(status)) {
+                return .{ .exited = os.posix.WEXITSTATUS(status) };
+            } else if (os.posix.WIFSIGNALED(status)) {
+                return .{ .signal = @as(u32, os.posix.WTERMSIG(status)) };
+            } else if (os.posix.WIFSTOPPED(status)) {
+                return .{ .stopped = @as(u32, os.posix.WSTOPSIG(status)) };
+            } else {
+                return .{ .unknown = @as(u32, @bitCast(status)) };
+            }
+        }
+    }
+
+    /// Terminate the child process and close all handles.
+    pub fn kill(self: *Child, io: sig_io.Io) void {
+        _ = io;
+        if (native_os == .windows) {
+            _ = os.kernel32.TerminateProcess(self.handle, 1);
+            _ = os.kernel32.CloseHandle(self.handle);
+            if (self.stdout) |h| _ = os.kernel32.CloseHandle(h);
+            if (self.stderr) |h| _ = os.kernel32.CloseHandle(h);
+        } else {
+            _ = os.posix.kill(self.handle, os.posix.SIGKILL);
+            if (self.stdout) |fd| _ = os.posix.close(fd);
+            if (self.stderr) |fd| _ = os.posix.close(fd);
+        }
+        self.stdout = null;
+        self.stderr = null;
+    }
 };
 
 // ── Posix_Argv_Iterator ─────────────────────────────────────────────────
@@ -485,16 +560,6 @@ pub const Env_Iterator = struct {
 
 // ── Spawn / RunCommand ──────────────────────────────────────────────────
 
-/// Map `Spawn_Options.Stdio` to `std.process.SpawnOptions.StdIo`.
-fn mapStdio(s: Spawn_Options.Stdio) std.process.SpawnOptions.StdIo {
-    return switch (s) {
-        .inherit => .inherit,
-        .pipe => .pipe,
-        .close => .close,
-        .ignore => .ignore,
-    };
-}
-
 /// Convert a signal number to an exit code: `min(128 + signal, 255)`.
 /// For signal 0 (normal exit), returns 0.
 pub fn signalToExitCode(signal: u32) u8 {
@@ -504,54 +569,305 @@ pub fn signalToExitCode(signal: u32) u8 {
 }
 
 /// Spawn a child process from a Command_Buffer.
-/// Constructs argv on the stack, maps options, and delegates to `std.process.spawn`.
+/// Uses CreateProcessW on Windows, fork+execvp on POSIX.
+/// Returns a Child handle that the caller must .wait() and .kill() on.
 pub fn spawn(
-    io: std.Io,
+    io: sig_io.Io,
     cmd: *const Command_Buffer,
     options: Spawn_Options,
-) SigError!std.process.Child {
+) SigError!Child {
+    _ = io;
     if (cmd.arg_count == 0) return error.BufferTooSmall;
 
-    // Build argv as a slice of slices pointing into the Command_Buffer.
-    var argv_ptrs: [MAX_CMD_ARGS][]const u8 = undefined;
-    for (0..cmd.arg_count) |i| {
-        argv_ptrs[i] = cmd.args[i][0..cmd.arg_lens[i]];
+    if (native_os == .windows) {
+        return spawnWindows(cmd, options);
+    } else {
+        return spawnPosix(cmd, options);
     }
-    const argv = argv_ptrs[0..cmd.arg_count];
-
-    // Map cwd: prefer Spawn_Options.cwd, fall back to Command_Buffer.cwd_len.
-    const cwd_option: std.process.Child.Cwd = if (options.cwd) |cwd_path|
-        .{ .path = cwd_path }
-    else if (cmd.cwd_len > 0)
-        .{ .path = cmd.cwd[0..cmd.cwd_len] }
-    else
-        .inherit;
-
-    // Map environment: if Spawn_Options.env is set, build the env map.
-    // std.process.SpawnOptions.environ_map expects a *const Environ.Map or null.
-    // When null, the parent environment is inherited (Requirement 7.1).
-    // NOTE: Env_Pairs → Environ.Map conversion would require an allocator,
-    // which violates our zero-allocator rule. Since the current build runner
-    // never passes custom env via Spawn_Options (it uses Command_Buffer-level
-    // env or inherits), we pass null to inherit the parent environment.
-    // Custom env support will be added when the build runner integration task
-    // requires it.
-    _ = options.env;
-
-    return std.process.spawn(io, .{
-        .argv = argv,
-        .cwd = cwd_option,
-        .stdin = mapStdio(options.stdin),
-        .stdout = mapStdio(options.stdout),
-        .stderr = mapStdio(options.stderr),
-    }) catch return error.BufferTooSmall;
 }
+
+/// Windows implementation: CreateProcessW with optional pipe setup.
+fn spawnWindows(cmd: *const Command_Buffer, options: Spawn_Options) SigError!Child {
+    // Build the command line as a single UTF-8 string first, then convert to UTF-16.
+    var cmdline_buf: [MAX_CMDLINE_WIDE]u8 = undefined;
+    var cmdline_len: usize = 0;
+
+    for (0..cmd.arg_count) |i| {
+        if (i > 0) {
+            if (cmdline_len >= cmdline_buf.len) return error.BufferTooSmall;
+            cmdline_buf[cmdline_len] = ' ';
+            cmdline_len += 1;
+        }
+
+        const arg = cmd.args[i][0..cmd.arg_lens[i]];
+        const needs_quoting = argNeedsQuoting(arg);
+
+        if (needs_quoting) {
+            if (cmdline_len >= cmdline_buf.len) return error.BufferTooSmall;
+            cmdline_buf[cmdline_len] = '"';
+            cmdline_len += 1;
+        }
+
+        // Copy arg bytes, escaping backslashes before quotes per Windows rules.
+        var backslashes: usize = 0;
+        for (arg) |c| {
+            if (c == '\\') {
+                backslashes += 1;
+            } else if (c == '"') {
+                // Emit 2N+1 backslashes + escaped quote
+                const emit_bs = backslashes * 2 + 1;
+                if (cmdline_len + emit_bs + 1 > cmdline_buf.len) return error.BufferTooSmall;
+                for (0..emit_bs) |_| {
+                    cmdline_buf[cmdline_len] = '\\';
+                    cmdline_len += 1;
+                }
+                cmdline_buf[cmdline_len] = '"';
+                cmdline_len += 1;
+                backslashes = 0;
+            } else {
+                // Emit pending backslashes as-is
+                if (cmdline_len + backslashes + 1 > cmdline_buf.len) return error.BufferTooSmall;
+                for (0..backslashes) |_| {
+                    cmdline_buf[cmdline_len] = '\\';
+                    cmdline_len += 1;
+                }
+                cmdline_buf[cmdline_len] = c;
+                cmdline_len += 1;
+                backslashes = 0;
+            }
+        }
+
+        // If closing quote, need to escape trailing backslashes (2N)
+        if (needs_quoting) {
+            const emit_bs = backslashes * 2;
+            if (cmdline_len + emit_bs + 1 > cmdline_buf.len) return error.BufferTooSmall;
+            for (0..emit_bs) |_| {
+                cmdline_buf[cmdline_len] = '\\';
+                cmdline_len += 1;
+            }
+            cmdline_buf[cmdline_len] = '"';
+            cmdline_len += 1;
+        } else {
+            // Emit any trailing backslashes as-is
+            if (cmdline_len + backslashes > cmdline_buf.len) return error.BufferTooSmall;
+            for (0..backslashes) |_| {
+                cmdline_buf[cmdline_len] = '\\';
+                cmdline_len += 1;
+            }
+        }
+    }
+
+    // Convert to UTF-16 for CreateProcessW.
+    var wide_cmdline: [MAX_CMDLINE_WIDE + 1]u16 = undefined;
+    const wide_len = os.utf8ToWide(cmdline_buf[0..cmdline_len], &wide_cmdline) orelse
+        return error.BufferTooSmall;
+    _ = wide_len;
+
+    // Set up CWD in wide form if specified.
+    var wide_cwd_buf: [os.MAX_PATH_WIDE + 1]u16 = undefined;
+    var cwd_ptr: ?os.LPCWSTR = null;
+    const cwd_path = if (options.cwd) |p| p else if (cmd.cwd_len > 0) cmd.cwd[0..cmd.cwd_len] else null;
+    if (cwd_path) |p| {
+        const cwd_wide_len = os.utf8ToWide(p, &wide_cwd_buf) orelse return error.BufferTooSmall;
+        _ = cwd_wide_len;
+        cwd_ptr = @ptrCast(&wide_cwd_buf);
+    }
+
+    // Create pipes for stdout/stderr if requested.
+    var stdout_read: ?os.HANDLE = null;
+    var stderr_read: ?os.HANDLE = null;
+    var stdout_write: ?os.HANDLE = null;
+    var stderr_write: ?os.HANDLE = null;
+
+    var sa = os.SECURITY_ATTRIBUTES{
+        .nLength = @sizeOf(os.SECURITY_ATTRIBUTES),
+        .lpSecurityDescriptor = null,
+        .bInheritHandle = os.TRUE,
+    };
+
+    if (options.stdout == .pipe) {
+        var read_h: os.HANDLE = undefined;
+        var write_h: os.HANDLE = undefined;
+        if (os.kernel32.CreatePipe(&read_h, &write_h, &sa, 0) == os.FALSE)
+            return error.BufferTooSmall;
+        // Prevent read end from being inherited by child.
+        _ = os.kernel32.SetHandleInformation(read_h, os.HANDLE_FLAG_INHERIT, 0);
+        stdout_read = read_h;
+        stdout_write = write_h;
+    }
+
+    if (options.stderr == .pipe) {
+        var read_h: os.HANDLE = undefined;
+        var write_h: os.HANDLE = undefined;
+        if (os.kernel32.CreatePipe(&read_h, &write_h, &sa, 0) == os.FALSE)
+            return error.BufferTooSmall;
+        _ = os.kernel32.SetHandleInformation(read_h, os.HANDLE_FLAG_INHERIT, 0);
+        stderr_read = read_h;
+        stderr_write = write_h;
+    }
+
+    // Set up STARTUPINFOW.
+    var si: os.STARTUPINFOW = .{};
+    si.cb = @sizeOf(os.STARTUPINFOW);
+    if (stdout_write != null or stderr_write != null) {
+        si.dwFlags = os.STARTF_USESTDHANDLES;
+        si.hStdInput = null; // inherit
+        si.hStdOutput = if (stdout_write) |h| h else null;
+        si.hStdError = if (stderr_write) |h| h else null;
+    }
+
+    var pi: os.PROCESS_INFORMATION = undefined;
+
+    const ok = os.kernel32.CreateProcessW(
+        null,
+        @ptrCast(&wide_cmdline),
+        null,
+        null,
+        os.TRUE, // inherit handles
+        os.CREATE_NO_WINDOW,
+        null, // inherit environment
+        cwd_ptr,
+        &si,
+        &pi,
+    );
+
+    // Close write ends of pipes in parent — child has the handles now.
+    if (stdout_write) |h| _ = os.kernel32.CloseHandle(h);
+    if (stderr_write) |h| _ = os.kernel32.CloseHandle(h);
+
+    if (ok == os.FALSE) {
+        // Cleanup read handles on failure.
+        if (stdout_read) |h| _ = os.kernel32.CloseHandle(h);
+        if (stderr_read) |h| _ = os.kernel32.CloseHandle(h);
+        return error.BufferTooSmall;
+    }
+
+    // Close the thread handle — we only need the process handle.
+    _ = os.kernel32.CloseHandle(pi.hThread);
+
+    return Child{
+        .handle = pi.hProcess,
+        .stdout = stdout_read,
+        .stderr = stderr_read,
+    };
+}
+
+/// Check if a command-line argument needs quoting on Windows.
+fn argNeedsQuoting(arg: []const u8) bool {
+    if (arg.len == 0) return true;
+    for (arg) |c| {
+        switch (c) {
+            ' ', '\t', '"', '&', '|', '^', '<', '>', '(' , ')' => return true,
+            else => {},
+        }
+    }
+    return false;
+}
+
+/// POSIX implementation: fork + execvp with optional pipe setup.
+fn spawnPosix(cmd: *const Command_Buffer, options: Spawn_Options) SigError!Child {
+    // Build null-terminated argv array on the stack.
+    // Each arg needs a null-terminated copy.
+    var arg_bufs: [MAX_CMD_ARGS][MAX_ARG_LEN + 1]u8 = undefined;
+    var argv_ptrs: [MAX_CMD_ARGS + 1]?[*:0]const u8 = undefined;
+
+    for (0..cmd.arg_count) |i| {
+        const arg = cmd.args[i][0..cmd.arg_lens[i]];
+        @memcpy(arg_bufs[i][0..arg.len], arg);
+        arg_bufs[i][arg.len] = 0;
+        argv_ptrs[i] = @ptrCast(&arg_bufs[i]);
+    }
+    argv_ptrs[cmd.arg_count] = null;
+
+    // Create pipes if stdout/stderr are .pipe.
+    var stdout_pipe: [2]c_int = .{ -1, -1 };
+    var stderr_pipe: [2]c_int = .{ -1, -1 };
+
+    if (options.stdout == .pipe) {
+        if (os.posix.pipe(&stdout_pipe) != 0) return error.BufferTooSmall;
+    }
+    if (options.stderr == .pipe) {
+        if (os.posix.pipe(&stderr_pipe) != 0) {
+            if (stdout_pipe[0] >= 0) {
+                _ = os.posix.close(stdout_pipe[0]);
+                _ = os.posix.close(stdout_pipe[1]);
+            }
+            return error.BufferTooSmall;
+        }
+    }
+
+    // Prepare CWD null-terminated buffer for chdir in child.
+    var cwd_z_buf: [MAX_CWD_LEN + 1]u8 = undefined;
+    var cwd_z: ?[*:0]const u8 = null;
+    const cwd_path = if (options.cwd) |p| p else if (cmd.cwd_len > 0) cmd.cwd[0..cmd.cwd_len] else null;
+    if (cwd_path) |p| {
+        if (p.len > MAX_CWD_LEN) return error.BufferTooSmall;
+        @memcpy(cwd_z_buf[0..p.len], p);
+        cwd_z_buf[p.len] = 0;
+        cwd_z = @ptrCast(&cwd_z_buf);
+    }
+
+    const pid = os.posix.fork();
+    if (pid < 0) {
+        // Fork failed — cleanup pipes.
+        if (stdout_pipe[0] >= 0) {
+            _ = os.posix.close(stdout_pipe[0]);
+            _ = os.posix.close(stdout_pipe[1]);
+        }
+        if (stderr_pipe[0] >= 0) {
+            _ = os.posix.close(stderr_pipe[0]);
+            _ = os.posix.close(stderr_pipe[1]);
+        }
+        return error.BufferTooSmall;
+    }
+
+    if (pid == 0) {
+        // ── Child process ──
+        // Set up pipes: redirect stdout/stderr write ends to fd 1/2.
+        if (options.stdout == .pipe) {
+            _ = os.posix.dup2(stdout_pipe[1], 1);
+            _ = os.posix.close(stdout_pipe[0]);
+            _ = os.posix.close(stdout_pipe[1]);
+        }
+        if (options.stderr == .pipe) {
+            _ = os.posix.dup2(stderr_pipe[1], 2);
+            _ = os.posix.close(stderr_pipe[0]);
+            _ = os.posix.close(stderr_pipe[1]);
+        }
+
+        // Change directory if specified.
+        if (cwd_z) |cz| {
+            // Use chdir — declared as extern below (or use _chdir).
+            _ = chdir(cz);
+        }
+
+        // Execute. This replaces the child process image.
+        _ = os.posix.execvp(argv_ptrs[0].?, @ptrCast(&argv_ptrs));
+
+        // If execvp returns, the exec failed. Exit with 127.
+        os.posix._exit(127);
+    }
+
+    // ── Parent process ──
+    // Close write ends of pipes (child has them).
+    if (stdout_pipe[1] >= 0) _ = os.posix.close(stdout_pipe[1]);
+    if (stderr_pipe[1] >= 0) _ = os.posix.close(stderr_pipe[1]);
+
+    return Child{
+        .handle = pid,
+        .stdout = if (options.stdout == .pipe) stdout_pipe[0] else null,
+        .stderr = if (options.stderr == .pipe) stderr_pipe[0] else null,
+    };
+}
+
+// chdir extern for POSIX child process CWD setup.
+extern "c" fn chdir(path: [*:0]const u8) callconv(.c) c_int;
 
 /// Convenience: spawn, capture stderr, wait, return exit code as `u8`.
 /// Maps POSIX signal termination to `min(128 + signal, 255)`.
 /// Maps all OS errors to `SigError` for simplified error handling.
 pub fn runCommand(
-    io: std.Io,
+    io: sig_io.Io,
     cmd: *const Command_Buffer,
     stderr_buf: []u8,
     stderr_len: *usize,
@@ -566,93 +882,81 @@ pub fn runCommand(
 
     // Read stderr from the child into the caller-provided buffer.
     stderr_len.* = 0;
-    if (child.stderr) |stderr_file| {
-        var reader = stderr_file.reader(io, &.{});
+    if (child.stderr) |stderr_fd| {
         while (stderr_len.* < stderr_buf.len) {
             const remaining = stderr_buf.len - stderr_len.*;
-            const n = reader.interface.readSliceShort(stderr_buf[stderr_len.*..][0..remaining]) catch break;
+            const n = os.readFd(stderr_fd, stderr_buf.ptr + stderr_len.*, remaining);
             if (n == 0) break;
             stderr_len.* += n;
         }
     }
 
     // Wait for the child to exit and extract the exit code.
-    const term = child.wait(io) catch return error.BufferTooSmall;
+    const term = try child.wait(io);
     return switch (term) {
         .exited => |code| code,
-        .signal => |sig| signalToExitCode(@as(u32, @intFromEnum(sig))),
-        .stopped => |sig| signalToExitCode(@as(u32, @intFromEnum(sig))),
+        .signal => |sig| signalToExitCode(sig),
+        .stopped => |sig| signalToExitCode(sig),
         .unknown => |val| signalToExitCode(val),
     };
 }
 
+// ── Environment ─────────────────────────────────────────────────────────
+
 /// Look up an environment variable by name.
-/// On POSIX: wraps `std.c.getenv`, returns a pointer into the process
+/// On POSIX: wraps libc getenv(), returns a pointer into the process
 /// environment block (zero-copy). The `buf` parameter is unused on POSIX.
-/// On Windows: copies the value into the caller-provided `buf`.
+/// On Windows: uses GetEnvironmentVariableW, copies the value into `buf`.
 /// Returns `null` when the variable does not exist.
 /// Returns `SigError.BufferTooSmall` when `buf` is too small (Windows only).
 pub fn getenv(name: []const u8, buf: []u8) SigError!?[]const u8 {
-    // We need a null-terminated copy of `name` for the C API.
-    // Use a stack buffer — env var names are short.
-    var name_buf: [MAX_ENV_KEY_LEN + 1]u8 = undefined;
-    if (name.len > MAX_ENV_KEY_LEN) return error.BufferTooSmall;
-    @memcpy(name_buf[0..name.len], name);
-    name_buf[name.len] = 0;
-    const name_z: [*:0]const u8 = name_buf[0..name.len :0];
+    if (native_os == .windows) {
+        // Convert name to UTF-16 for GetEnvironmentVariableW.
+        var name_wide: [MAX_ENV_KEY_LEN + 1]u16 = undefined;
+        const name_wide_len = os.utf8ToWide(name, &name_wide) orelse return error.BufferTooSmall;
+        _ = name_wide_len;
 
-    const result = std.c.getenv(name_z);
-    if (result) |ptr| {
-        const value = std.mem.sliceTo(ptr, 0);
-        if (native_os == .windows) {
-            // On Windows, copy into caller buffer for safety.
-            if (value.len > buf.len) return error.BufferTooSmall;
-            @memcpy(buf[0..value.len], value);
-            return buf[0..value.len];
-        } else {
-            // On POSIX, return zero-copy pointer into environ.
-            return value;
+        // Query the variable length first.
+        var value_wide: [MAX_ENV_VALUE_LEN]u16 = undefined;
+        const n = os.kernel32.GetEnvironmentVariableW(
+            @ptrCast(&name_wide),
+            @ptrCast(&value_wide),
+            @intCast(value_wide.len),
+        );
+        if (n == 0) return null; // Variable not found.
+
+        // Convert UTF-16 result back to UTF-8 into caller buffer.
+        const value_wide_slice = value_wide[0..n];
+        const utf8_len = os.wideToUtf8(value_wide_slice, buf) orelse return error.BufferTooSmall;
+        return buf[0..utf8_len];
+    } else {
+        // POSIX: use libc getenv.
+        var name_buf: [MAX_ENV_KEY_LEN + 1]u8 = undefined;
+        if (name.len > MAX_ENV_KEY_LEN) return error.BufferTooSmall;
+        @memcpy(name_buf[0..name.len], name);
+        name_buf[name.len] = 0;
+        const name_z: [*:0]const u8 = name_buf[0..name.len :0];
+
+        const result = os.posix.getenv(name_z);
+        if (result) |ptr| {
+            // Walk the null-terminated string to get the length.
+            var len: usize = 0;
+            while (ptr[len] != 0) : (len += 1) {}
+            return ptr[0..len];
         }
+        return null;
     }
-    return null;
 }
 
 /// Get the current working directory into a caller-provided buffer.
-/// On POSIX: wraps `std.c.getcwd`.
-/// On Windows: calls `RtlGetCurrentDirectory_U`, decodes WTF-16 → UTF-8.
-/// Returns `SigError.BufferTooSmall` when the buffer is too small.
+/// Returns the path slice on success, or `SigError.BufferTooSmall` on failure.
 pub fn getCwd(buf: []u8) SigError![]u8 {
-    if (native_os == .windows) {
-        const windows = std.os.windows;
-        var wtf16le_buf: [windows.PATH_MAX_WIDE:0]u16 = undefined;
-        const n = windows.ntdll.RtlGetCurrentDirectory_U(wtf16le_buf.len * 2 + 2, &wtf16le_buf) / 2;
-        if (n == 0) return error.BufferTooSmall;
-        const wtf16le_slice = wtf16le_buf[0..n];
-        var end_index: usize = 0;
-        var it = std.unicode.Wtf16LeIterator.init(wtf16le_slice);
-        while (it.nextCodepoint()) |codepoint| {
-            const seq_len = std.unicode.utf8CodepointSequenceLength(codepoint) catch
-                return error.BufferTooSmall;
-            if (end_index + seq_len > buf.len) return error.BufferTooSmall;
-            end_index += std.unicode.wtf8Encode(codepoint, buf[end_index..]) catch
-                return error.BufferTooSmall;
-        }
-        return buf[0..end_index];
-    } else {
-        // POSIX: use std.c.getcwd
-        if (buf.len == 0) return error.BufferTooSmall;
-        if (std.c.getcwd(buf.ptr, buf.len)) |_| {
-            // getcwd writes a null-terminated string; find the length.
-            const len = std.mem.indexOfScalar(u8, buf, 0) orelse buf.len;
-            return buf[0..len];
-        }
-        // getcwd failed — most likely ERANGE (buffer too small).
-        return error.BufferTooSmall;
-    }
+    const result = os.getCwd(buf) orelse return error.BufferTooSmall;
+    return result;
 }
 
 /// Terminate the current process with the given exit code.
 /// This function does not return.
 pub fn exit(code: u8) noreturn {
-    std.process.exit(code);
+    os.exitProcess(code);
 }

@@ -20,6 +20,9 @@ const compile = @import("compile");
 
 const containers = sig.containers;
 const sig_fs = sig.fs;
+const sig_io = sig.io;
+const sig_mem = sig.mem;
+const sig_fmt = sig.fmt;
 const sig_process = sig.process;
 
 pub fn main(init: std.process.Init) !void {
@@ -106,28 +109,28 @@ pub fn main(init: std.process.Init) !void {
             if (sig_build.parseThreadCount(arg)) |count| {
                 config.thread_count = count;
             } else if (args_it.next() catch sig_build.fatal(io, "argv decode error", .{})) |next_arg| {
-                config.thread_count = std.fmt.parseInt(usize, next_arg, 10) catch {
+                config.thread_count = sig_fmt.parseInt(usize, next_arg, 10) catch {
                     sig_build.fatal(io, "invalid thread count: '{s}'", .{next_arg});
                 };
             } else {
                 sig_build.fatal(io, "-j requires a thread count argument", .{});
             }
-        } else if (std.mem.eql(u8, arg, "--verbose")) {
+        } else if (sig_mem.eql(u8, arg, "--verbose")) {
             config.verbose = true;
-        } else if (std.mem.eql(u8, arg, "--help")) {
+        } else if (sig_mem.eql(u8, arg, "--help")) {
             config.help = true;
-        } else if (std.mem.eql(u8, arg, "--benchmark")) {
+        } else if (sig_mem.eql(u8, arg, "--benchmark")) {
             config.benchmark = true;
-        } else if (std.mem.eql(u8, arg, "--keep-going")) {
+        } else if (sig_mem.eql(u8, arg, "--keep-going")) {
             config.keep_going = true;
-        } else if (std.mem.eql(u8, arg, "--self-test") or std.mem.startsWith(u8, arg, "--self-test=")) {
+        } else if (sig_mem.eql(u8, arg, "--self-test") or sig_mem.startsWith(u8, arg, "--self-test=")) {
             config.self_test = true;
             if (sig_build.parseLongOptionValue(arg)) |value| {
                 if (value.len > sig_build.PATH_BUF_SIZE) sig_build.fatal(io, "--self-test compiler path too long", .{});
                 @memcpy(config.self_test_compiler[0..value.len], value);
                 config.self_test_compiler_len = value.len;
             }
-        } else if (std.mem.eql(u8, arg, "--prefix")) {
+        } else if (sig_mem.eql(u8, arg, "--prefix")) {
             if (args_it.next() catch sig_build.fatal(io, "argv decode error", .{})) |value| {
                 if (value.len > sig_build.PATH_BUF_SIZE) sig_build.fatal(io, "--prefix path too long", .{});
                 @memcpy(config.install_prefix[0..value.len], value);
@@ -135,7 +138,7 @@ pub fn main(init: std.process.Init) !void {
             } else {
                 sig_build.fatal(io, "--prefix requires a path argument", .{});
             }
-        } else if (std.mem.eql(u8, arg, "--search-prefix")) {
+        } else if (sig_mem.eql(u8, arg, "--search-prefix")) {
             if (args_it.next() catch sig_build.fatal(io, "argv decode error", .{})) |value| {
                 sig_build.parseOption(&config.options, "-Dsearch-prefix=") catch {};
                 // Store the actual value directly
@@ -143,7 +146,7 @@ pub fn main(init: std.process.Init) !void {
             } else {
                 sig_build.fatal(io, "--search-prefix requires a path argument", .{});
             }
-        } else if (std.mem.eql(u8, arg, "--Sig-lib-dir")) {
+        } else if (sig_mem.eql(u8, arg, "--Sig-lib-dir")) {
             if (args_it.next() catch sig_build.fatal(io, "argv decode error", .{})) |value| {
                 config.options.put("Sig-lib-dir", value) catch {};
             } else {
@@ -226,7 +229,7 @@ pub fn main(init: std.process.Init) !void {
     const smart_cap = @import("smart_capacity.sig");
     const model_pred = @import("model_predictor.sig");
     {
-        const cwd: std.Io.Dir = .cwd();
+        const cwd: sig_io.Dir = .cwd();
         const build_file_path = runner_args.build_file[0..runner_args.build_file_len];
         var build_source_buf: [32768]u8 = undefined;
         var build_source_len: usize = 0;
@@ -443,14 +446,14 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // ── 9. Run scheduler ────────────────────────────────────────────────
-    const sig_start_ns = std.Io.Clock.awake.now(io).nanoseconds;
+    const sig_start_ns = sig_io.Clock.awake.now(io).nanoseconds;
     const summary = sig_build.runScheduler(&ctx.steps, &graph, &cache, &pool, io, config.verbose, config.keep_going);
-    const sig_end_ns = std.Io.Clock.awake.now(io).nanoseconds;
+    const sig_end_ns = sig_io.Clock.awake.now(io).nanoseconds;
     const sig_elapsed_ns: u64 = @intCast(sig_end_ns - sig_start_ns);
 
     // ── 10. Save cache ──────────────────────────────────────────────────
     cache.save(io, cache_file_path) catch {
-        const stderr = std.Io.File.stderr();
+        const stderr = sig_io.File.stderr();
         stderr.writeStreamingAll(io, "warning: failed to save cache\n") catch {};
     };
 
@@ -483,14 +486,14 @@ pub fn main(init: std.process.Init) !void {
 /// Compute a 128-bit hash of build.sig source for cache keying.
 /// Uses two XxHash64 instances with different seeds.
 fn computeSourceHash(source: []const u8) [16]u8 {
-    var h0 = std.hash.XxHash64.init(0);
-    var h1 = std.hash.XxHash64.init(0x9e3779b97f4a7c15);
+    var h0 = sig.hash.XxHash64.init(0);
+    var h1 = sig.hash.XxHash64.init(0x9e3779b97f4a7c15);
     h0.update(source);
     h1.update(source);
     const d0 = h0.final();
     const d1 = h1.final();
     var result: [16]u8 = undefined;
-    @memcpy(result[0..8], std.mem.asBytes(&d0));
-    @memcpy(result[8..16], std.mem.asBytes(&d1));
+    @memcpy(result[0..8], sig_mem.asBytes(&d0));
+    @memcpy(result[8..16], sig_mem.asBytes(&d1));
     return result;
 }

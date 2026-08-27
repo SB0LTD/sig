@@ -60,13 +60,23 @@ pub fn containsScalar(comptime T: type, slice: []const T, value: T) bool {
 // ══════════════════════════════════════════════════════════════════════════════
 
 /// Reinterpret a pointer to any type as a pointer to its raw bytes.
-pub fn asBytes(comptime T: type, ptr: *const T) *const [@sizeOf(T)]u8 {
+/// Matches std.mem.asBytes — takes anytype pointer, infers size.
+pub fn asBytes(ptr: anytype) AsBytes(@TypeOf(ptr)) {
     return @ptrCast(ptr);
 }
 
-/// Reinterpret a mutable pointer as mutable bytes.
-pub fn asMutableBytes(comptime T: type, ptr: *T) *[@sizeOf(T)]u8 {
-    return @ptrCast(ptr);
+fn AsBytes(comptime T: type) type {
+    const info = @typeInfo(T);
+    if (info == .pointer) {
+        const child = info.pointer.child;
+        const size = @sizeOf(child);
+        if (info.pointer.is_const) {
+            return *const [size]u8;
+        } else {
+            return *[size]u8;
+        }
+    }
+    @compileError("expected pointer type");
 }
 
 /// Read an integer from bytes in the specified endianness.
@@ -114,6 +124,80 @@ pub fn sliceAsBytes(comptime T: type, slice: []const T) []const u8 {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// Substring Search
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// Find the first occurrence of `needle` slice within `haystack`, or null.
+pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
+    if (needle.len == 0) return 0;
+    if (needle.len > haystack.len) return null;
+    const end = haystack.len - needle.len + 1;
+    var i: usize = 0;
+    while (i < end) : (i += 1) {
+        if (eql(T, haystack[i..][0..needle.len], needle)) return i;
+    }
+    return null;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Trimming
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// Trim characters in `trim_set` from the end of `slice`.
+pub fn trimEnd(comptime T: type, slice: []const T, trim_set: []const T) []const T {
+    var end = slice.len;
+    while (end > 0) {
+        var found = false;
+        for (trim_set) |c| {
+            if (slice[end - 1] == c) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) break;
+        end -= 1;
+    }
+    return slice[0..end];
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Splitting
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// Iterator that splits a slice on every occurrence of a scalar delimiter.
+pub fn SplitIterator(comptime T: type) type {
+    return struct {
+        buffer: []const T,
+        index: ?usize,
+        delimiter: T,
+
+        const Self = @This();
+
+        /// Returns the next token, or null when exhausted.
+        pub fn next(self: *Self) ?[]const T {
+            const start = self.index orelse return null;
+            if (indexOfScalar(T, self.buffer[start..], self.delimiter)) |delim_pos| {
+                const end = start + delim_pos;
+                self.index = end + 1;
+                return self.buffer[start..end];
+            } else {
+                self.index = null;
+                return self.buffer[start..];
+            }
+        }
+    };
+}
+
+/// Split `slice` by a scalar `delimiter`. Returns an iterator with `.next()`.
+pub fn splitScalar(comptime T: type, slice: []const T, delimiter: T) SplitIterator(T) {
+    return .{
+        .buffer = slice,
+        .index = 0,
+        .delimiter = delimiter,
+    };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // Tests
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -146,4 +230,26 @@ test "readInt big endian" {
     const bytes = [4]u8{ 0x01, 0x02, 0x03, 0x04 };
     const val = readInt(u32, &bytes, .big);
     if (val != 0x01020304) return error.TestUnexpectedResult;
+}
+
+test "indexOf" {
+    if ((indexOf(u8, "hello world", "world") orelse 99) != 6) return error.TestUnexpectedResult;
+    if ((indexOf(u8, "abcabc", "abc") orelse 99) != 0) return error.TestUnexpectedResult;
+    if (indexOf(u8, "hello", "xyz") != null) return error.TestUnexpectedResult;
+    if ((indexOf(u8, "hello", "") orelse 99) != 0) return error.TestUnexpectedResult;
+    if (indexOf(u8, "", "a") != null) return error.TestUnexpectedResult;
+}
+
+test "trimEnd" {
+    if (!eql(u8, trimEnd(u8, "hello  \n", &[_]u8{ ' ', '\n' }), "hello")) return error.TestUnexpectedResult;
+    if (!eql(u8, trimEnd(u8, "hello", &[_]u8{ ' ', '\n' }), "hello")) return error.TestUnexpectedResult;
+    if (!eql(u8, trimEnd(u8, "", &[_]u8{ ' ' }), "")) return error.TestUnexpectedResult;
+}
+
+test "splitScalar" {
+    var it = splitScalar(u8, "a.b.c", '.');
+    if (!eql(u8, it.next() orelse "", "a")) return error.TestUnexpectedResult;
+    if (!eql(u8, it.next() orelse "", "b")) return error.TestUnexpectedResult;
+    if (!eql(u8, it.next() orelse "", "c")) return error.TestUnexpectedResult;
+    if (it.next() != null) return error.TestUnexpectedResult;
 }
