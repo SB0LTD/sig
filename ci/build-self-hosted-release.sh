@@ -116,7 +116,7 @@ case "$TARGET" in
     # Use system linker to resolve system libc++ that LLVM was linked against
     lld_flag=-fno-lld
     set -- \
-      -lc++ -lc++abi -lm -lz -lzstd -lpthread -ldl -lrt
+      -lc++ -lc++abi -lstdc++ -lm -lz -lzstd -lpthread -ldl -lrt
     ;;
   x86_64-windows-gnu)
     set -- \
