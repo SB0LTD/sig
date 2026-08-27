@@ -1,4 +1,4 @@
-const std = @import("std");
+const sig_mem = @import("mem.sig");
 const SigError = @import("errors.sig").SigError;
 
 /// A fixed-capacity vector backed by a comptime-sized array. No allocator needed.
@@ -505,7 +505,7 @@ pub fn BoundedStringMap(comptime key_cap: usize, comptime val_cap: usize, compti
             // Check for existing key.
             for (&self.entries) |*e| {
                 if (e.occupied and e.key_len == key.len and
-                    std.mem.eql(u8, e.key_buf[0..e.key_len], key))
+                    sig_mem.eql(u8, e.key_buf[0..e.key_len], key))
                 {
                     @memcpy(e.val_buf[0..value.len], value);
                     e.val_len = value.len;
@@ -533,7 +533,7 @@ pub fn BoundedStringMap(comptime key_cap: usize, comptime val_cap: usize, compti
         pub fn getValue(self: *const Self, key: []const u8) ?[]const u8 {
             for (&self.entries) |*e| {
                 if (e.occupied and e.key_len == key.len and
-                    std.mem.eql(u8, e.key_buf[0..e.key_len], key))
+                    sig_mem.eql(u8, e.key_buf[0..e.key_len], key))
                 {
                     return e.val_buf[0..e.val_len];
                 }
@@ -545,7 +545,7 @@ pub fn BoundedStringMap(comptime key_cap: usize, comptime val_cap: usize, compti
         pub fn remove(self: *Self, key: []const u8) bool {
             for (&self.entries) |*e| {
                 if (e.occupied and e.key_len == key.len and
-                    std.mem.eql(u8, e.key_buf[0..e.key_len], key))
+                    sig_mem.eql(u8, e.key_buf[0..e.key_len], key))
                 {
                     e.occupied = false;
                     self.len -= 1;

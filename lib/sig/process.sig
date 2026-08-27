@@ -1,10 +1,8 @@
 //! Process management — spawn, wait, env, exit.
 //!
 //! Uses os.sig primitives (CreateProcess/fork+exec) instead of std.process.
-//! The Argv_Iterator and Env_Iterator still use std for unicode/environ access
-//! (separate migration).
+//! Argv_Iterator and Env_Iterator use inline unicode/environ logic — no std dependency.
 
-const std = @import("std");
 const os = @import("os.sig");
 const sig_io = @import("io.sig");
 const sig_mem = @import("mem.sig");
@@ -176,10 +174,48 @@ pub const Child = struct {
     }
 };
 
+// ── Unicode / WTF-8 Helpers ──────────────────────────────────────────────
+
+/// Check if a UTF-16 code unit is a high surrogate (U+D800..U+DBFF).
+fn isUtf16HighSurrogate(cu: u16) bool {
+    return cu >= 0xD800 and cu <= 0xDBFF;
+}
+
+/// Check if a UTF-16 code unit is a low surrogate (U+DC00..U+DFFF).
+fn isUtf16LowSurrogate(cu: u16) bool {
+    return cu >= 0xDC00 and cu <= 0xDFFF;
+}
+
+/// Encode a single UTF-16 code unit as WTF-8 into the buffer.
+/// WTF-8 is identical to UTF-8 for valid codepoints (U+0000..U+D7FF, U+E000..U+FFFF).
+/// For unpaired surrogates (U+D800..U+DFFF), it encodes them as 3-byte sequences
+/// (same bit pattern as UTF-8 would use for those values).
+/// Returns the number of bytes written, or null if buffer too small.
+fn encodeWtf8(code_unit: u16, buf: []u8) ?usize {
+    const cp: u32 = code_unit;
+    if (cp < 0x80) {
+        if (buf.len < 1) return null;
+        buf[0] = @intCast(cp);
+        return 1;
+    } else if (cp < 0x800) {
+        if (buf.len < 2) return null;
+        buf[0] = @intCast(0xC0 | (cp >> 6));
+        buf[1] = @intCast(0x80 | (cp & 0x3F));
+        return 2;
+    } else {
+        // 3-byte: covers BMP (0x800..0xFFFF) including surrogates (WTF-8)
+        if (buf.len < 3) return null;
+        buf[0] = @intCast(0xE0 | (cp >> 12));
+        buf[1] = @intCast(0x80 | ((cp >> 6) & 0x3F));
+        buf[2] = @intCast(0x80 | (cp & 0x3F));
+        return 3;
+    }
+}
+
 // ── Posix_Argv_Iterator ─────────────────────────────────────────────────
 
 /// Zero-copy iterator over POSIX argv. Wraps the native `[]const [*:0]const u8`
-/// vector and returns `std.mem.sliceTo(arg, 0)` for each argument.
+/// vector and returns a null-terminated slice for each argument.
 pub const Posix_Argv_Iterator = struct {
     remaining: []const [*:0]const u8,
 
@@ -192,7 +228,10 @@ pub const Posix_Argv_Iterator = struct {
         if (self.remaining.len == 0) return null;
         const arg = self.remaining[0];
         self.remaining = self.remaining[1..];
-        return std.mem.sliceTo(arg, 0);
+        // Manual null-terminated slice: scan for sentinel.
+        var len: usize = 0;
+        while (arg[len] != 0) : (len += 1) {}
+        return arg[0..len :0];
     }
 
     /// Skip one argument without decoding. Returns `true` if skipped, `false` if done.
@@ -252,24 +291,26 @@ pub const Windows_Argv_Iterator = struct {
         }
 
         fn emitCharacter(self: *Windows_Argv_Iterator, code_unit: u16, last: ?u16) SigError!?u16 {
-            // Surrogate pair combining: if last emitted was a high surrogate and
-            // this is a low surrogate, combine them into a single UTF-8 codepoint.
+            // Surrogate pair combining: high surrogate (last) + low surrogate (current)
             if (last != null and
-                std.unicode.utf16IsLowSurrogate(code_unit) and
-                std.unicode.utf16IsHighSurrogate(last.?))
+                isUtf16LowSurrogate(code_unit) and
+                isUtf16HighSurrogate(last.?))
             {
-                const codepoint = std.unicode.utf16DecodeSurrogatePair(&.{ last.?, code_unit }) catch unreachable;
-                // Unpaired surrogate was 3 bytes; combined codepoint is 4 bytes.
-                // We overwrite the last 3 bytes and write 4.
+                // Decode surrogate pair to codepoint
+                const codepoint: u32 = 0x10000 + (@as(u32, last.? - 0xD800) << 10) + @as(u32, code_unit - 0xDC00);
+                // Overwrite the 3-byte unpaired high surrogate with a 4-byte sequence
                 if (self.end + 1 > self.buffer.len) return error.BufferTooSmall;
                 const dest = self.buffer[self.end - 3 ..];
-                const len = std.unicode.utf8Encode(codepoint, dest) catch unreachable;
-                std.debug.assert(len == 4);
+                dest[0] = @intCast(0xF0 | (codepoint >> 18));
+                dest[1] = @intCast(0x80 | ((codepoint >> 12) & 0x3F));
+                dest[2] = @intCast(0x80 | ((codepoint >> 6) & 0x3F));
+                dest[3] = @intCast(0x80 | (codepoint & 0x3F));
                 self.end += 1;
                 return null;
             }
 
-            const wtf8_len = std.unicode.wtf8Encode(code_unit, self.buffer[self.end..]) catch
+            // WTF-8 encode a single code unit (BMP or unpaired surrogate)
+            const wtf8_len = encodeWtf8(code_unit, self.buffer[self.end..]) orelse
                 return error.BufferTooSmall;
             self.end += wtf8_len;
             return code_unit;
@@ -318,7 +359,7 @@ pub const Windows_Argv_Iterator = struct {
             var inside_quotes = false;
             while (true) : (self.index += 1) {
                 const char: u16 = if (self.index != self.cmd_line.len)
-                    std.mem.littleToNative(u16, self.cmd_line[self.index])
+                    self.cmd_line[self.index]
                 else
                     0;
                 switch (char) {
@@ -346,7 +387,7 @@ pub const Windows_Argv_Iterator = struct {
         // Skip leading whitespace. Complete if we reach end of string.
         while (true) : (self.index += 1) {
             const char: u16 = if (self.index != self.cmd_line.len)
-                std.mem.littleToNative(u16, self.cmd_line[self.index])
+                self.cmd_line[self.index]
             else
                 0;
             switch (char) {
@@ -361,7 +402,7 @@ pub const Windows_Argv_Iterator = struct {
         var inside_quotes = false;
         while (true) : (self.index += 1) {
             const char: u16 = if (self.index != self.cmd_line.len)
-                std.mem.littleToNative(u16, self.cmd_line[self.index])
+                self.cmd_line[self.index]
             else
                 0;
             switch (char) {
@@ -385,7 +426,7 @@ pub const Windows_Argv_Iterator = struct {
                     } else {
                         if (inside_quotes and
                             self.index + 1 != self.cmd_line.len and
-                            std.mem.littleToNative(u16, self.cmd_line[self.index + 1]) == '"')
+                            self.cmd_line[self.index + 1] == '"')
                         {
                             last_emitted = strategy.emitCharacter(self, '"', last_emitted) catch |e| return e;
                             self.index += 1;
@@ -445,6 +486,10 @@ pub const Argv_Iterator = struct {
     }
 };
 
+// Environment pointer — null-terminated array of "KEY=VALUE\0" strings.
+// Available on both POSIX (libc environ) and Windows (UCRT environ).
+extern "c" var environ: [*:null]?[*:0]u8;
+
 // ── Posix_Env_Iterator ──────────────────────────────────────────────────
 
 /// Zero-copy iterator over POSIX environment variables.
@@ -457,16 +502,19 @@ const Posix_Env_Iterator = struct {
     }
 
     fn next(self: *Posix_Env_Iterator, _: []u8, _: []u8) SigError!?Env_Iterator.Entry {
-        const env_ptr = std.c.environ;
+        const env_ptr = environ;
         // Walk until we find a non-null entry or reach the sentinel.
         while (true) {
             const entry_opt: ?[*:0]u8 = env_ptr[self.index];
             const entry = entry_opt orelse return null;
             self.index += 1;
 
-            const entry_slice = std.mem.sliceTo(entry, 0);
+            // Manual null-terminated slice scan
+            var len: usize = 0;
+            while (entry[len] != 0) : (len += 1) {}
+            const entry_slice = entry[0..len];
             // Split on first '='
-            if (std.mem.indexOfScalar(u8, entry_slice, '=')) |eq_pos| {
+            if (sig_mem.indexOfScalar(u8, entry_slice, '=')) |eq_pos| {
                 return .{
                     .key = entry_slice[0..eq_pos],
                     .value = entry_slice[eq_pos + 1 ..],
@@ -480,7 +528,7 @@ const Posix_Env_Iterator = struct {
 // ── Windows_Env_Iterator ────────────────────────────────────────────────
 
 /// Iterator over Windows environment variables.
-/// Uses `std.c.environ` (available via UCRT) and copies key/value into
+/// Uses the C runtime `environ` pointer and copies key/value into
 /// caller-provided buffers since the environment block encoding may differ.
 const Windows_Env_Iterator = struct {
     index: usize = 0,
@@ -490,15 +538,18 @@ const Windows_Env_Iterator = struct {
     }
 
     fn next(self: *Windows_Env_Iterator, key_buf: []u8, value_buf: []u8) SigError!?Env_Iterator.Entry {
-        const env_ptr = std.c.environ;
+        const env_ptr = environ;
         while (true) {
             const entry_opt: ?[*:0]u8 = env_ptr[self.index];
             const entry = entry_opt orelse return null;
             self.index += 1;
 
-            const entry_slice = std.mem.sliceTo(entry, 0);
+            // Manual null-terminated slice scan
+            var len: usize = 0;
+            while (entry[len] != 0) : (len += 1) {}
+            const entry_slice = entry[0..len];
             // Split on first '='
-            if (std.mem.indexOfScalar(u8, entry_slice, '=')) |eq_pos| {
+            if (sig_mem.indexOfScalar(u8, entry_slice, '=')) |eq_pos| {
                 const key = entry_slice[0..eq_pos];
                 const value = entry_slice[eq_pos + 1 ..];
 

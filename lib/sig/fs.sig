@@ -1,4 +1,5 @@
-const std = @import("std");
+const sig_io = @import("io.sig");
+const builtin = @import("builtin");
 const SigError = @import("errors.sig").SigError;
 
 /// Directory entry for bounded directory listing.
@@ -18,8 +19,8 @@ pub const DirEntry = struct {
 
 /// Read an entire file into a caller-provided buffer.
 /// Returns the filled slice, or `BufferTooSmall` if the file exceeds the buffer.
-pub fn readFile(io: std.Io, path: []const u8, buf: []u8) SigError![]u8 {
-    const cwd: std.Io.Dir = .cwd();
+pub fn readFile(io: sig_io.Io, path: []const u8, buf: []u8) SigError![]u8 {
+    const cwd: sig_io.Dir = .cwd();
     var file = cwd.openFile(io, path, .{}) catch return error.BufferTooSmall;
     defer file.close(io);
 
@@ -42,8 +43,8 @@ pub fn readFile(io: std.Io, path: []const u8, buf: []u8) SigError![]u8 {
 }
 
 /// Write a caller-provided slice to a file (creates or truncates).
-pub fn writeFile(io: std.Io, path: []const u8, data: []const u8) SigError!void {
-    const cwd: std.Io.Dir = .cwd();
+pub fn writeFile(io: sig_io.Io, path: []const u8, data: []const u8) SigError!void {
+    const cwd: sig_io.Dir = .cwd();
     var file = cwd.createFile(io, path, .{}) catch return error.BufferTooSmall;
     defer file.close(io);
     file.writeStreamingAll(io, data) catch return error.BufferTooSmall;
@@ -51,8 +52,8 @@ pub fn writeFile(io: std.Io, path: []const u8, data: []const u8) SigError!void {
 
 /// Copy a file from src_path to dst_path using a fixed-size chunk buffer.
 /// Handles files of any size without requiring the whole file in memory.
-pub fn copyFile(io: std.Io, src_path: []const u8, dst_path: []const u8) SigError!void {
-    const cwd: std.Io.Dir = .cwd();
+pub fn copyFile(io: sig_io.Io, src_path: []const u8, dst_path: []const u8) SigError!void {
+    const cwd: sig_io.Dir = .cwd();
     var src = cwd.openFile(io, src_path, .{}) catch return error.BufferTooSmall;
     defer src.close(io);
     var dst = cwd.createFile(io, dst_path, .{}) catch return error.BufferTooSmall;
@@ -70,7 +71,7 @@ pub fn copyFile(io: std.Io, src_path: []const u8, dst_path: []const u8) SigError
 /// Join path segments into a caller-provided buffer using the platform separator.
 /// Returns the joined path slice, or `BufferTooSmall` if the buffer is insufficient.
 pub fn joinPath(buf: []u8, segments: []const []const u8) SigError![]u8 {
-    const sep = std.fs.path.sep;
+    const sep = if (builtin.os.tag == .windows) '\\' else '/';
     var offset: usize = 0;
     for (segments, 0..) |seg, i| {
         // Strip trailing separators from segment (except for root "/").
@@ -104,8 +105,8 @@ pub fn joinPath(buf: []u8, segments: []const []const u8) SigError![]u8 {
 
 /// List directory entries into a caller-provided array of DirEntry.
 /// Returns the filled slice, or `BufferTooSmall` if there are more entries than the buffer holds.
-pub fn listDir(io: std.Io, path: []const u8, entries: []DirEntry) SigError![]DirEntry {
-    const cwd: std.Io.Dir = .cwd();
+pub fn listDir(io: sig_io.Io, path: []const u8, entries: []DirEntry) SigError![]DirEntry {
+    const cwd: sig_io.Dir = .cwd();
     var dir = cwd.openDir(io, path, .{ .iterate = true }) catch return error.BufferTooSmall;
     defer dir.close(io);
 
