@@ -221,9 +221,10 @@ pub fn main(init: std.process.Init) !void {
 
     // ── 3. Smart Capacity: predict build graph size ────────────────────
     // Run the heuristic predictor on build.sig source to estimate required
-    // capacity. This runs before build() to provide early diagnostics and
-    // future AI-guided pre-sizing.
+    // capacity. If a local model is available, uses AI inference for higher
+    // accuracy. Results are cached between builds.
     const smart_cap = @import("smart_capacity.sig");
+    const model_pred = @import("model_predictor.sig");
     {
         const cwd: std.Io.Dir = .cwd();
         const build_file_path = runner_args.build_file[0..runner_args.build_file_len];
@@ -236,15 +237,28 @@ pub fn main(init: std.process.Init) !void {
         } else |_| {}
 
         if (build_source_len > 0) {
-            const prediction = smart_cap.predictFromSource(build_source_buf[0..build_source_len]);
+            // Try model-based prediction first (if model available), else heuristic
+            const source_hash = computeSourceHash(build_source_buf[0..build_source_len]);
+            const cache_dir_slice = runner_args.local_cache_dir[0..runner_args.local_cache_dir_len];
+
+            const prediction = smart_cap.predict(
+                build_source_buf[0..build_source_len],
+                source_hash,
+                cache_dir_slice,
+                io,
+                if (model_pred.isModelAvailable(io)) &model_pred.generate else null,
+            );
+
             if (config.verbose) {
-                sig_build.printMsg(io, "capacity prediction: modules={d}, imports/mod={d}, steps={d}, deps/step={d} (source: {s})", .{
+                sig_build.printMsg(io, "capacity prediction: modules={d}, imports/mod={d}, steps={d}, deps/step={d} (source: {s}, confidence: {d}%)", .{
                     prediction.module_count,
                     prediction.max_imports_per_module,
                     prediction.step_count,
                     prediction.max_deps_per_step,
                     @tagName(prediction.source),
+                    @as(u32, @intFromFloat(prediction.confidence * 100)),
                 });
+                model_pred.printStatus(io);
             }
             // Warn if prediction exceeds compiled limits
             if (prediction.module_count > sig_build.MAX_MODULES) {
@@ -462,4 +476,21 @@ pub fn main(init: std.process.Init) !void {
     if (summary.failed > 0) {
         sig_process.exit(1);
     }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+/// Compute a 128-bit hash of build.sig source for cache keying.
+/// Uses two XxHash64 instances with different seeds.
+fn computeSourceHash(source: []const u8) [16]u8 {
+    var h0 = std.hash.XxHash64.init(0);
+    var h1 = std.hash.XxHash64.init(0x9e3779b97f4a7c15);
+    h0.update(source);
+    h1.update(source);
+    const d0 = h0.final();
+    const d1 = h1.final();
+    var result: [16]u8 = undefined;
+    @memcpy(result[0..8], std.mem.asBytes(&d0));
+    @memcpy(result[8..16], std.mem.asBytes(&d1));
+    return result;
 }
