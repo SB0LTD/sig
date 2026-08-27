@@ -169,7 +169,7 @@ jobs:
           ci/build-self-hosted-release.sh \
             "$PREV_SIG" \
             "$LLVM_PREFIX" \
-            x86_64-linux-gnu \
+            native \
             build/zig2 \
             .sig-cache/bootstrap-linux
           file build/zig2 | grep -q 'ELF 64-bit.*x86-64'
