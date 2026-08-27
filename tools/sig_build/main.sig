@@ -27,22 +27,26 @@ pub const SigError = sig.SigError;
 // ── Capacity constants ──────────────────────────────────────────────────────
 // All fixed limits for the build runner. Exceeding any of these returns
 // SigError.CapacityExceeded — no silent fallback, no allocator.
-pub const MAX_STEPS = 256;
-// Large production graphs commonly use one aggregate test step with dozens of
-// leaf tests. 128 covers that fan-in while keeping both dependency tables
-// statically bounded. With u16 Step_Handle entries the forward and reverse
-// tables consume 2 * 256 * 128 * 2 = 128 KiB in total.
-pub const MAX_DEPS_PER_STEP = 128;
-pub const MAX_MODULES = 128;
-// Production modules such as a protocol connection or OS service commonly
-// compose more than eight leaf capabilities. Sixteen keeps the dependency
-// representation bounded while avoiding artificial umbrella modules.
-pub const MAX_IMPORTS_PER_MODULE = 16;
-pub const MAX_OPTIONS = 128;
-pub const MAX_CACHE_ENTRIES = 1024;
+//
+// These limits are generous enough for production-scale mono-repos with
+// hundreds of modules (e.g., full kernel + networking + transport + AI +
+// rendering + platform stacks). The build runner executes on the host
+// machine where memory is abundant — these consume ~4MB total, trivial
+// compared to compiler memory usage.
+pub const MAX_STEPS = 1024;
+// Steps can depend on many others (e.g., one aggregate "test" step with
+// hundreds of leaf test steps). 512 handles this fan-in comfortably.
+pub const MAX_DEPS_PER_STEP = 512;
+pub const MAX_MODULES = 1024;
+// Complex modules in large codebases (protocol stacks, OS service layers)
+// commonly compose 20+ leaf capabilities. 64 eliminates the need for
+// artificial umbrella modules while keeping memory bounded.
+pub const MAX_IMPORTS_PER_MODULE = 64;
+pub const MAX_OPTIONS = 256;
+pub const MAX_CACHE_ENTRIES = 4096;
 pub const MAX_THREADS = 64;
-pub const MAX_WORK_QUEUE = 64;
-pub const MAX_ENV_VARS = 64;
+pub const MAX_WORK_QUEUE = 512;
+pub const MAX_ENV_VARS = 128;
 pub const PATH_BUF_SIZE = 4096;
 // Module and import paths are project-relative build-graph metadata. Keeping
 // them separate from absolute process paths avoids multiplying a 4 KiB buffer
@@ -79,7 +83,9 @@ pub const DEPENDENCY_TABLE_BYTES = 2 * MAX_STEPS * MAX_DEPS_PER_STEP * @sizeOf(S
 
 comptime {
     if (MAX_DEPS_PER_STEP > MAX_STEPS) @compileError("dependency fan-in cannot exceed the step registry");
-    if (DEPENDENCY_TABLE_BYTES > 128 * 1024) @compileError("dependency tables exceed the 128 KiB build-runner budget");
+    // Build runner runs on the host — 8 MB for dependency tables is fine.
+    // This is less than 0.1% of a typical build host's RAM.
+    if (DEPENDENCY_TABLE_BYTES > 8 * 1024 * 1024) @compileError("dependency tables exceed the 8 MiB build-runner budget");
 }
 
 // ── Step types ──────────────────────────────────────────────────────────────
@@ -113,11 +119,6 @@ pub const Step_Entry = struct {
     module_deps: [MAX_IMPORTS_PER_MODULE]Module_Handle = undefined,
     module_dep_count: usize = 0,
     state: Step_State = .pending,
-    /// Optional path to a Windows resource script (.rc) to compile and link.
-    /// When set, the build system compiles it to a COFF object via `windres`
-    /// and passes the result to the linker. On non-Windows targets, ignored.
-    rc_path: [MODULE_PATH_BUF_SIZE]u8 = undefined,
-    rc_path_len: usize = 0,
 };
 
 pub const Step_Registry = struct {
@@ -271,7 +272,7 @@ pub const Module_Registry = struct {
 };
 
 comptime {
-    if (@sizeOf(Module_Registry) > 768 * 1024) @compileError("module registry exceeds the 768 KiB build-runner budget");
+    if (@sizeOf(Module_Registry) > 64 * 1024 * 1024) @compileError("module registry exceeds the 64 MiB build-runner budget");
 }
 
 // ── Option types ────────────────────────────────────────────────────────────
@@ -542,12 +543,6 @@ fn resolveOutputBinName(buf: *[NAME_BUF_SIZE]u8, base_name: []const u8, target: 
     // Non-Windows or buffer overflow fallback: return name as-is.
     @memcpy(buf[0..base_name.len], base_name);
     return buf[0..base_name.len];
-}
-
-/// Returns true if the target triple specifies Windows, or if no explicit
-/// target is set and the host platform is Windows.
-fn isWindowsTarget(target: *const Target_Triple) bool {
-    return target.os_len >= 7 and std.mem.eql(u8, target.os[0..7], "windows");
 }
 
 // ── Target and optimization ──────────────────────────────────────────────
@@ -1169,9 +1164,6 @@ pub const Compile_Options = struct {
     imports: []const Import_Entry,
     /// Path to the sig/Sig compiler binary. If empty, uses "sig" (found via PATH).
     compiler_path: []const u8,
-    /// Optional Windows resource script (.rc). Compiled to COFF and linked on
-    /// Windows targets (embeds icons, manifests, version info). Ignored on other platforms.
-    rc_path: []const u8 = "",
 };
 
 // ── Version string resolution ────────────────────────────────────────────────
@@ -3304,14 +3296,6 @@ pub const Build_Context = struct {
             step.module_dep_count += 1;
         }
 
-        // Store rc_path if provided (Windows resource script for icon/manifest embedding)
-        if (opts.rc_path.len > 0) {
-            var step = &self.steps.entries[handle];
-            if (opts.rc_path.len > MODULE_PATH_BUF_SIZE) return error.BufferTooSmall;
-            @memcpy(step.rc_path[0..opts.rc_path.len], opts.rc_path);
-            step.rc_path_len = opts.rc_path.len;
-        }
-
         return handle;
     }
 
@@ -3580,37 +3564,6 @@ pub const Build_Context = struct {
         @memcpy(emit_flag[0..emit_prefix.len], emit_prefix);
         @memcpy(emit_flag[emit_prefix.len..][0..output.len], output);
         try cmd.appendArg(emit_flag[0 .. emit_prefix.len + output.len]);
-
-        // ── Windows resource compilation (.rc → .obj) ───────────────────
-        // If the step has an rc_path set and we're targeting Windows (or native
-        // on a Windows host), compile the resource script to a COFF object and
-        // pass it as a positional file argument so the linker embeds it.
-        var rc_obj_path_buf: [PATH_BUF_SIZE]u8 = undefined;
-        if (entry.rc_path_len > 0) {
-            const rc_path = entry.rc_path[0..entry.rc_path_len];
-            const is_windows_target = build_ctx.target.arch_len == 0 or isWindowsTarget(&build_ctx.target);
-            if (is_windows_target) {
-                // Output .res.obj into the step cache directory
-                const rc_obj_path = sig_fs.joinPath(&rc_obj_path_buf, &.{ step_cache_dir, "resource.obj" }) catch return error.BufferTooSmall;
-                // Compile: windres <rc_path> -o <rc_obj_path> --output-format=coff
-                var rc_cmd: Command_Buffer = .{};
-                try rc_cmd.appendArg("windres");
-                try rc_cmd.appendArg(rc_path);
-                try rc_cmd.appendArg("-o");
-                try rc_cmd.appendArg(rc_obj_path);
-                try rc_cmd.appendArg("--output-format=coff");
-                var rc_stderr: [STDERR_CAPTURE_SIZE]u8 = undefined;
-                var rc_stderr_len: usize = 0;
-                const rc_exit = try runCommand(&rc_cmd, &rc_stderr, &rc_stderr_len, io);
-                if (rc_exit != 0) {
-                    if (rc_stderr_len > 0) printMsg(io, "resource compile failed:\n{s}", .{rc_stderr[0..rc_stderr_len]});
-                    return error.BufferTooSmall;
-                }
-                // Pass the compiled resource object to the linker
-                try cmd.appendArg(rc_obj_path);
-                printMsg(io, "  rc: {s} -> {s}", .{ rc_path, rc_obj_path });
-            }
-        }
 
         printMsg(io, "compile: {s} -> {s} ({d} modules)", .{ source_path, output, build_ctx.modules.count });
         var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
