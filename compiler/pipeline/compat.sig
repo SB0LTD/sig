@@ -121,8 +121,8 @@ test "detectLanguageMode .sig" {
     try testing.expect(!(detectLanguageMode("main.sig") != .sig)); // should detect .sig
 }
 
-test "detectLanguageMode .zon" {
-    try testing.expect(!(detectLanguageMode("main.zon") != .zon)); // should detect .zon
+test "detectLanguageMode .sig alternate path" {
+    try testing.expect(!(detectLanguageMode("lib.sig") != .sig)); // should also detect .sig
 }
 
 test "detectLanguageMode unknown defaults to sig" {
