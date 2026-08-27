@@ -219,7 +219,48 @@ pub fn main(init: std.process.Init) !void {
         sig_build.printMsg(io, "prefix:     {s}", .{ctx.install_prefix[0..ctx.install_prefix_len]});
     }
 
-    // ── 3. Call build.sig's build function ──────────────────────────────
+    // ── 3. Smart Capacity: predict build graph size ────────────────────
+    // Run the heuristic predictor on build.sig source to estimate required
+    // capacity. This runs before build() to provide early diagnostics and
+    // future AI-guided pre-sizing.
+    const smart_cap = @import("smart_capacity.sig");
+    {
+        const cwd: std.Io.Dir = .cwd();
+        const build_file_path = runner_args.build_file[0..runner_args.build_file_len];
+        var build_source_buf: [32768]u8 = undefined;
+        var build_source_len: usize = 0;
+        if (cwd.openFile(io, build_file_path, .{})) |*file| {
+            const n = file.reader(io, &.{}).interface.readSliceShort(&build_source_buf) catch 0;
+            build_source_len = n;
+            file.close(io);
+        } else |_| {}
+
+        if (build_source_len > 0) {
+            const prediction = smart_cap.predictFromSource(build_source_buf[0..build_source_len]);
+            if (config.verbose) {
+                sig_build.printMsg(io, "capacity prediction: modules={d}, imports/mod={d}, steps={d}, deps/step={d} (source: {s})", .{
+                    prediction.module_count,
+                    prediction.max_imports_per_module,
+                    prediction.step_count,
+                    prediction.max_deps_per_step,
+                    @tagName(prediction.source),
+                });
+            }
+            // Warn if prediction exceeds compiled limits
+            if (prediction.module_count > sig_build.MAX_MODULES) {
+                sig_build.printMsg(io, "warning: predicted module count ({d}) exceeds compiled limit ({d})", .{
+                    prediction.module_count, sig_build.MAX_MODULES,
+                });
+            }
+            if (prediction.step_count > sig_build.MAX_STEPS) {
+                sig_build.printMsg(io, "warning: predicted step count ({d}) exceeds compiled limit ({d})", .{
+                    prediction.step_count, sig_build.MAX_STEPS,
+                });
+            }
+        }
+    }
+
+    // ── 4. Call build.sig's build function ──────────────────────────────
     build_mod.build(&ctx) catch |err| {
         sig_build.fatal(io, "build.sig build() failed: {t}", .{err});
     };
