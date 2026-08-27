@@ -147,12 +147,19 @@ fn formatCachePath(buf: *[4096]u8, cache_dir: []const u8) ![]const u8 {
 
 /// Fast heuristic: count patterns in build.sig source to estimate capacity.
 /// This doesn't need a model — just regex-like pattern counting.
+/// Handles both sig_build API styles:
+///   - New: ctx.addModule(), try wire(), addTest()
+///   - Compile: ctx.addCompileStep() (single-step projects)
+///   - Old Zig: b.addModule(), mod.addImport()
 pub fn predictFromSource(source: []const u8) Prediction {
     var module_count: u32 = 0;
     var step_count: u32 = 0;
     var max_imports: u32 = 0;
     var current_imports: u32 = 0;
     var wire_count: u32 = 0;
+    var compile_steps: u32 = 0;
+    var link_libs: u32 = 0;
+    var old_add_import: u32 = 0;
 
     // Count lines containing key patterns
     var i: usize = 0;
@@ -163,14 +170,19 @@ pub fn predictFromSource(source: []const u8) Prediction {
         if (containsPattern(line, "addModule(")) module_count += 1;
         if (containsPattern(line, "addStep(") or containsPattern(line, "addTest(") or
             containsPattern(line, "addTestStep(")) step_count += 1;
+        if (containsPattern(line, "addCompileStep(")) { compile_steps += 1; step_count += 1; }
+        if (containsPattern(line, "addInstallStep(")) step_count += 1;
         if (containsPattern(line, "try wire(")) {
             wire_count += 1;
             current_imports += 1;
         }
         if (containsPattern(line, "importEntry(")) current_imports += 1;
+        if (containsPattern(line, ".addImport(")) { old_add_import += 1; current_imports += 1; }
+        if (containsPattern(line, "linkSystemLibrary(")) link_libs += 1;
 
         // Track max imports per block (reset on new module/step)
-        if (containsPattern(line, "addModule(") or containsPattern(line, "addTest(")) {
+        if (containsPattern(line, "addModule(") or containsPattern(line, "addTest(") or
+            containsPattern(line, "addCompileStep(")) {
             if (current_imports > max_imports) max_imports = current_imports;
             current_imports = 0;
         }
@@ -179,8 +191,16 @@ pub fn predictFromSource(source: []const u8) Prediction {
     }
     if (current_imports > max_imports) max_imports = current_imports;
 
-    // Wire calls can register new modules (transitive deps)
-    const total_modules = module_count + wire_count / 2; // ~half are new registrations
+    // Wire calls and old addImport calls can register new modules
+    const transitive_modules = wire_count / 2 + old_add_import / 2;
+    var total_modules = module_count + transitive_modules;
+
+    // Compile steps imply the compiler resolves modules internally —
+    // estimate based on project size (link_libs is a proxy for complexity)
+    if (compile_steps > 0 and total_modules < 10) {
+        // Small sig_build project: estimate modules from link libraries and source size
+        total_modules = @max(total_modules, compile_steps * 10 + link_libs * 2);
+    }
 
     // Apply safety margin (1.5x) and minimum floors
     return .{
@@ -188,7 +208,7 @@ pub fn predictFromSource(source: []const u8) Prediction {
         .max_imports_per_module = @max(max_imports * 3 / 2, 16),
         .step_count = @max(step_count * 3 / 2, 64),
         .max_deps_per_step = @max(step_count, 64), // Aggregate steps can depend on all leaf steps
-        .suggested_threads = @intCast(@min(step_count, 16)),
+        .suggested_threads = @intCast(@min(@max(step_count, 4), 16)),
         .confidence = 0.8,
         .source = .heuristic,
     };
