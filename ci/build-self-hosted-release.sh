@@ -114,7 +114,7 @@ case "$TARGET" in
     ;;
   x86_64-linux-musl|aarch64-linux-musl)
     set -- \
-      -lstdc++ -lm -lz -lzstd -lpthread -ldl -lrt
+      -lc++ -lc++abi -lm -lz -lzstd -lpthread -ldl -lrt
     ;;
   x86_64-windows-gnu)
     set -- \
