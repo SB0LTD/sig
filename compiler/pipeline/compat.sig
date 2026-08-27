@@ -121,7 +121,8 @@ test "detectLanguageMode .sig" {
     try testing.expect(!(detectLanguageMode("main.sig") != .sig)); // should detect .sig
 }
 
-try testing.expect(!(detectLanguageMode("main.zon") != .zon)); // should detect .zon
+test "detectLanguageMode .zon" {
+    try testing.expect(!(detectLanguageMode("main.zon") != .zon)); // should detect .zon
 }
 
 test "detectLanguageMode unknown defaults to sig" {

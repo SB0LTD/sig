@@ -37,7 +37,7 @@ OPTIMIZE="${SIG_RELEASE_OPTIMIZE:-ReleaseFast}"
 STRIP="${SIG_RELEASE_STRIP:-true}"
 
 case "$TARGET" in
-  x86_64-linux-musl|aarch64-linux-musl|aarch64-macos-none|x86_64-windows-gnu) ;;
+  x86_64-linux-musl|x86_64-linux-gnu|aarch64-linux-musl|aarch64-macos-none|x86_64-windows-gnu) ;;
   *) echo "unsupported release target: $TARGET" >&2; exit 2 ;;
 esac
 
@@ -112,7 +112,7 @@ case "$TARGET" in
     # release must use Apple's system linker from the runner toolchain.
     lld_flag=-fno-lld
     ;;
-  x86_64-linux-musl|aarch64-linux-musl)
+  x86_64-linux-musl|x86_64-linux-gnu|aarch64-linux-musl)
     set -- \
       -lc++ -lc++abi -lstdc++ -lm -lz -lzstd -lpthread -ldl -lrt
     ;;
