@@ -22,3 +22,5 @@ pub const json = @import("json.sig");
 pub const process = @import("process.sig");
 pub const page_arena = @import("page_arena.sig");
 pub const hash_index = @import("hash_index.sig");
+pub const math = @import("math.sig");
+pub const mem = @import("mem.sig");
