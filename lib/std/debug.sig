@@ -1,4 +1,4 @@
-const std = @import("std.sig");
+const std = @import("std.zig");
 const Io = std.Io;
 const Writer = std.Io.Writer;
 const math = std.math;
@@ -16,19 +16,19 @@ const native_os = builtin.os.tag;
 
 const root = @import("root");
 
-pub const Dwarf = @import("debug/Dwarf.sig");
-pub const Pdb = @import("debug/Pdb.sig");
-pub const ElfFile = @import("debug/ElfFile.sig");
-pub const MachOFile = @import("debug/MachOFile.sig");
-pub const Info = @import("debug/Info.sig");
-pub const Coverage = @import("debug/Coverage.sig");
-pub const cpu_context = @import("debug/cpu_context.sig");
+pub const Dwarf = @import("debug/Dwarf.zig");
+pub const Pdb = @import("debug/Pdb.zig");
+pub const ElfFile = @import("debug/ElfFile.zig");
+pub const MachOFile = @import("debug/MachOFile.zig");
+pub const Info = @import("debug/Info.zig");
+pub const Coverage = @import("debug/Coverage.zig");
+pub const cpu_context = @import("debug/cpu_context.zig");
 
 /// This type abstracts the target-specific implementation of accessing this process' own debug
 /// information behind a generic interface which supports looking up source locations associated
 /// with addresses, as well as unwinding the stack where a safe mechanism to do so exists.
 ///
-/// The Sig Standard Library provides default implementations of `SelfInfo` for common targets, but
+/// The Zig Standard Library provides default implementations of `SelfInfo` for common targets, but
 /// the implementation can be overriden by exposing `root.debug.SelfInfo`. Setting `SelfInfo` to
 /// `void` indicates that the `SelfInfo` API is not supported.
 ///
@@ -69,14 +69,14 @@ else
 /// Returns the default `SelfInfo` for the given `os` and `arch`.
 pub fn TargetInfo(os: std.Target.Os.Tag, arch: std.Target.Cpu.Arch) type {
     return switch (std.Target.ObjectFormat.default(os, arch)) {
-        .coff => if (os == .windows) @import("debug/SelfInfo/Windows.sig") else void,
+        .coff => if (os == .windows) @import("debug/SelfInfo/Windows.zig") else void,
         .elf => switch (os) {
             .freestanding, .other => void,
-            else => @import("debug/SelfInfo/Elf.sig"),
+            else => @import("debug/SelfInfo/Elf.zig"),
         },
-        .macho => @import("debug/SelfInfo/MachO.sig"),
-        .plan9, .spirv, .wasm => void,
-        .c, .hex, .raw => unreachable,
+        .macho => @import("debug/SelfInfo/MachO.zig"),
+        .plan9, .spirv, .wasm, .raw, .hex => void,
+        .c => unreachable,
     };
 }
 
@@ -94,8 +94,8 @@ pub const SelfInfoError = error{
     Unexpected,
 };
 
-pub const simple_panic = @import("debug/simple_panic.sig");
-pub const no_panic = @import("debug/no_panic.sig");
+pub const simple_panic = @import("debug/simple_panic.zig");
+pub const no_panic = @import("debug/no_panic.zig");
 
 /// A fully-featured panic handler namespace which lowers all panics to calls to `panicFn`.
 /// Safety panics will use formatted printing to provide a meaningful error message.
@@ -260,7 +260,7 @@ pub const runtime_safety = builtin.mode.runtimeSafety();
 pub const sys_can_stack_trace = switch (builtin.cpu.arch) {
     // `@returnAddress()` in LLVM 10 gives
     // "Non-Emscripten WebAssembly hasn't implemented __builtin_return_address".
-    // On Emscripten, Sig only supports `@returnAddress()` in debug builds
+    // On Emscripten, Zig only supports `@returnAddress()` in debug builds
     // because Emscripten's implementation is very slow.
     .wasm32,
     .wasm64,
@@ -271,7 +271,7 @@ pub const sys_can_stack_trace = switch (builtin.cpu.arch) {
     .bpfeb,
     => false,
 
-    // https://codeberg.org/ziglang/Sig/issues/31127
+    // https://codeberg.org/ziglang/zig/issues/31127
     .avr => false,
 
     else => true,
@@ -380,7 +380,7 @@ pub fn dumpHexFallible(t: Io.Terminal, bytes: []const u8) !void {
             if (std.ascii.isPrint(byte)) {
                 try w.writeByte(byte);
             } else {
-                // Related: https://github.com/ziglang/Sig/issues/7600
+                // Related: https://github.com/ziglang/zig/issues/7600
                 if (t.mode == .windows_api) {
                     try w.writeByte('.');
                     continue;
@@ -388,7 +388,7 @@ pub fn dumpHexFallible(t: Io.Terminal, bytes: []const u8) !void {
 
                 // Let's print some common control codes as graphical Unicode symbols.
                 // We don't want to do this for all control codes because most control codes apart from
-                // the ones that Sig has escape sequences for are likely not very useful to print as symbols.
+                // the ones that Zig has escape sequences for are likely not very useful to print as symbols.
                 switch (byte) {
                     '\n' => try w.writeAll("␊"),
                     '\r' => try w.writeAll("␍"),
@@ -1374,14 +1374,14 @@ test printLineFromFile {
     var test_dir = testing.tmpDir(.{});
     defer test_dir.cleanup();
     // Relies on testing.tmpDir internals which is not ideal, but SourceLocation requires paths.
-    const test_dir_path = try join(gpa, &.{ ".sig-cache", "tmp", test_dir.sub_path[0..] });
+    const test_dir_path = try join(gpa, &.{ ".zig-cache", "tmp", test_dir.sub_path[0..] });
     defer gpa.free(test_dir_path);
 
     // Cases
     {
-        const path = try join(gpa, &.{ test_dir_path, "one_line.sig" });
+        const path = try join(gpa, &.{ test_dir_path, "one_line.zig" });
         defer gpa.free(path);
-        try test_dir.dir.writeFile(io, .{ .sub_path = "one_line.sig", .data = "no new lines in this file, but one is printed anyway" });
+        try test_dir.dir.writeFile(io, .{ .sub_path = "one_line.zig", .data = "no new lines in this file, but one is printed anyway" });
 
         try expectError(error.EndOfStream, printLineFromFile(io, output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
 
@@ -1390,10 +1390,10 @@ test printLineFromFile {
         aw.clearRetainingCapacity();
     }
     {
-        const path = try fs.path.join(gpa, &.{ test_dir_path, "three_lines.sig" });
+        const path = try fs.path.join(gpa, &.{ test_dir_path, "three_lines.zig" });
         defer gpa.free(path);
         try test_dir.dir.writeFile(io, .{
-            .sub_path = "three_lines.sig",
+            .sub_path = "three_lines.zig",
             .data =
             \\1
             \\2
@@ -1410,9 +1410,9 @@ test printLineFromFile {
         aw.clearRetainingCapacity();
     }
     {
-        const file = try test_dir.dir.createFile(io, "line_overlaps_page_boundary.sig", .{});
+        const file = try test_dir.dir.createFile(io, "line_overlaps_page_boundary.zig", .{});
         defer file.close(io);
-        const path = try fs.path.join(gpa, &.{ test_dir_path, "line_overlaps_page_boundary.sig" });
+        const path = try fs.path.join(gpa, &.{ test_dir_path, "line_overlaps_page_boundary.zig" });
         defer gpa.free(path);
 
         const overlap = 10;
@@ -1429,9 +1429,9 @@ test printLineFromFile {
         aw.clearRetainingCapacity();
     }
     {
-        const file = try test_dir.dir.createFile(io, "file_ends_on_page_boundary.sig", .{});
+        const file = try test_dir.dir.createFile(io, "file_ends_on_page_boundary.zig", .{});
         defer file.close(io);
-        const path = try fs.path.join(gpa, &.{ test_dir_path, "file_ends_on_page_boundary.sig" });
+        const path = try fs.path.join(gpa, &.{ test_dir_path, "file_ends_on_page_boundary.zig" });
         defer gpa.free(path);
 
         var file_writer = file.writer(io, &.{});
@@ -1443,9 +1443,9 @@ test printLineFromFile {
         aw.clearRetainingCapacity();
     }
     {
-        const file = try test_dir.dir.createFile(io, "very_long_first_line_spanning_multiple_pages.sig", .{});
+        const file = try test_dir.dir.createFile(io, "very_long_first_line_spanning_multiple_pages.zig", .{});
         defer file.close(io);
-        const path = try fs.path.join(gpa, &.{ test_dir_path, "very_long_first_line_spanning_multiple_pages.sig" });
+        const path = try fs.path.join(gpa, &.{ test_dir_path, "very_long_first_line_spanning_multiple_pages.zig" });
         defer gpa.free(path);
 
         var file_writer = file.writer(io, &.{});
@@ -1471,9 +1471,9 @@ test printLineFromFile {
         aw.clearRetainingCapacity();
     }
     {
-        const file = try test_dir.dir.createFile(io, "file_of_newlines.sig", .{});
+        const file = try test_dir.dir.createFile(io, "file_of_newlines.zig", .{});
         defer file.close(io);
-        const path = try fs.path.join(gpa, &.{ test_dir_path, "file_of_newlines.sig" });
+        const path = try fs.path.join(gpa, &.{ test_dir_path, "file_of_newlines.zig" });
         defer gpa.free(path);
 
         var file_writer = file.writer(io, &.{});
@@ -1557,7 +1557,7 @@ pub fn updateSegfaultHandler(act: ?*const posix.Sigaction) void {
 /// the stack (for a stack trace) when a signal is received requires special target-specific logic.
 ///
 /// On POSIX targets, the signal handler is configured to use the alternative signal stack. Such a
-/// stack is configured by the Sig Standard Library if `std.options.signal_stack_size` is set.
+/// stack is configured by the Zig Standard Library if `std.options.signal_stack_size` is set.
 ///
 /// The signals for which a handler is installed are:
 /// * SIGSEGV (segmentation fault)

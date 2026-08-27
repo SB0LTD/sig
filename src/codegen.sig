@@ -2,28 +2,28 @@ const std = @import("std");
 const build_options = @import("build_options");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const link = @import("link.sig");
+const link = @import("link.zig");
 const log = std.log.scoped(.codegen);
 const mem = std.mem;
 const math = std.math;
-const target_util = @import("target.sig");
-const trace = @import("tracy.sig").trace;
+const target_util = @import("target.zig");
+const trace = @import("tracy.zig").trace;
 
-const Air = @import("Air.sig");
+const Air = @import("Air.zig");
 const Allocator = mem.Allocator;
-const Compilation = @import("Compilation.sig");
+const Compilation = @import("Compilation.zig");
 const ErrorMsg = Zcu.ErrorMsg;
-const InternPool = @import("InternPool.sig");
-const Zcu = @import("Zcu.sig");
+const InternPool = @import("InternPool.zig");
+const Zcu = @import("Zcu.zig");
 
-const Type = @import("Type.sig");
-const Value = @import("Value.sig");
-const Zir = std.sig.Zir;
+const Type = @import("Type.zig");
+const Value = @import("Value.zig");
+const Zir = std.zig.Zir;
 const Alignment = InternPool.Alignment;
-const dev = @import("dev.sig");
+const dev = @import("dev.zig");
 
-pub const aarch64 = @import("codegen/aarch64.sig");
-pub const loongarch = @import("codegen/loongarch.sig");
+pub const aarch64 = @import("codegen/aarch64.zig");
+pub const loongarch = @import("codegen/loongarch.zig");
 
 pub const Error = link.Error;
 
@@ -38,6 +38,7 @@ fn devFeatureForBackend(backend: std.lang.CompilerBackend) dev.Feature {
         .stage2_powerpc => unreachable,
         .stage2_riscv64 => .riscv64_backend,
         .stage2_sparc64 => .sparc64_backend,
+        .zsf_spork8 => .spork8_backend,
         .stage2_spirv => .spirv_backend,
         .stage2_wasm => .wasm_backend,
         .stage2_x86 => .x86_backend,
@@ -51,15 +52,16 @@ fn importBackend(comptime backend: std.lang.CompilerBackend) type {
         .other, .stage1 => unreachable,
         .stage2_aarch64 => aarch64,
         .stage2_arm => unreachable,
-        .stage2_c => @import("codegen/c.sig"),
-        .stage2_llvm => @import("codegen/llvm.sig"),
+        .stage2_c => @import("codegen/c.zig"),
+        .stage2_llvm => @import("codegen/llvm.zig"),
         .stage2_loongarch => loongarch,
         .stage2_powerpc => unreachable,
-        .stage2_riscv64 => @import("codegen/riscv64/CodeGen.sig"),
-        .stage2_sparc64 => @import("codegen/sparc64/CodeGen.sig"),
-        .stage2_spirv => @import("codegen/spirv/CodeGen.sig"),
-        .stage2_wasm => @import("codegen/wasm/CodeGen.sig"),
-        .stage2_x86, .stage2_x86_64 => @import("codegen/x86_64/CodeGen.sig"),
+        .stage2_riscv64 => @import("codegen/riscv64/CodeGen.zig"),
+        .stage2_sparc64 => @import("codegen/sparc64/CodeGen.zig"),
+        .stage2_spirv => @import("codegen/spirv/CodeGen.zig"),
+        .zsf_spork8 => @import("codegen/spork8/CodeGen.zig"),
+        .stage2_wasm => @import("codegen/wasm/CodeGen.zig"),
+        .stage2_x86, .stage2_x86_64 => @import("codegen/x86_64/CodeGen.zig"),
         _ => unreachable,
     };
 }
@@ -78,6 +80,7 @@ pub fn legalizeFeatures(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) ?*co
         .stage2_x86,
         .stage2_riscv64,
         .stage2_sparc64,
+        .zsf_spork8,
         .stage2_spirv,
         => |backend| {
             dev.check(devFeatureForBackend(backend));
@@ -99,14 +102,15 @@ pub fn wantsLiveness(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) bool {
 /// MIR from codegen to the linker *regardless* of which backend is in use. So, we use this: a
 /// union of all MIR types. The active tag is known from the backend in use; see `AnyMir.tag`.
 pub const AnyMir = union {
-    aarch64: if (dev.env.supports(.aarch64_backend)) @import("codegen/aarch64/Mir.sig") else noreturn,
-    loongarch: if (dev.env.supports(.loongarch_backend)) @import("codegen/loongarch/Mir.sig") else noreturn,
-    riscv64: if (dev.env.supports(.riscv64_backend)) @import("codegen/riscv64/Mir.sig") else noreturn,
-    sparc64: if (dev.env.supports(.sparc64_backend)) @import("codegen/sparc64/Mir.sig") else noreturn,
-    x86_64: if (dev.env.supports(.x86_64_backend)) @import("codegen/x86_64/Mir.sig") else noreturn,
-    wasm: if (dev.env.supports(.wasm_backend)) @import("codegen/wasm/Mir.sig") else noreturn,
-    c: if (dev.env.supports(.c_backend)) @import("codegen/c.sig").Mir else noreturn,
-    spirv: if (dev.env.supports(.spirv_backend)) @import("codegen/spirv/Mir.sig") else noreturn,
+    aarch64: if (dev.env.supports(.aarch64_backend)) @import("codegen/aarch64/Mir.zig") else noreturn,
+    loongarch: if (dev.env.supports(.loongarch_backend)) @import("codegen/loongarch/Mir.zig") else noreturn,
+    riscv64: if (dev.env.supports(.riscv64_backend)) @import("codegen/riscv64/Mir.zig") else noreturn,
+    sparc64: if (dev.env.supports(.sparc64_backend)) @import("codegen/sparc64/Mir.zig") else noreturn,
+    x86_64: if (dev.env.supports(.x86_64_backend)) @import("codegen/x86_64/Mir.zig") else noreturn,
+    wasm: if (dev.env.supports(.wasm_backend)) @import("codegen/wasm/Mir.zig") else noreturn,
+    c: if (dev.env.supports(.c_backend)) @import("codegen/c.zig").Mir else noreturn,
+    spirv: if (dev.env.supports(.spirv_backend)) @import("codegen/spirv/Mir.zig") else noreturn,
+    spork8: if (dev.env.supports(.spork8_backend)) @import("codegen/spork8/Mir.zig") else noreturn,
 
     pub inline fn tag(comptime backend: std.lang.CompilerBackend) []const u8 {
         return switch (backend) {
@@ -118,6 +122,7 @@ pub const AnyMir = union {
             .stage2_wasm => "wasm",
             .stage2_c => "c",
             .stage2_spirv => "spirv",
+            .zsf_spork8 => "spork8",
             else => unreachable,
         };
     }
@@ -135,6 +140,7 @@ pub const AnyMir = union {
             .stage2_wasm,
             .stage2_c,
             .stage2_spirv,
+            .zsf_spork8,
             => |backend_ct| @field(mir, tag(backend_ct)).deinit(gpa),
         }
     }
@@ -164,6 +170,7 @@ pub fn generateFunction(
         .stage2_x86_64,
         .stage2_wasm,
         .stage2_c,
+        .zsf_spork8,
         .stage2_spirv,
         => |backend| {
             dev.check(devFeatureForBackend(backend));
@@ -875,8 +882,6 @@ pub fn genNavRef(
         }
     } else if (lf.cast(.coff2)) |coff| {
         return @fromBackingInt(@intCast(@backingInt(try coff.navSymbol(zcu, nav_index))));
-    } else if (lf.cast(.sb0)) |sb0| {
-        return sb0.navSymbolId(nav_index);
     } else {
         std.debug.panic("TODO genNavRef for '{t}'", .{lf.tag});
     }

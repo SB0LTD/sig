@@ -2,11 +2,11 @@ const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 
-const Type = @import("Type.sig");
+const Type = @import("Type.zig");
 const AddressSpace = std.lang.AddressSpace;
-const Alignment = @import("InternPool.sig").Alignment;
-const Compilation = @import("Compilation.sig");
-const Feature = @import("Zcu.sig").Feature;
+const Alignment = @import("InternPool.zig").Alignment;
+const Compilation = @import("Compilation.zig");
+const Feature = @import("Zcu.zig").Feature;
 
 pub const default_stack_protector_buffer_size = 4;
 
@@ -24,7 +24,7 @@ pub fn canDynamicLink(target: *const std.Target) bool {
         => true,
         else => switch (target.os.tag) {
             // This list is likely incomplete.
-            .freestanding, .sb0, .uefi => false,
+            .freestanding, .uefi => false,
             else => true,
         },
     };
@@ -52,7 +52,6 @@ pub fn libCxxNeedsLibUnwind(target: *const std.Target) bool {
         .tvos,
         .visionos,
         .freestanding,
-        .sb0,
         .wasi, // Wasm/WASI currently doesn't offer support for libunwind, so don't link it.
         => false,
 
@@ -272,17 +271,15 @@ pub fn hasLlvmSupport(target: *const std.Target, ofmt: std.Target.ObjectFormat) 
         .sheb,
         .x86_16,
         .xtensaeb,
+        .spork8,
         => false,
     };
 }
 
-/// The set of targets that Sig supports using LLD to link for.
+/// The set of targets that Zig supports using LLD to link for.
 pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
     return switch (ofmt) {
-        // Raw images use LLD's mature ELF relocation engine internally, then
-        // Sig rewrites the output in-place as a flat load image before the
-        // compiler returns. No ELF artifact survives the compiler boundary.
-        .elf, .raw, .coff, .wasm => true,
+        .elf, .coff, .wasm => true,
         else => false,
     };
 }
@@ -300,14 +297,14 @@ pub fn hasNewLinker(ofmt: std.Target.ObjectFormat) bool {
 /// debug mode. A given target should only return true here if it is passing greater
 /// than or equal to the number of behavior tests as the respective LLVM backend.
 pub fn selfHostedBackendIsAsRobustAsLlvm(target: *const std.Target) bool {
-    if (comptime builtin.cpu.arch.endian() == .big) return false; // https://github.com/ziglang/Sig/issues/25961
+    if (comptime builtin.cpu.arch.endian() == .big) return false; // https://github.com/ziglang/zig/issues/25961
     if (target.cpu.arch.isSpirV()) return true;
     if (target.cpu.arch == .x86_64 and target.ptrBitWidth() == 64) {
         if (target.os.tag == .illumos) {
-            // https://github.com/ziglang/Sig/issues/25699
+            // https://github.com/ziglang/zig/issues/25699
             return false;
         }
-        // Self-hosted linker needs work: https://github.com/ziglang/Sig/issues/24341
+        // Self-hosted linker needs work: https://github.com/ziglang/zig/issues/24341
         switch (target.os.tag) {
             .dragonfly,
             .freebsd,
@@ -318,7 +315,7 @@ pub fn selfHostedBackendIsAsRobustAsLlvm(target: *const std.Target) bool {
         }
         return switch (target.ofmt) {
             .elf => true,
-            .macho => false, // https://codeberg.org/ziglang/Sig/issues/35267
+            .macho => false, // https://codeberg.org/ziglang/zig/issues/35267
             else => false,
         };
     }
@@ -379,7 +376,7 @@ pub const CompilerRtClassification = enum { none, only_compiler_rt, only_libunwi
 pub fn classifyCompilerRtLibName(name: []const u8) CompilerRtClassification {
     if (std.mem.eql(u8, name, "gcc_s")) {
         // libgcc_s includes exception handling functions, so if linking this library
-        // is requested, Sig needs to instead link libunwind. Otherwise we end up with
+        // is requested, zig needs to instead link libunwind. Otherwise we end up with
         // the linker unable to find `_Unwind_RaiseException` and other related symbols.
         return .both;
     }
@@ -399,26 +396,29 @@ pub fn classifyCompilerRtLibName(name: []const u8) CompilerRtClassification {
 }
 
 pub fn hasDebugInfo(target: *const std.Target) bool {
-    return switch (target.cpu.arch) {
-        // TODO: We should make newer PTX versions depend on older ones so we'd just check `ptx75`.
-        .nvptx, .nvptx64 => target.cpu.hasAny(.nvptx, &.{
-            .ptx75,
-            .ptx76,
-            .ptx77,
-            .ptx78,
-            .ptx80,
-            .ptx81,
-            .ptx82,
-            .ptx83,
-            .ptx84,
-            .ptx85,
-            .ptx86,
-            .ptx87,
-            .ptx88,
-            .ptx90,
-        }),
-        .bpfel, .bpfeb => false,
-        else => true,
+    return switch (target.ofmt) {
+        .raw, .hex => false,
+        else => switch (target.cpu.arch) {
+            // TODO: We should make newer PTX versions depend on older ones so we'd just check `ptx75`.
+            .nvptx, .nvptx64 => target.cpu.hasAny(.nvptx, &.{
+                .ptx75,
+                .ptx76,
+                .ptx77,
+                .ptx78,
+                .ptx80,
+                .ptx81,
+                .ptx82,
+                .ptx83,
+                .ptx84,
+                .ptx85,
+                .ptx86,
+                .ptx87,
+                .ptx88,
+                .ptx90,
+            }),
+            .bpfel, .bpfeb => false,
+            else => true,
+        },
     };
 }
 
@@ -437,7 +437,8 @@ pub fn canBuildLibCompilerRt(target: *const std.Target) enum { no, yes, llvm_onl
     }
     switch (target.cpu.arch) {
         .spirv32, .spirv64 => return .no,
-        // Remove this once https://github.com/ziglang/Sig/issues/23714 is fixed
+        .spork8 => return .no,
+        // Remove this once https://github.com/ziglang/zig/issues/23714 is fixed
         .amdgcn => return .no,
         else => {},
     }
@@ -449,8 +450,9 @@ pub fn canBuildLibCompilerRt(target: *const std.Target) enum { no, yes, llvm_onl
 
 pub fn canBuildLibUbsanRt(target: *const std.Target) enum { no, yes, llvm_only, llvm_lld_only } {
     switch (target.cpu.arch) {
+        .spork8 => return .no,
         .spirv32, .spirv64 => return .no,
-        // Remove this once https://github.com/ziglang/Sig/issues/23715 is fixed
+        // Remove this once https://github.com/ziglang/zig/issues/23715 is fixed
         .nvptx, .nvptx64 => return .no,
         else => {},
     }
@@ -853,7 +855,7 @@ pub fn functionPointerMask(target: *const std.Target) ?u64 {
 
 pub fn supportsTailCall(target: *const std.Target, backend: std.lang.CompilerBackend) bool {
     switch (backend) {
-        .stage2_llvm => return @import("codegen/llvm.sig").supportsTailCall(target),
+        .stage2_llvm => return @import("codegen/llvm.zig").supportsTailCall(target),
         .stage2_c => return true,
         else => return false,
     }
@@ -911,7 +913,7 @@ pub fn compilerRtIntAbbrev(bits: u16) []const u8 {
 pub fn fnCallConvAllowsZigTypes(cc: std.lang.CallingConvention) bool {
     return switch (cc) {
         .auto, .async, .@"inline" => true,
-        // For now we want to authorize PTX kernel to use Sig objects, even if
+        // For now we want to authorize PTX kernel to use zig objects, even if
         // we end up exposing the ABI. The goal is to experiment with more
         // integrated CPU/GPU code.
         .nvptx_kernel => true,
@@ -933,6 +935,7 @@ pub fn zigBackend(target: *const std.Target, use_llvm: bool) std.lang.CompilerBa
         .wasm32, .wasm64 => .stage2_wasm,
         .x86 => .stage2_x86,
         .x86_64 => .stage2_x86_64,
+        .spork8 => .zsf_spork8,
         else => .other,
     };
 }

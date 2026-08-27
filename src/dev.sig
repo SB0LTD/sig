@@ -11,54 +11,58 @@ pub const Env = enum {
     /// stage3 features
     full,
 
-    /// - `Sig cc`
-    /// - `Sig c++`
-    /// - `Sig translate-c`
+    /// - `zig cc`
+    /// - `zig c++`
+    /// - `zig translate-c`
     c_source,
 
-    /// - `Sig ast-check`
-    /// - `Sig changelist`
-    /// - `Sig dump-zir`
+    /// - `zig ast-check`
+    /// - `zig changelist`
+    /// - `zig dump-zir`
     ast_gen,
 
     /// - ast_gen
-    /// - `Sig build-* -fno-emit-bin`
+    /// - `zig build-* -fno-emit-bin`
     sema,
 
     /// - sema
-    /// - `Sig build-* -fincremental -fno-llvm -fno-lld -target aarch64-linux --listen=-`
+    /// - `zig build-* -fincremental -fno-llvm -fno-lld -target aarch64-linux --listen=-`
     @"aarch64-linux",
 
-    /// - `Sig build-* -ofmt=c`
+    /// - `zig build-* -ofmt=c`
     cbe,
 
     /// - sema
-    /// - `Sig build-* -fincremental -fno-llvm -fno-lld -target powerpc(64)(le)-linux --listen=-`
+    /// - `zig build-* -fincremental -fno-llvm -fno-lld -target powerpc(64)(le)-linux --listen=-`
     @"powerpc-linux",
 
     /// - sema
-    /// - `Sig build-* -fno-llvm -fno-lld -target riscv64-linux`
+    /// - `zig build-* -fno-llvm -fno-lld -target riscv64-linux`
     @"riscv64-linux",
 
     /// - sema
-    /// - `Sig build-* -fno-llvm -fno-lld -target spirv(32/64)-* --listen=-`
+    /// - `zig build-* -fno-llvm -fno-lld -target spirv(32/64)-* --listen=-`
     spirv,
 
     /// - sema
-    /// - `Sig build-* -fno-llvm -fno-lld -target wasm32-* --listen=-`
+    /// - `zig build-* -fno-llvm -fno-lld -target wasm32-* --listen=-`
     wasm,
 
     /// - sema
-    /// - `Sig build-* -fincremental -fno-llvm -fno-lld -target x86_64-linux --listen=-`
+    /// - `zig build-* -fincremental -fno-llvm -fno-lld -target x86_64-linux --listen=-`
     @"x86_64-linux",
 
     /// - sema
-    /// - `Sig build-* -fincremental -fno-llvm -fno-lld -target x86_64-windows --listen=-`
+    /// - `zig build-* -fincremental -fno-llvm -fno-lld -target x86_64-windows --listen=-`
     @"x86_64-windows",
 
     /// - sema
-    /// - `Sig build-* -fincremental -fno-llvm -fno-lld -target loongarch(32/64)-linux --listen=-`
+    /// - `zig build-* -fincremental -fno-llvm -fno-lld -target loongarch(32/64)-linux --listen=-`
     @"loongarch-linux",
+
+    /// - sema
+    /// - `zig build-* -fno-llvm -fno-lld -target spork8-* --listen=-`
+    spork8,
 
     pub inline fn supports(comptime dev_env: Env, comptime feature: Feature) bool {
         return switch (dev_env) {
@@ -102,6 +106,7 @@ pub const Env = enum {
                 .sparc64_backend,
                 .spirv_backend,
                 .loongarch_backend,
+                .spork8_backend,
                 .lld_linker,
                 .coff_linker,
                 .coff2_linker,
@@ -112,7 +117,7 @@ pub const Env = enum {
                 .wasm_linker,
                 .spirv_linker,
                 .plan9_linker,
-                .sb0_linker,
+                .spork8_linker,
                 .jit_command,
                 => true,
                 .cc_command,
@@ -240,6 +245,15 @@ pub const Env = enum {
                 => true,
                 else => Env.sema.supports(feature),
             },
+            .spork8 => switch (feature) {
+                .stdio_listen,
+                .incremental,
+                .legalize,
+                .spork8_backend,
+                .spork8_linker,
+                => true,
+                else => Env.sema.supports(feature),
+            },
         };
     }
 
@@ -304,6 +318,7 @@ pub const Feature = enum {
     sparc64_backend,
     spirv_backend,
     loongarch_backend,
+    spork8_backend,
 
     lld_linker,
     coff_linker,
@@ -315,7 +330,7 @@ pub const Feature = enum {
     wasm_linker,
     spirv_linker,
     plan9_linker,
-    sb0_linker,
+    spork8_linker,
 };
 
 /// Makes the code following the call to this function unreachable if `feature` is disabled.
