@@ -2,7 +2,6 @@
 //!
 //! Reads tar archive entries into caller-provided buffers. No allocator.
 
-const std = @import("std");
 const SigError = @import("errors.sig").SigError;
 
 /// A tar entry header parsed into fixed-size fields.

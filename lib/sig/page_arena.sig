@@ -19,7 +19,7 @@
 //! This is NOT a general-purpose allocator. It is specifically designed for
 //! build-graph construction where all data lives until process exit.
 
-const std = @import("std");
+const os = @import("os.sig");
 const builtin = @import("builtin");
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -245,15 +245,13 @@ fn releaseVirtualMemory(addr: [*]u8, size: usize) void {
 
 // ── Windows (VirtualAlloc / VirtualFree) ──
 
-const windows = if (builtin.os.tag == .windows) std.os.windows else undefined;
-
 fn reserveWindows(size: usize) [*]u8 {
     // MEM_RESERVE: reserves address range without committing physical pages
-    const ptr = windows.VirtualAlloc(
+    const ptr = os.kernel32.VirtualAlloc(
         null,
         size,
-        windows.MEM_RESERVE,
-        windows.PAGE_READWRITE,
+        os.MEM_RESERVE,
+        os.PAGE_READWRITE,
     );
     if (ptr == null) {
         // Fatal: cannot reserve virtual memory. This should never happen
@@ -265,11 +263,11 @@ fn reserveWindows(size: usize) [*]u8 {
 
 fn commitWindows(addr: [*]u8, size: usize) void {
     // MEM_COMMIT: backs the reserved range with physical pages
-    const result = windows.VirtualAlloc(
+    const result = os.kernel32.VirtualAlloc(
         @ptrCast(addr),
         size,
-        windows.MEM_COMMIT,
-        windows.PAGE_READWRITE,
+        os.MEM_COMMIT,
+        os.PAGE_READWRITE,
     );
     if (result == null) {
         @panic("PageArena: VirtualAlloc MEM_COMMIT failed");
@@ -277,48 +275,47 @@ fn commitWindows(addr: [*]u8, size: usize) void {
 }
 
 fn decommitWindows(addr: [*]u8, size: usize) void {
-    _ = windows.VirtualFree(@ptrCast(addr), size, windows.MEM_DECOMMIT);
+    _ = os.kernel32.VirtualFree(@ptrCast(addr), size, os.MEM_DECOMMIT);
 }
 
 fn releaseWindows(addr: [*]u8) void {
-    _ = windows.VirtualFree(@ptrCast(addr), 0, windows.MEM_RELEASE);
+    _ = os.kernel32.VirtualFree(@ptrCast(addr), 0, os.MEM_RELEASE);
 }
 
 // ── POSIX (mmap / madvise / munmap) ──
 
-const posix = if (builtin.os.tag != .windows) std.posix else undefined;
-
 fn reservePosix(size: usize) [*]u8 {
     // MAP_PRIVATE | MAP_ANONYMOUS: no file backing, private to process
     // PROT_NONE: no access until committed (pages are not physically backed)
-    const result = posix.mmap(
+    const result = os.posix.mmap(
         null,
         size,
-        posix.PROT.NONE,
-        .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
+        os.posix.PROT_NONE,
+        os.posix.MAP_PRIVATE | os.posix.MAP_ANONYMOUS,
         -1,
         0,
     );
-    if (result == posix.MAP_FAILED) {
+    if (result == os.posix.MAP_FAILED) {
         @panic("PageArena: mmap reserve failed");
     }
-    return @ptrCast(result);
+    return @ptrFromInt(result);
 }
 
 fn commitPosix(addr: [*]u8, size: usize) void {
     // mprotect to PROT_READ | PROT_WRITE enables access (commits on fault)
-    posix.mprotect(@alignCast(addr), size, posix.PROT.READ | posix.PROT.WRITE) catch {
+    const ret = os.posix.mprotect(@alignCast(addr), size, os.posix.PROT_READ | os.posix.PROT_WRITE);
+    if (ret != 0) {
         @panic("PageArena: mprotect commit failed");
-    };
+    }
 }
 
 fn decommitPosix(addr: [*]u8, size: usize) void {
     // MADV_DONTNEED: kernel may reclaim physical pages, zeroes on re-access
-    posix.madvise(@alignCast(addr), size, posix.MADV.DONTNEED) catch {};
+    _ = os.posix.madvise(@alignCast(addr), size, os.posix.MADV_DONTNEED);
     // Revoke access so subsequent commits are explicit
-    posix.mprotect(@alignCast(addr), size, posix.PROT.NONE) catch {};
+    _ = os.posix.mprotect(@alignCast(addr), size, os.posix.PROT_NONE);
 }
 
 fn releasePosix(addr: [*]u8, size: usize) void {
-    posix.munmap(@alignCast(addr), size) catch {};
+    _ = os.posix.munmap(@alignCast(addr), size);
 }

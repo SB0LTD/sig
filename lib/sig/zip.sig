@@ -3,7 +3,6 @@
 //! Reads zip archive entries into caller-provided buffers. No allocator.
 //! Parses the central directory to enumerate entries.
 
-const std = @import("std");
 const SigError = @import("errors.sig").SigError;
 
 /// A zip entry parsed into fixed-size fields.

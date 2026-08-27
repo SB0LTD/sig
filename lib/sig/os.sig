@@ -265,6 +265,20 @@ pub const kernel32 = if (native_os == .windows) struct {
         lpBuffer: ?LPWSTR,
         nSize: DWORD,
     ) callconv(.winapi) DWORD;
+
+    // Virtual memory management
+    pub extern "kernel32" fn VirtualAlloc(
+        lpAddress: ?LPVOID,
+        dwSize: SIZE_T,
+        flAllocationType: DWORD,
+        flProtect: DWORD,
+    ) callconv(.winapi) ?LPVOID;
+
+    pub extern "kernel32" fn VirtualFree(
+        lpAddress: LPVOID,
+        dwSize: SIZE_T,
+        dwFreeType: DWORD,
+    ) callconv(.winapi) BOOL;
 } else struct {};
 
 // STARTUPINFOW and PROCESS_INFORMATION — needed for CreateProcessW
@@ -423,6 +437,49 @@ pub const posix = if (native_os != .windows) struct {
     pub const PthreadCond = extern struct {
         __data: [PTHREAD_COND_SIZE]u8 = @as([PTHREAD_COND_SIZE]u8, @splat(0)),
     };
+
+    // ── Virtual memory management ───────────────────────────────────────
+
+    // mmap protection flags
+    pub const PROT_NONE: c_int = 0;
+    pub const PROT_READ: c_int = 1;
+    pub const PROT_WRITE: c_int = 2;
+
+    // mmap flags
+    pub const MAP_PRIVATE: c_int = 0x02;
+    pub const MAP_ANONYMOUS: c_int = 0x20;
+
+    // madvise flags
+    pub const MADV_DONTNEED: c_int = 4;
+
+    // MAP_FAILED sentinel
+    pub const MAP_FAILED: usize = ~@as(usize, 0);
+
+    pub extern "c" fn mmap(
+        addr: ?*anyopaque,
+        length: usize,
+        prot: c_int,
+        flags: c_int,
+        fd: c_int,
+        offset: i64,
+    ) callconv(.c) usize;
+
+    pub extern "c" fn munmap(
+        addr: [*]align(4096) u8,
+        length: usize,
+    ) callconv(.c) c_int;
+
+    pub extern "c" fn mprotect(
+        addr: [*]align(4096) u8,
+        length: usize,
+        prot: c_int,
+    ) callconv(.c) c_int;
+
+    pub extern "c" fn madvise(
+        addr: [*]align(4096) u8,
+        length: usize,
+        advice: c_int,
+    ) callconv(.c) c_int;
 } else struct {};
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1042,4 +1099,272 @@ pub fn exitProcess(code: u8) noreturn {
     } else {
         posix._exit(@intCast(code));
     }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Networking — Socket Primitives
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// BSD socket API for TCP networking. Used by lib/sig/http.sig for HTTP
+// client and server functionality. Platform-dispatched: Winsock2 on Windows,
+// libc sockets on POSIX.
+
+/// Platform socket handle type.
+pub const socket_t = if (native_os == .windows) usize else i32;
+
+/// Invalid socket sentinel.
+pub const INVALID_SOCKET: socket_t = if (native_os == .windows) ~@as(usize, 0) else -1;
+
+/// sockaddr_in for IPv4 connections (16 bytes, matches platform layout).
+pub const sockaddr_in = extern struct {
+    sin_family: u16 = AF_INET,
+    sin_port: u16 = 0, // network byte order (big-endian)
+    sin_addr: [4]u8 = .{ 0, 0, 0, 0 },
+    sin_zero: [8]u8 = .{ 0, 0, 0, 0, 0, 0, 0, 0 },
+};
+
+/// Address family: IPv4
+pub const AF_INET: u16 = 2;
+/// Socket type: stream (TCP)
+pub const SOCK_STREAM: i32 = 1;
+/// Protocol: TCP
+pub const IPPROTO_TCP: i32 = 6;
+/// Socket level for setsockopt
+pub const SOL_SOCKET: i32 = if (native_os == .windows) 0xFFFF else 1;
+/// Reuse address option
+pub const SO_REUSEADDR: i32 = if (native_os == .windows) 0x0004 else 2;
+/// Shutdown both directions
+pub const SHUT_RDWR: i32 = if (native_os == .windows) 2 else 2;
+
+// ── Windows Winsock2 Externs ────────────────────────────────────────────────
+
+pub const winsock = if (native_os == .windows) struct {
+    pub extern "ws2_32" fn WSAStartup(
+        wVersionRequired: u16,
+        lpWSAData: *anyopaque,
+    ) callconv(.winapi) i32;
+
+    pub extern "ws2_32" fn WSACleanup() callconv(.winapi) i32;
+
+    pub extern "ws2_32" fn socket(
+        af: i32,
+        sock_type: i32,
+        protocol: i32,
+    ) callconv(.winapi) usize;
+
+    pub extern "ws2_32" fn bind(
+        s: usize,
+        addr: *const anyopaque,
+        namelen: i32,
+    ) callconv(.winapi) i32;
+
+    pub extern "ws2_32" fn listen(
+        s: usize,
+        backlog: i32,
+    ) callconv(.winapi) i32;
+
+    pub extern "ws2_32" fn accept(
+        s: usize,
+        addr: ?*anyopaque,
+        addrlen: ?*i32,
+    ) callconv(.winapi) usize;
+
+    pub extern "ws2_32" fn connect(
+        s: usize,
+        addr: *const anyopaque,
+        namelen: i32,
+    ) callconv(.winapi) i32;
+
+    pub extern "ws2_32" fn send(
+        s: usize,
+        buf: [*]const u8,
+        len: i32,
+        flags: i32,
+    ) callconv(.winapi) i32;
+
+    pub extern "ws2_32" fn recv(
+        s: usize,
+        buf: [*]u8,
+        len: i32,
+        flags: i32,
+    ) callconv(.winapi) i32;
+
+    pub extern "ws2_32" fn closesocket(
+        s: usize,
+    ) callconv(.winapi) i32;
+
+    pub extern "ws2_32" fn setsockopt(
+        s: usize,
+        level: i32,
+        optname: i32,
+        optval: *const anyopaque,
+        optlen: i32,
+    ) callconv(.winapi) i32;
+
+    pub extern "ws2_32" fn shutdown(
+        s: usize,
+        how: i32,
+    ) callconv(.winapi) i32;
+
+    pub extern "ws2_32" fn WSAGetLastError() callconv(.winapi) i32;
+
+    pub const SOCKET_ERROR: i32 = -1;
+    pub const WSADATA_SIZE = 408; // sizeof(WSADATA) on x64
+} else struct {};
+
+// ── POSIX Socket Externs ────────────────────────────────────────────────────
+// (Added to posix namespace would require reopening the struct, so we use a
+//  separate namespace for socket-specific calls.)
+
+pub const posix_sock = if (native_os != .windows) struct {
+    pub extern "c" fn socket(domain: i32, sock_type: i32, protocol: i32) callconv(.c) i32;
+    pub extern "c" fn bind(sockfd: i32, addr: *const anyopaque, addrlen: u32) callconv(.c) i32;
+    pub extern "c" fn listen(sockfd: i32, backlog: i32) callconv(.c) i32;
+    pub extern "c" fn accept(sockfd: i32, addr: ?*anyopaque, addrlen: ?*u32) callconv(.c) i32;
+    pub extern "c" fn connect(sockfd: i32, addr: *const anyopaque, addrlen: u32) callconv(.c) i32;
+    pub extern "c" fn send(sockfd: i32, buf: [*]const u8, len: usize, flags: i32) callconv(.c) isize;
+    pub extern "c" fn recv(sockfd: i32, buf: [*]u8, len: usize, flags: i32) callconv(.c) isize;
+    pub extern "c" fn setsockopt(sockfd: i32, level: i32, optname: i32, optval: *const anyopaque, optlen: u32) callconv(.c) i32;
+    pub extern "c" fn shutdown(sockfd: i32, how: i32) callconv(.c) i32;
+    // close() is already in posix namespace — reuse os.posix.close for socket fds
+} else struct {};
+
+// ── High-Level Socket Operations ────────────────────────────────────────────
+
+/// Initialize the networking subsystem. On Windows, calls WSAStartup.
+/// On POSIX, this is a no-op. Must be called before any socket operations.
+/// Returns true on success.
+var wsa_initialized: bool = false;
+
+pub fn netInit() bool {
+    if (native_os == .windows) {
+        if (wsa_initialized) return true;
+        var wsa_data: [winsock.WSADATA_SIZE]u8 = @as([winsock.WSADATA_SIZE]u8, @splat(0));
+        const ret = winsock.WSAStartup(0x0202, @ptrCast(&wsa_data)); // Version 2.2
+        if (ret != 0) return false;
+        wsa_initialized = true;
+        return true;
+    } else {
+        return true; // No-op on POSIX
+    }
+}
+
+/// Create a TCP socket. Returns INVALID_SOCKET on failure.
+pub fn socketCreate() socket_t {
+    if (!netInit()) return INVALID_SOCKET;
+    if (native_os == .windows) {
+        const s = winsock.socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (s == ~@as(usize, 0)) return INVALID_SOCKET;
+        return s;
+    } else {
+        const fd = posix_sock.socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (fd < 0) return INVALID_SOCKET;
+        return fd;
+    }
+}
+
+/// Bind a socket to an address. Returns true on success.
+pub fn socketBind(sock: socket_t, addr: *const sockaddr_in) bool {
+    if (native_os == .windows) {
+        return winsock.bind(sock, @ptrCast(addr), @sizeOf(sockaddr_in)) == 0;
+    } else {
+        return posix_sock.bind(sock, @ptrCast(addr), @sizeOf(sockaddr_in)) == 0;
+    }
+}
+
+/// Listen on a bound socket. Returns true on success.
+pub fn socketListen(sock: socket_t, backlog: i32) bool {
+    if (native_os == .windows) {
+        return winsock.listen(sock, backlog) == 0;
+    } else {
+        return posix_sock.listen(sock, backlog) == 0;
+    }
+}
+
+/// Accept a connection on a listening socket. Returns INVALID_SOCKET on failure.
+pub fn socketAccept(sock: socket_t) socket_t {
+    if (native_os == .windows) {
+        const client = winsock.accept(sock, null, null);
+        if (client == ~@as(usize, 0)) return INVALID_SOCKET;
+        return client;
+    } else {
+        const client = posix_sock.accept(sock, null, null);
+        if (client < 0) return INVALID_SOCKET;
+        return client;
+    }
+}
+
+/// Connect a socket to an address. Returns true on success.
+pub fn socketConnect(sock: socket_t, addr: *const sockaddr_in) bool {
+    if (native_os == .windows) {
+        return winsock.connect(sock, @ptrCast(addr), @sizeOf(sockaddr_in)) == 0;
+    } else {
+        return posix_sock.connect(sock, @ptrCast(addr), @sizeOf(sockaddr_in)) == 0;
+    }
+}
+
+/// Send data on a connected socket. Returns bytes sent, or 0 on error.
+pub fn socketSend(sock: socket_t, data: []const u8) usize {
+    if (native_os == .windows) {
+        const len: i32 = @intCast(@min(data.len, 0x7FFFFFFF));
+        const ret = winsock.send(sock, data.ptr, len, 0);
+        if (ret <= 0) return 0;
+        return @intCast(ret);
+    } else {
+        const ret = posix_sock.send(sock, data.ptr, data.len, 0);
+        if (ret <= 0) return 0;
+        return @intCast(ret);
+    }
+}
+
+/// Send all data on a connected socket. Returns true if all bytes were sent.
+pub fn socketSendAll(sock: socket_t, data: []const u8) bool {
+    var sent: usize = 0;
+    while (sent < data.len) {
+        const n = socketSend(sock, data[sent..]);
+        if (n == 0) return false;
+        sent += n;
+    }
+    return true;
+}
+
+/// Receive data from a connected socket. Returns bytes received, or 0 on error/EOF.
+pub fn socketRecv(sock: socket_t, buf: []u8) usize {
+    if (native_os == .windows) {
+        const len: i32 = @intCast(@min(buf.len, 0x7FFFFFFF));
+        const ret = winsock.recv(sock, buf.ptr, len, 0);
+        if (ret <= 0) return 0;
+        return @intCast(ret);
+    } else {
+        const ret = posix_sock.recv(sock, buf.ptr, buf.len, 0);
+        if (ret <= 0) return 0;
+        return @intCast(ret);
+    }
+}
+
+/// Set SO_REUSEADDR on a socket. Returns true on success.
+pub fn socketSetReuseAddr(sock: socket_t, enabled: bool) bool {
+    const val: i32 = if (enabled) 1 else 0;
+    if (native_os == .windows) {
+        return winsock.setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, @ptrCast(&val), @sizeOf(i32)) == 0;
+    } else {
+        return posix_sock.setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, @ptrCast(&val), @sizeOf(i32)) == 0;
+    }
+}
+
+/// Close a socket.
+pub fn socketClose(sock: socket_t) void {
+    if (native_os == .windows) {
+        _ = winsock.shutdown(sock, SHUT_RDWR);
+        _ = winsock.closesocket(sock);
+    } else {
+        _ = posix_sock.shutdown(sock, SHUT_RDWR);
+        _ = posix.close(sock);
+    }
+}
+
+/// Convert a port from host byte order to network byte order (big-endian).
+pub fn htons(port: u16) u16 {
+    // x86_64, aarch64 are all little-endian — always swap
+    return (@as(u16, port >> 8)) | (@as(u16, port & 0xFF) << 8);
 }

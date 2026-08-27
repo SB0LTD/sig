@@ -129,27 +129,17 @@ pub fn maxInt(comptime T: type) T {
 pub fn minInt(comptime T: type) T {
     const info = @typeInfo(T).int;
     if (info.signedness == .signed) {
-        const max: T = (1 << (info.bits - 1)) - 1;
-        return -(max) - 1;
+        return -maxInt(T) - 1;
     } else {
         return 0;
     }
 }
 
 /// Rotate left.
-pub fn rotl(comptime T: type, x: T, r: anytype) T {
+pub fn rotl(comptime T: type, x: T, comptime r: comptime_int) T {
     const bits = @typeInfo(T).int.bits;
-    const Shift = @Type(.{ .int = .{ .signedness = .unsigned, .bits = comptime blk: {
-        var n: u8 = 0;
-        var v: u32 = bits;
-        while (v > 1) : (v >>= 1) n += 1;
-        break :blk n;
-    } } });
-    const shift: Shift = @intCast(@as(u32, @intCast(r)) % bits);
-    return (x << shift) | (x >> (@as(Shift, @intCast(bits - @as(u32, @intCast(shift))))));
+    return (x << r) | (x >> (bits - r));
 }
-
-// Use @import("builtin") for Log2Int workaround — REMOVED, self-contained above
 
 /// Rotate left for u64.
 pub fn rotlU64(x: u64, r: u6) u64 {

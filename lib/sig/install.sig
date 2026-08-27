@@ -35,7 +35,6 @@
 //
 // This module is authoritative. No other code should guess these paths.
 
-const std = @import("std");
 const SigError = @import("errors.sig").SigError;
 
 /// Maximum path length for install paths (covers all platforms).

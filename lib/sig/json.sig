@@ -4,7 +4,8 @@
 //! Supports streaming tokenization with a fixed nesting depth, field
 //! extraction from raw JSON bytes, and serialization into caller buffers.
 
-const std = @import("std");
+const sig_mem = @import("mem.sig");
+const sig_fmt = @import("fmt.sig");
 const SigError = @import("errors.sig").SigError;
 
 // ── Token Types ──────────────────────────────────────────────────────────
@@ -104,7 +105,7 @@ pub fn Tokenizer(comptime max_depth: usize) type {
                         count += 1;
                     },
                     't' => {
-                        if (i + 4 <= input.len and std.mem.eql(u8, input[i..][0..4], "true")) {
+                        if (i + 4 <= input.len and sig_mem.eql(u8, input[i..][0..4], "true")) {
                             tokens[count] = .{ .kind = .true_literal, .start = i, .len = 4 };
                             count += 1;
                             i += 4;
@@ -113,7 +114,7 @@ pub fn Tokenizer(comptime max_depth: usize) type {
                         }
                     },
                     'f' => {
-                        if (i + 5 <= input.len and std.mem.eql(u8, input[i..][0..5], "false")) {
+                        if (i + 5 <= input.len and sig_mem.eql(u8, input[i..][0..5], "false")) {
                             tokens[count] = .{ .kind = .false_literal, .start = i, .len = 5 };
                             count += 1;
                             i += 5;
@@ -122,7 +123,7 @@ pub fn Tokenizer(comptime max_depth: usize) type {
                         }
                     },
                     'n' => {
-                        if (i + 4 <= input.len and std.mem.eql(u8, input[i..][0..4], "null")) {
+                        if (i + 4 <= input.len and sig_mem.eql(u8, input[i..][0..4], "null")) {
                             tokens[count] = .{ .kind = .null_literal, .start = i, .len = 4 };
                             count += 1;
                             i += 4;
@@ -199,7 +200,7 @@ pub fn extractStringArray(
     const val = findValueAfterKey(json, key) orelse return error.BufferTooSmall;
 
     // Check for null.
-    if (val.len >= 4 and std.mem.eql(u8, val[0..4], "null")) return 0;
+    if (val.len >= 4 and sig_mem.eql(u8, val[0..4], "null")) return 0;
 
     // Expect '['.
     if (val.len == 0 or val[0] != '[') return error.BufferTooSmall;
@@ -319,7 +320,7 @@ pub const Writer = struct {
     pub fn writeInt(self: *Writer, val: i64) SigError!void {
         try self.maybeComma();
         var num_buf: [20]u8 = undefined;
-        const s = std.fmt.bufPrint(&num_buf, "{d}", .{val}) catch return error.BufferTooSmall;
+        const s = sig_fmt.bufPrint(&num_buf, "{d}", .{val}) catch return error.BufferTooSmall;
         try self.writeRaw(s);
         self.needs_comma = true;
     }
@@ -379,7 +380,7 @@ fn findValueAfterKey(json: []const u8, key: []const u8) ?[]const u8 {
     var i: usize = 0;
     while (i + key.len + 2 < json.len) {
         if (json[i] == '"' and i + 1 + key.len < json.len and
-            std.mem.eql(u8, json[i + 1 ..][0..key.len], key) and
+            sig_mem.eql(u8, json[i + 1 ..][0..key.len], key) and
             json[i + 1 + key.len] == '"')
         {
             var j = i + 1 + key.len + 1; // past closing quote

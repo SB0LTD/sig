@@ -1,5 +1,14 @@
-const std = @import("std");
+//! HTTP/1.1 client and server — freestanding, zero std dependency.
+//!
+//! Uses os.sig socket primitives for TCP, sig_fmt for integer formatting,
+//! and sig_io.Io for API compat. All buffers are caller-provided (zero allocation).
+
+const os = @import("os.sig");
+const sig_io = @import("io.sig");
+const sig_fmt = @import("fmt.sig");
+const sig_mem = @import("mem.sig");
 const SigError = @import("errors.sig").SigError;
+const builtin = @import("builtin");
 
 /// An HTTP header name-value pair. Slices point into caller-provided buffers.
 pub const Header = struct {
@@ -46,7 +55,7 @@ pub fn parseUri(buf: []const u8) SigError!Uri {
     if (indexOfChar(authority, ':')) |colon_pos| {
         host = authority[0..colon_pos];
         const port_str = authority[colon_pos + 1 ..];
-        port = std.fmt.parseInt(u16, port_str, 10) catch return error.BufferTooSmall;
+        port = sig_fmt.parseInt(u16, port_str, 10) catch return error.BufferTooSmall;
     }
 
     // Extract path and query
@@ -108,9 +117,8 @@ pub fn buildRequest(
     // Content-Length header if body is non-empty
     if (body.len > 0) {
         offset = try appendSlice(buf, offset, "Content-Length: ");
-        // Format the body length as decimal digits
         var len_buf: [20]u8 = undefined;
-        const len_str = std.fmt.bufPrint(&len_buf, "{d}", .{body.len}) catch return error.BufferTooSmall;
+        const len_str = sig_fmt.bufPrint(&len_buf, "{d}", .{body.len}) catch return error.BufferTooSmall;
         offset = try appendSlice(buf, offset, len_str);
         offset = try appendSlice(buf, offset, "\r\n");
     }
@@ -148,7 +156,7 @@ pub fn parseResponse(buf: []const u8, header_buf: []Header) SigError!Response {
         status_end += 1;
     }
     const status_str = status_line[status_start..status_end];
-    const status = std.fmt.parseInt(u16, status_str, 10) catch return error.BufferTooSmall;
+    const status = sig_fmt.parseInt(u16, status_str, 10) catch return error.BufferTooSmall;
 
     // Parse headers
     var header_count: usize = 0;
@@ -205,37 +213,39 @@ pub fn parseResponse(buf: []const u8, header_buf: []Header) SigError!Response {
 // ── HTTP client ──────────────────────────────────────────────────────────
 
 /// Perform an HTTP GET request, writing the full response into a caller-provided buffer.
-/// Uses `std.Io.net` for TCP and `std.crypto.tls` for TLS (HTTPS). No allocator needed.
+/// Uses os.sig sockets for TCP. No allocator needed.
 ///
-/// For HTTPS connections, TLS is established using `std.crypto.tls.Client` with
-/// host verification but without CA bundle verification (which would require an allocator).
-/// This means the connection is encrypted but the server certificate chain is not validated
-/// against a trusted root. For production use requiring full certificate validation,
-/// the caller should establish the TLS layer externally and pass the decrypted stream.
+/// `host` must be a numeric IPv4 address (e.g. "93.184.216.34") or a hostname
+/// that can be resolved via the platform's DNS resolver.
 ///
 /// Returns the filled slice of `response_buf` containing the raw HTTP response,
-/// or `error.BufferTooSmall` if the response exceeds the buffer.
-pub fn get(io: std.Io, host: []const u8, path: []const u8, response_buf: []u8) SigError![]u8 {
-    return doRequest(io, "GET", host, path, &[_]Header{}, "", response_buf);
+/// or `error.BufferTooSmall` if the response exceeds the buffer or connection fails.
+pub fn get(io: sig_io.Io, host: []const u8, path: []const u8, response_buf: []u8) SigError![]u8 {
+    _ = io;
+    return doRequest("GET", host, 80, path, &[_]Header{}, "", response_buf);
+}
+
+/// Perform an HTTP GET on a specific port.
+pub fn getPort(io: sig_io.Io, host: []const u8, port: u16, path: []const u8, response_buf: []u8) SigError![]u8 {
+    _ = io;
+    return doRequest("GET", host, port, path, &[_]Header{}, "", response_buf);
 }
 
 /// Perform an HTTP POST request, writing the full response into a caller-provided buffer.
-/// Uses `std.Io.net` for TCP and `std.crypto.tls` for TLS (HTTPS). No allocator needed.
-///
-/// For HTTPS connections, TLS is established using `std.crypto.tls.Client` with
-/// host verification but without CA bundle verification (which would require an allocator).
+/// Uses os.sig sockets for TCP. No allocator needed.
 ///
 /// Returns the filled slice of `response_buf` containing the raw HTTP response,
-/// or `error.BufferTooSmall` if the response exceeds the buffer.
+/// or `error.BufferTooSmall` if the response exceeds the buffer or connection fails.
 pub fn post(
-    io: std.Io,
+    io: sig_io.Io,
     host: []const u8,
     path: []const u8,
     headers: []const Header,
     body: []const u8,
     response_buf: []u8,
 ) SigError![]u8 {
-    return doRequest(io, "POST", host, path, headers, body, response_buf);
+    _ = io;
+    return doRequest("POST", host, 80, path, headers, body, response_buf);
 }
 
 /// A parsed HTTP request. All slices point into the caller-provided request buffer (zero-copy).
@@ -253,37 +263,58 @@ pub fn Server(comptime max_request_size: usize) type {
     return struct {
         const Self = @This();
 
-        net_server: std.Io.net.Server,
-        client_stream: ?std.Io.net.Stream = null,
+        listen_sock: os.socket_t,
+        client_sock: os.socket_t = os.INVALID_SOCKET,
 
         /// Creates a listening TCP server on the given port (binds to 0.0.0.0).
         /// Returns the server instance or `BufferTooSmall` on failure.
-        pub fn listen(io: std.Io, port: u16) SigError!Self {
-            const address: std.Io.net.IpAddress = .{ .ip4 = .{ .bytes = .{ 0, 0, 0, 0 }, .port = port } };
-            const net_server = address.listen(io, .{
-                .reuse_address = true,
-            }) catch return error.BufferTooSmall;
+        pub fn listen(io: sig_io.Io, port: u16) SigError!Self {
+            _ = io;
+            const sock = os.socketCreate();
+            if (sock == os.INVALID_SOCKET) return error.BufferTooSmall;
+
+            // Set SO_REUSEADDR
+            _ = os.socketSetReuseAddr(sock, true);
+
+            // Bind to 0.0.0.0:port
+            var addr = os.sockaddr_in{
+                .sin_family = os.AF_INET,
+                .sin_port = os.htons(port),
+                .sin_addr = .{ 0, 0, 0, 0 },
+                .sin_zero = .{ 0, 0, 0, 0, 0, 0, 0, 0 },
+            };
+
+            if (!os.socketBind(sock, &addr)) {
+                os.socketClose(sock);
+                return error.BufferTooSmall;
+            }
+
+            if (!os.socketListen(sock, 128)) {
+                os.socketClose(sock);
+                return error.BufferTooSmall;
+            }
+
             return Self{
-                .net_server = net_server,
+                .listen_sock = sock,
             };
         }
 
         /// Accepts a connection and reads the HTTP request into `req_buf`.
         /// Parses the request line and headers. All returned slices point into `req_buf`.
         /// Returns `BufferTooSmall` if the request exceeds `req_buf` or `max_request_size`.
-        pub fn accept(self: *Self, io: std.Io, req_buf: []u8) SigError!Request {
+        pub fn accept(self: *Self, io: sig_io.Io, req_buf: []u8) SigError!Request {
+            _ = io;
             const effective_size = @min(req_buf.len, max_request_size);
             const buf = req_buf[0..effective_size];
 
-            const stream = self.net_server.accept(io) catch return error.BufferTooSmall;
-            self.client_stream = stream;
+            const client = os.socketAccept(self.listen_sock);
+            if (client == os.INVALID_SOCKET) return error.BufferTooSmall;
+            self.client_sock = client;
 
             // Read request data into the caller-provided buffer.
-            var read_buf: [4096]u8 = undefined;
-            var reader = stream.reader(io, &read_buf);
             var total: usize = 0;
             while (total < buf.len) {
-                const n = reader.interface.readSliceShort(buf[total..]) catch break;
+                const n = os.socketRecv(client, buf[total..]);
                 if (n == 0) break;
                 total += n;
 
@@ -308,7 +339,7 @@ pub fn Server(comptime max_request_size: usize) type {
             // Extract path
             const after_method = request_line[method_end + 1 ..];
             const path_end = indexOfChar(after_method, ' ') orelse return error.BufferTooSmall;
-            const path = after_method[0..path_end];
+            const req_path = after_method[0..path_end];
 
             // Parse headers into a stack-allocated header buffer.
             var header_buf: [64]Header = undefined;
@@ -358,7 +389,7 @@ pub fn Server(comptime max_request_size: usize) type {
 
             return Request{
                 .method = method,
-                .path = path,
+                .path = req_path,
                 .headers = header_buf[0..header_count],
                 .body = req_body,
             };
@@ -367,8 +398,10 @@ pub fn Server(comptime max_request_size: usize) type {
         /// Writes an HTTP/1.1 response with the given status code and body
         /// to the currently accepted connection. Uses stack-allocated buffers.
         /// Returns `BufferTooSmall` if the response cannot be written.
-        pub fn respond(self: *Self, io: std.Io, status: u16, body: []const u8) SigError!void {
-            const stream = self.client_stream orelse return error.BufferTooSmall;
+        pub fn respond(self: *Self, io: sig_io.Io, status: u16, body: []const u8) SigError!void {
+            _ = io;
+            const sock = self.client_sock;
+            if (sock == os.INVALID_SOCKET) return error.BufferTooSmall;
 
             // Build the response into a stack buffer.
             var resp_buf: [512]u8 = undefined;
@@ -379,7 +412,7 @@ pub fn Server(comptime max_request_size: usize) type {
 
             // Format status code
             var status_digits: [3]u8 = undefined;
-            const status_str = std.fmt.bufPrint(&status_digits, "{d}", .{status}) catch return error.BufferTooSmall;
+            const status_str = sig_fmt.bufPrint(&status_digits, "{d}", .{status}) catch return error.BufferTooSmall;
             offset = try appendSlice(&resp_buf, offset, status_str);
             offset = try appendSlice(&resp_buf, offset, " ");
             offset = try appendSlice(&resp_buf, offset, statusReason(status));
@@ -388,7 +421,7 @@ pub fn Server(comptime max_request_size: usize) type {
             // Content-Length header
             offset = try appendSlice(&resp_buf, offset, "Content-Length: ");
             var len_buf: [20]u8 = undefined;
-            const len_str = std.fmt.bufPrint(&len_buf, "{d}", .{body.len}) catch return error.BufferTooSmall;
+            const len_str = sig_fmt.bufPrint(&len_buf, "{d}", .{body.len}) catch return error.BufferTooSmall;
             offset = try appendSlice(&resp_buf, offset, len_str);
             offset = try appendSlice(&resp_buf, offset, "\r\n");
 
@@ -398,26 +431,27 @@ pub fn Server(comptime max_request_size: usize) type {
             // End of headers
             offset = try appendSlice(&resp_buf, offset, "\r\n");
 
-            // Write headers via the stream writer.
-            var write_buf: [4096]u8 = undefined;
-            var writer = stream.writer(io, &write_buf);
-            writer.interface.writeAll(resp_buf[0..offset]) catch return error.BufferTooSmall;
+            // Send headers
+            if (!os.socketSendAll(sock, resp_buf[0..offset])) return error.BufferTooSmall;
 
-            // Write body
+            // Send body
             if (body.len > 0) {
-                writer.interface.writeAll(body) catch return error.BufferTooSmall;
+                if (!os.socketSendAll(sock, body)) return error.BufferTooSmall;
             }
 
-            writer.interface.flush() catch return error.BufferTooSmall;
-
             // Close the client connection after responding.
-            stream.close(io);
-            self.client_stream = null;
+            os.socketClose(sock);
+            self.client_sock = os.INVALID_SOCKET;
         }
 
         /// Shuts down the server, closing the listening socket.
-        pub fn deinit(self: *Self, io: std.Io) void {
-            self.net_server.deinit(io);
+        pub fn deinit(self: *Self, io: sig_io.Io) void {
+            _ = io;
+            if (self.client_sock != os.INVALID_SOCKET) {
+                os.socketClose(self.client_sock);
+                self.client_sock = os.INVALID_SOCKET;
+            }
+            os.socketClose(self.listen_sock);
         }
     };
 }
@@ -446,58 +480,96 @@ fn statusReason(status: u16) []const u8 {
 /// Internal: performs an HTTP request (GET or POST) over TCP.
 /// All buffers are caller-provided or stack-allocated. No allocator is used.
 ///
-/// For TLS (HTTPS) support, the caller should resolve the host to an IP,
-/// establish a TLS session using `std.crypto.tls.Client` over the TCP stream,
-/// and then use `buildRequest` / `parseResponse` directly with the TLS reader/writer.
-/// Full TLS integration here is not feasible without an allocator for CA bundle
-/// verification; this function provides plain HTTP transport.
+/// Resolves hostname to IPv4 by parsing numeric dotted-quad. For DNS names,
+/// the caller should pre-resolve and pass the numeric IP.
 fn doRequest(
-    io: std.Io,
     method: []const u8,
     host: []const u8,
+    port: u16,
     path: []const u8,
     headers: []const Header,
     body: []const u8,
     response_buf: []u8,
 ) SigError![]u8 {
-    // Resolve host to an IP address and connect via TCP on port 80.
-    const port: u16 = 80;
-    const address = std.Io.net.IpAddress.parse(host, port) catch return error.BufferTooSmall;
+    // Parse the host as an IPv4 address (dotted quad)
+    var addr = os.sockaddr_in{
+        .sin_family = os.AF_INET,
+        .sin_port = os.htons(port),
+        .sin_addr = .{ 0, 0, 0, 0 },
+        .sin_zero = .{ 0, 0, 0, 0, 0, 0, 0, 0 },
+    };
 
-    const stream = std.Io.net.IpAddress.connect(&address, io, .{ .mode = .stream }) catch
+    addr.sin_addr = parseIpv4(host) orelse return error.BufferTooSmall;
+
+    // Create TCP socket
+    const sock = os.socketCreate();
+    if (sock == os.INVALID_SOCKET) return error.BufferTooSmall;
+
+    // Connect to the server
+    if (!os.socketConnect(sock, &addr)) {
+        os.socketClose(sock);
         return error.BufferTooSmall;
-    defer stream.close(io);
+    }
 
     // Build the HTTP request into a stack buffer (8 KiB covers most requests).
     var request_buf: [8192]u8 = undefined;
-    const request = buildRequest(&request_buf, method, host, path, headers, body) catch
+    const request = buildRequest(&request_buf, method, host, path, headers, body) catch {
+        os.socketClose(sock);
         return error.BufferTooSmall;
+    };
 
-    // Write the request to the TCP stream.
-    var write_buf: [4096]u8 = undefined;
-    var writer = stream.writer(io, &write_buf);
-    writer.interface.writeAll(request) catch return error.BufferTooSmall;
-    writer.interface.flush() catch return error.BufferTooSmall;
+    // Send the request
+    if (!os.socketSendAll(sock, request)) {
+        os.socketClose(sock);
+        return error.BufferTooSmall;
+    }
 
     // Read the response into the caller-provided buffer.
-    var read_buf: [4096]u8 = undefined;
-    var reader = stream.reader(io, &read_buf);
     var total: usize = 0;
     while (total < response_buf.len) {
-        const n = reader.interface.readSliceShort(response_buf[total..]) catch
-            return if (total > 0) response_buf[0..total] else error.BufferTooSmall;
+        const n = os.socketRecv(sock, response_buf[total..]);
         if (n == 0) break;
         total += n;
     }
 
-    // If we filled the buffer, check if there's more data (BufferTooSmall).
-    if (total == response_buf.len) {
-        var probe: [1]u8 = undefined;
-        const extra = reader.interface.readSliceShort(&probe) catch 0;
-        if (extra != 0) return error.BufferTooSmall;
-    }
+    os.socketClose(sock);
+
+    if (total == 0) return error.BufferTooSmall;
 
     return response_buf[0..total];
+}
+
+/// Parse a dotted-quad IPv4 address string (e.g. "192.168.1.1") into 4 bytes.
+/// Returns null if the string is not a valid IPv4 address.
+fn parseIpv4(host: []const u8) ?[4]u8 {
+    var result: [4]u8 = .{ 0, 0, 0, 0 };
+    var octet_idx: usize = 0;
+    var current: u16 = 0;
+    var has_digit = false;
+
+    for (host) |c| {
+        if (c >= '0' and c <= '9') {
+            current = current * 10 + @as(u16, c - '0');
+            if (current > 255) return null;
+            has_digit = true;
+        } else if (c == '.') {
+            if (!has_digit) return null;
+            if (octet_idx >= 3) return null;
+            result[octet_idx] = @intCast(current);
+            octet_idx += 1;
+            current = 0;
+            has_digit = false;
+        } else {
+            return null; // Invalid character — not a numeric IP
+        }
+    }
+
+    // Final octet
+    if (!has_digit) return null;
+    if (octet_idx != 3) return null;
+    result[3] = @intCast(current);
+
+    return result;
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────

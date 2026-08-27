@@ -3,7 +3,7 @@
 //! Parses ZON text into a flat token stream stored in caller-provided buffers.
 //! No allocator.
 
-const std = @import("std");
+const sig_mem = @import("mem.sig");
 const SigError = @import("errors.sig").SigError;
 
 /// A ZON token.
@@ -130,5 +130,5 @@ fn isDigit(c: u8) bool {
 
 fn matchKeyword(input: []const u8, keyword: []const u8) bool {
     if (input.len < keyword.len) return false;
-    return std.mem.eql(u8, input[0..keyword.len], keyword);
+    return sig_mem.eql(u8, input[0..keyword.len], keyword);
 }
