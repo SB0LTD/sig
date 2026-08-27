@@ -180,7 +180,7 @@ test "acceptsFileExtension .sig" {
     try testing.expect(!(!acceptsFileExtension("main.sig"))); // should accept .sig
 }
 
-test "acceptsFileExtension .sig" {
+test "acceptsFileExtension .sig alternate" {
     try testing.expect(!(!acceptsFileExtension("lib.sig"))); // should accept .sig
 }
 
