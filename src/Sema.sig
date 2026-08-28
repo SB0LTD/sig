@@ -17763,6 +17763,7 @@ fn zirIsNonNullPtr(
     const nullable_ty = ptr_ty.childType(zcu);
 
     try sema.checkNullableType(block, src, nullable_ty);
+    try sema.ensureLayoutResolved(nullable_ty, src, .ptr_access);
 
     if (try sema.resolveIsNullFromType(block, src, nullable_ty)) |is_null| {
         return .fromValue(.makeBool(!is_null));
@@ -31381,6 +31382,11 @@ fn resolveIsNonErrVal(
     return null;
 }
 
+/// If `null` is the only possible value of type `ty`, returns `true`.
+/// If `null` is *not* a possible value of `ty`, returns `false`.
+/// Otherwise, if a value of type `ty` may or may not be `null`, returns `null`.
+///
+/// Asserts that the layout of `ty` is resolved.
 fn resolveIsNullFromType(
     sema: *Sema,
     block: *Block,
@@ -31388,6 +31394,8 @@ fn resolveIsNullFromType(
     ty: Type,
 ) CompileError!?bool {
     const zcu = sema.pt.zcu;
+    ty.assertHasLayout(zcu);
+
     return switch (ty.zigTypeTag(zcu)) {
         else => false,
         .null => true,
