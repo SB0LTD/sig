@@ -105,22 +105,38 @@ fi
 # as an unbound variable under `set -u`. Positional parameters are defined even
 # when empty, so use them as the optional platform-link-flag vector.
 lld_flag=-flld
+# C++ stdlib flags for compiling the LLVM C++ shims. Must match the C++ stdlib
+# the LLVM closure was built with:
+#   - native Linux LLVM: built with system gcc/g++ (libstdc++)
+#   - cross Linux/macOS/Windows LLVM: built with Sig-cxx (libc++)
+cxx_stdlib_flags=()
 set --
 case "$TARGET" in
   aarch64-macos-none)
     # Sig's bundled LLD does not implement Mach-O linking. A native macOS
     # release must use Apple's system linker from the runner toolchain.
     lld_flag=-fno-lld
+    cxx_stdlib_flags=(-stdlib=libc++ -isystem lib/libcxx/include -isystem lib/libcxxabi/include)
+    set -- -lc++
     ;;
-  native|x86_64-linux-musl|x86_64-linux-gnu|aarch64-linux-musl)
-    # Use system linker to resolve system libc++ that LLVM was linked against
+  native)
+    # native Linux LLVM closure is built with system gcc/g++ (libstdc++).
     lld_flag=-fno-lld
+    cxx_stdlib_flags=(-stdlib=libstdc++)
     set -- \
-      -lc++ -lc++abi -lstdc++ -lm -lz -lzstd -lpthread -ldl -lrt
+      -lstdc++ -lm -lz -lzstd -lpthread -ldl -lrt
+    ;;
+  x86_64-linux-musl|x86_64-linux-gnu|aarch64-linux-musl)
+    # cross Linux LLVM closure is built with Sig-cxx (libc++).
+    lld_flag=-fno-lld
+    cxx_stdlib_flags=(-stdlib=libc++ -isystem lib/libcxx/include -isystem lib/libcxxabi/include)
+    set -- \
+      -lc++ -lc++abi -lm -lz -lzstd -lpthread -ldl -lrt
     ;;
   x86_64-windows-gnu)
+    cxx_stdlib_flags=(-stdlib=libc++ -isystem lib/libcxx/include -isystem lib/libcxxabi/include)
     set -- \
-      -lole32 -luuid -lversion -ladvapi32 -lshell32 -luser32 -lws2_32
+      -lc++ -lole32 -luuid -lversion -ladvapi32 -lshell32 -luser32 -lws2_32
     ;;
 esac
 
@@ -134,6 +150,7 @@ cd "$ROOT"
   "$lld_flag" \
   -cflags \
     -std=c++17 \
+    "${cxx_stdlib_flags[@]}" \
     -fno-exceptions \
     -fno-rtti \
     -fno-stack-protector \
@@ -142,8 +159,6 @@ cd "$ROOT"
     -D__STDC_FORMAT_MACROS \
     -D__STDC_LIMIT_MACROS \
     "-I$LLVM_PREFIX/include" \
-    -isystem lib/libcxx/include \
-    -isystem lib/libcxxabi/include \
   -- \
   src/zig_llvm.cpp \
   src/zig_llvm-ar.cpp \
@@ -160,7 +175,6 @@ cd "$ROOT"
   --name sig \
   --cache-dir "$CACHE/compiler" \
   -lc \
-  -lc++ \
   "$@" \
   -L "$LLVM_PREFIX/lib" \
   "${llvm_link_flags[@]}" \
