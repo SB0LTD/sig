@@ -177,9 +177,9 @@ cd "$ROOT"
   --name sig \
   --cache-dir "$CACHE/compiler" \
   -lc \
-  "$@" \
   -L "$LLVM_PREFIX/lib" \
   "${llvm_link_flags[@]}" \
+  "$@" \
   "-femit-bin=$OUTPUT"
 
 case "$TARGET" in
