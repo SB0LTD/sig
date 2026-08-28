@@ -17,8 +17,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
+echo "sb0-runner: SIG=$SIG"
+echo "sb0-runner: QEMU=${QEMU:-<none>}"
 test -x "$SIG"
-test -x "$QEMU"
+if [ ! -x "$QEMU" ]; then
+  echo "sb0-runner: qemu-system-aarch64 not found or not executable" >&2
+  exit 1
+fi
+echo "sb0-runner: compiling probe runner (aarch64-sb0)..."
 
 compile_runner() {
   local source="$1"

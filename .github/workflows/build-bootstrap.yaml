@@ -443,7 +443,15 @@ jobs:
           archive=${root}.tar.zst
           mkdir -p "$root/bin" "$root/tools"
           cp build/zig2 "$root/bin/sig"
-          ln "$root/bin/sig" "$root/bin/Sig"
+          # macOS default APFS is case-insensitive: `sig` and `Sig` are the same
+          # file, so a separate `Sig` hardlink cannot exist. Invoking `bin/Sig`
+          # still opens this file while passing argv[0]="Sig", which selects the
+          # zig-compatible alias mode. Only create the link on a case-sensitive FS.
+          if ln "$root/bin/sig" "$root/bin/Sig" 2>/dev/null; then
+            :
+          else
+            echo "case-insensitive FS: Sig alias served by case-preserving lookup of sig"
+          fi
           cp -R lib "$root/lib"
           cp -R tools/sig_build "$root/tools/sig_build"
           tar -cf - "$root" | zstd -19 -T0 -o "$archive"
