@@ -133,7 +133,11 @@ jobs:
           (cd /tmp/llvm-download && sha256sum --check --strict "$archive.sha256")
           mkdir llvm-22
           tar -xJf "/tmp/llvm-download/$archive" -C llvm-22 --strip-components=1
-          llvm-22/bin/llvm-config --version | grep -qx '22.1.8'
+          # Target closures intentionally omit host executables such as
+          # llvm-config. Prove the headers and static link closure consumed by
+          # the self-hosted builder instead.
+          test -f llvm-22/include/llvm/Config/llvm-config.h
+          test -f llvm-22/lib/libLLVMCore.a
           echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
 
       - name: Download and verify aarch64 Linux LLVM closure
