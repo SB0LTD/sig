@@ -452,3 +452,12 @@ pub const FdWriter = struct {
         return data.len;
     }
 };
+
+/// Format directly to stdout through a fixed-size stack buffer.
+/// Diagnostic output is deliberately best-effort and never allocates.
+pub fn print(io: Io, comptime format: []const u8, args: anytype) void {
+    var buf: [4096]u8 = undefined;
+    const sig_fmt = @import("fmt.sig");
+    const rendered = sig_fmt.bufPrint(&buf, format, args) catch return;
+    File.stdout().writeStreamingAll(io, rendered) catch {};
+}

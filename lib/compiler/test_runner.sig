@@ -83,7 +83,7 @@ fn mainServer(init: std.process.Init.Minimal) !void {
         .in = &stdin_reader.interface,
         .out = &stdout_writer.interface,
     };
-    try server.serveStringMessage(.zig_version, builtin.zig_version_string);
+    try server.serveStringMessage(.zig_version, std.sig.version_string);
 
     while (true) {
         const hdr = try server.receiveMessage();

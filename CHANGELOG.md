@@ -2,7 +2,34 @@
 
 All notable changes to Sig are documented here.
 
-Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the sig version and the upstream Sig version: `sig-X.Y.Z-zigA.B.C.<sha>`.
+Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
+
+## [0.4.0] — 2026-08-28 — Sovereign
+
+Sig now owns its native build and release path end to end. The tracked compiler,
+standard library, build runner, and tests contain only `.sig` sources. `sig build`
+loads `build.sig` through the allocator-free native runner, and the production
+graph compiles the compiler, installs the Sig library, and runs the canonical
+213-test compiler suite instead of a placeholder step.
+
+### Added
+- An allocation-free, cross-platform directory enumeration layer used by the
+  native build runner on Linux, macOS, and Windows.
+- A source-sovereignty release gate that rejects tracked `.zig` files, `.zig`
+  imports, and upstream `zig` executable calls in bootstrap or release scripts.
+- Immutable stage0 provenance in bootstrap manifests.
+
+### Changed
+- Normalized Sig-native build, package, environment, protocol, and builtin names
+  across the compiler and standard library.
+- Restored native `build.sig` dispatch and fixed subprocess output, error-pipe
+  draining, Windows standard-handle inheritance, fixed-buffer formatting, and
+  real compiler test execution.
+- Self-hosted Linux bootstrap builds use the portable LLVM 22.1.8 libc++ closure,
+  eliminating the mixed libstdc++/libc++ ABI failure in the abandoned 0.3.3
+  bootstrap attempt.
+- The release remains on stable LLVM 22.1.8; LLVM 23 was still in release-candidate
+  status when 0.4.0 was cut.
 
 ## [0.3.3] — 2026-08-26 — Pure .sig Bootstrap
 

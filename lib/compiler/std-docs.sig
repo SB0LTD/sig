@@ -381,8 +381,8 @@ fn buildWasmBinary(
         const body = client.in.take(header.bytes_len) catch unreachable;
 
         switch (header.tag) {
-            .sig_version => {
-                if (!std.mem.eql(u8, builtin.sig_version_string, body)) {
+            .zig_version => {
+                if (!std.mem.eql(u8, std.sig.version_string, body)) {
                     return error.sigProtocolVersionMismatch;
                 }
             },

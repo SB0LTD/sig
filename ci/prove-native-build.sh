@@ -33,7 +33,7 @@ prove_cross_target="${PROVE_CROSS_TARGET:-1}"
     grep -q '^  native-release-proof' help.txt
     grep -q '^  native-release-test' help.txt
     grep -q '^  native-target-proof' help.txt
-    test ! -e build.sig
+    test ! -e build.zig
     test ! -e native-sig-build.proof
     "$sig" build native-release-proof \
         -Dregression-sentinel=preserved \
@@ -66,7 +66,7 @@ prove_cross_target="${PROVE_CROSS_TARGET:-1}"
     grep -q '^  native-release-test' help.txt
     grep -q '^  native-target-proof' help.txt
     test ! -e build.sig
-    test ! -e build.sig
+    test ! -e build.zig
 )
 
 echo "native build.sig package proof passed: $sig"

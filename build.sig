@@ -7,10 +7,15 @@ const sig_build = @import("sig_build");
 const std = @import("std");
 
 const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };
-const sig_version_string = "0.3.3";
+const sig_version_string = "0.4.0";
 
-fn noopStep(ctx: *sig_build.Step_Context) sig_build.SigError!void {
-    _ = ctx;
+fn importEntry(name: []const u8, path: []const u8) sig_build.Import_Entry {
+    var entry: sig_build.Import_Entry = .{};
+    @memcpy(entry.name[0..name.len], name);
+    entry.name_len = name.len;
+    @memcpy(entry.path[0..path.len], path);
+    entry.path_len = path.len;
+    return entry;
 }
 
 pub fn build(ctx: *sig_build.Build_Context) !void {
@@ -46,15 +51,28 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
 
     // Compiler compilation step
     if (!no_bin) {
-        _ = try ctx.addCompileStep(.{
+        var build_options_path: [sig_build.MODULE_PATH_BUF_SIZE]u8 = undefined;
+        const cache_dir = ctx.cache_dir[0..ctx.cache_dir_len];
+        @memcpy(build_options_path[0..cache_dir.len], cache_dir);
+        build_options_path[cache_dir.len] = '/';
+        const build_options_basename = "build_options.sig";
+        @memcpy(build_options_path[cache_dir.len + 1 ..][0..build_options_basename.len], build_options_basename);
+        const build_options_path_len = cache_dir.len + 1 + build_options_basename.len;
+        const compiler_imports = [_]sig_build.Import_Entry{
+            importEntry("build_options", build_options_path[0..build_options_path_len]),
+            importEntry("aro", "lib/compiler/aro/aro.sig"),
+            importEntry("std", "lib/std/std.sig"),
+        };
+        const compiler = try ctx.addCompileStep(.{
             .source_path = "src/main.sig",
             .output_name = "sig",
             .cache_dir = ctx.cache_dir[0..ctx.cache_dir_len],
             .optimize = ctx.optimize,
             .target = if (has_target) &ctx.target else null,
-            .imports = &.{},
+            .imports = &compiler_imports,
             .compiler_path = "",
         });
+        try ctx.addDependency(compiler, config);
     }
 
     // LLVM pipeline (conditional)
@@ -107,6 +125,11 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
         });
     }
 
-    // Test step
-    _ = try ctx.addStep("test", "Run all tests", &noopStep);
+    // Canonical allocator-free compiler suite. This is a real subprocess-backed
+    // test step so `sig build test` cannot silently succeed without testing.
+    _ = try ctx.addTestStep(.{
+        .source_path = "compiler/test_all.sig",
+        .name = "test",
+        .imports = &.{},
+    });
 }

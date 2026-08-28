@@ -1,4 +1,4 @@
-# Full Sig release train. Sig builds Sig; upstream Sig is never used here.
+# Full Sig release train. Sig builds Sig; upstream Zig is never used here.
 #
 # Release targets:
 #   x86_64-linux-musl, aarch64-linux-musl,
@@ -18,7 +18,7 @@ on:
       version:
         description: 'Sig semantic version; must match source'
         required: true
-        default: '0.3.2'
+        default: '0.4.0'
         type: string
       prerelease:
         description: 'Publish as a prerelease'
@@ -28,7 +28,7 @@ on:
       bootstrap_tag:
         description: 'Verified bootstrap release tag'
         required: true
-        default: 'bootstrap-sig-v50'
+        default: 'bootstrap-sig-v58'
         type: string
       llvm_tag:
         description: 'Verified LLVM closure release tag'
@@ -47,7 +47,7 @@ permissions:
   contents: write
 
 env:
-  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v50' }}
+  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v58' }}
   LLVM_ARTIFACT_TAG: ${{ github.event.client_payload.llvm_tag || inputs.llvm_tag || 'llvm-22.1.8-sig-0.3.1' }}
 
 jobs:
@@ -57,7 +57,7 @@ jobs:
     outputs:
       version: ${{ steps.release.outputs.version }}
       sig_version: ${{ steps.release.outputs.sig_version }}
-      zig_version: ${{ steps.release.outputs.sig_version }}
+      zig_version: ${{ steps.release.outputs.zig_version }}
       prerelease: ${{ steps.release.outputs.prerelease }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -66,8 +66,9 @@ jobs:
 
       - name: Prove shared release argument vectors
         run: |
-          chmod +x ci/build-self-hosted-release.sh ci/test-build-self-hosted-release.sh
+          chmod +x ci/build-self-hosted-release.sh ci/test-build-self-hosted-release.sh ci/prove-sovereign-source.sh
           ci/test-build-self-hosted-release.sh
+          ci/prove-sovereign-source.sh
 
       - name: Resolve and validate release identity
         id: release
@@ -93,7 +94,7 @@ jobs:
             echo "ERROR: CHANGELOG.md has no ${sig_version} section" >&2
             exit 1
           }
-          version="${sig_version}-Sig${zig_version}.$(git rev-parse --short=7 HEAD)"
+          version="${sig_version}-zig${zig_version}.$(git rev-parse --short=7 HEAD)"
           tag="sig-${version}"
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "ERROR: release ${tag} already exists; release tags are immutable" >&2
@@ -184,7 +185,7 @@ jobs:
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       SIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
-      ZIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
+      ZIG_VERSION: ${{ needs.prepare.outputs.zig_version }}
     steps:
       - name: Free disk space
         run: |
@@ -358,7 +359,7 @@ jobs:
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       SIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
-      ZIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
+      ZIG_VERSION: ${{ needs.prepare.outputs.zig_version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -482,7 +483,7 @@ jobs:
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       SIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
-      ZIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
+      ZIG_VERSION: ${{ needs.prepare.outputs.zig_version }}
     steps:
       - name: Free disk space
         run: |
@@ -586,7 +587,7 @@ jobs:
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       SIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
-      ZIG_VERSION: ${{ needs.prepare.outputs.sig_version }}
+      ZIG_VERSION: ${{ needs.prepare.outputs.zig_version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -615,7 +616,7 @@ jobs:
           $zigText = ($zigVersion -join "`n")
           $zigBase = [regex]::Escape($env:ZIG_VERSION)
           if ($LASTEXITCODE -ne 0 -or $zigText -notmatch "^${zigBase}(?:[-+].*)?$" -or $zigText -match 'sig') { throw 'Windows compiler Sig alias version probe failed' }
-          & .\ci\prove-native-build.ps1 -Sig $sig -ZigLibDir $env:SIG_LIB_DIR
+          & .\ci\prove-native-build.ps1 -Sig $sig -SigLibDir $env:SIG_LIB_DIR
           & $sig ast-check compiler\core\target.sig
           if ($LASTEXITCODE -ne 0) { throw 'strict .sig parse failed' }
           & $sig test compiler\test_all.sig `

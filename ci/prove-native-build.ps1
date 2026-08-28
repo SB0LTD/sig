@@ -1,15 +1,16 @@
 param(
     [Parameter(Mandatory = $true)][string]$Sig,
-    [Parameter(Mandatory = $true)][string]$ZigLibDir
+    [Parameter(Mandatory = $true)][string]$SigLibDir
 )
 
 $ErrorActionPreference = 'Stop'
 $sigPath = (Resolve-Path -LiteralPath $Sig).Path
-$libPath = (Resolve-Path -LiteralPath $ZigLibDir).Path
+$libPath = (Resolve-Path -LiteralPath $SigLibDir).Path
 $fixture = Join-Path $PSScriptRoot 'fixtures\native-build\build.sig'
 $testFixture = Join-Path $PSScriptRoot 'fixtures\native-build\native_test.sig'
 $targetFixture = Join-Path $PSScriptRoot 'fixtures\native-build\target_probe.sig'
-$proofRoot = Join-Path $env:RUNNER_TEMP ("sig-native-build-proof-" + [guid]::NewGuid().ToString('N'))
+$tempBase = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }
+$proofRoot = Join-Path $tempBase ("sig-native-build-proof-" + [guid]::NewGuid().ToString('N'))
 $defaultProject = Join-Path $proofRoot 'default'
 $customProject = Join-Path $proofRoot 'custom'
 New-Item -ItemType Directory -Force $defaultProject, $customProject | Out-Null
@@ -20,8 +21,8 @@ Copy-Item -LiteralPath $testFixture -Destination (Join-Path $customProject 'nati
 Copy-Item -LiteralPath $targetFixture -Destination (Join-Path $defaultProject 'target_probe.sig')
 Copy-Item -LiteralPath $targetFixture -Destination (Join-Path $customProject 'target_probe.sig')
 
-$oldZigLibDir = $env:ZIG_LIB_DIR
-$env:ZIG_LIB_DIR = $libPath
+$oldSigLibDir = $env:SIG_LIB_DIR
+$env:SIG_LIB_DIR = $libPath
 try {
     Push-Location $defaultProject
     try {
@@ -34,7 +35,7 @@ try {
         if ($helpText -notmatch '(?m)^  native-release-proof') { throw 'native proof step was not registered' }
         if ($helpText -notmatch '(?m)^  native-release-test') { throw 'native nested test step was not registered' }
         if ($helpText -notmatch '(?m)^  native-target-proof') { throw 'native target proof step was not registered' }
-        if (Test-Path -LiteralPath 'build.sig') { throw 'native fixture unexpectedly contains build.sig' }
+        if (Test-Path -LiteralPath 'build.zig') { throw 'native fixture unexpectedly contains build.zig' }
         if (Test-Path -LiteralPath 'native-sig-build.proof') { throw 'proof marker existed before step execution' }
         & $sigPath build native-release-proof `
             -Dregression-sentinel=preserved `
@@ -77,14 +78,14 @@ try {
         if ($helpText -notmatch '(?m)^  native-release-test') { throw 'custom nested test step was not registered' }
         if ($helpText -notmatch '(?m)^  native-target-proof') { throw 'custom target proof step was not registered' }
         if (Test-Path -LiteralPath 'build.sig') { throw 'custom fixture unexpectedly contains build.sig' }
-        if (Test-Path -LiteralPath 'build.sig') { throw 'custom fixture unexpectedly contains build.sig' }
+        if (Test-Path -LiteralPath 'build.zig') { throw 'custom fixture unexpectedly contains build.zig' }
     }
     finally {
         Pop-Location
     }
 }
 finally {
-    $env:ZIG_LIB_DIR = $oldZigLibDir
+    $env:SIG_LIB_DIR = $oldSigLibDir
 }
 
 Write-Host "native build.sig package proof passed: $sigPath"

@@ -48,6 +48,8 @@ pub const FILE_SHARE_DELETE: DWORD = 0x00000004;
 pub const CREATE_ALWAYS: DWORD = 2;
 pub const OPEN_EXISTING: DWORD = 3;
 pub const FILE_ATTRIBUTE_NORMAL: DWORD = 0x80;
+pub const FILE_ATTRIBUTE_DIRECTORY: DWORD = 0x10;
+pub const FILE_ATTRIBUTE_REPARSE_POINT: DWORD = 0x400;
 pub const INVALID_FILE_SIZE: DWORD = 0xFFFFFFFF;
 pub const STD_INPUT_HANDLE: DWORD = @as(DWORD, @bitCast(@as(i32, -10)));
 pub const STD_OUTPUT_HANDLE: DWORD = @as(DWORD, @bitCast(@as(i32, -11)));
@@ -65,6 +67,7 @@ pub const HANDLE_FLAG_INHERIT: DWORD = 0x00000001;
 pub const ERROR_FILE_NOT_FOUND: DWORD = 2;
 pub const ERROR_PATH_NOT_FOUND: DWORD = 3;
 pub const ERROR_ALREADY_EXISTS: DWORD = 183;
+pub const ERROR_NO_MORE_FILES: DWORD = 18;
 pub const MAX_PATH: usize = 260;
 pub const FILE_FLAG_BACKUP_SEMANTICS: DWORD = 0x02000000;
 pub const TRUE: BOOL = 1;
@@ -152,6 +155,20 @@ pub const kernel32 = if (native_os == .windows) struct {
     pub extern "kernel32" fn GetFileAttributesW(
         lpFileName: LPCWSTR,
     ) callconv(.winapi) DWORD;
+
+    pub extern "kernel32" fn FindFirstFileW(
+        lpFileName: LPCWSTR,
+        lpFindFileData: *WIN32_FIND_DATAW,
+    ) callconv(.winapi) HANDLE;
+
+    pub extern "kernel32" fn FindNextFileW(
+        hFindFile: HANDLE,
+        lpFindFileData: *WIN32_FIND_DATAW,
+    ) callconv(.winapi) BOOL;
+
+    pub extern "kernel32" fn FindClose(
+        hFindFile: HANDLE,
+    ) callconv(.winapi) BOOL;
 
     pub extern "kernel32" fn CreateProcessW(
         lpApplicationName: ?LPCWSTR,
@@ -310,6 +327,24 @@ pub const PROCESS_INFORMATION = extern struct {
     dwThreadId: DWORD,
 };
 
+pub const FILETIME = extern struct {
+    dwLowDateTime: DWORD,
+    dwHighDateTime: DWORD,
+};
+
+pub const WIN32_FIND_DATAW = extern struct {
+    dwFileAttributes: DWORD,
+    ftCreationTime: FILETIME,
+    ftLastAccessTime: FILETIME,
+    ftLastWriteTime: FILETIME,
+    nFileSizeHigh: DWORD,
+    nFileSizeLow: DWORD,
+    dwReserved0: DWORD,
+    dwReserved1: DWORD,
+    cFileName: [MAX_PATH]u16,
+    cAlternateFileName: [14]u16,
+};
+
 // ══════════════════════════════════════════════════════════════════════════════
 // POSIX / Linux — C Library Externs
 // ══════════════════════════════════════════════════════════════════════════════
@@ -327,9 +362,9 @@ pub const posix = if (native_os != .windows) struct {
     pub const O_RDONLY: c_int = 0;
     pub const O_WRONLY: c_int = 1;
     pub const O_RDWR: c_int = 2;
-    pub const O_CREAT: c_int = 0o100;
-    pub const O_TRUNC: c_int = 0o1000;
-    pub const O_CLOEXEC: c_int = 0o2000000;
+    pub const O_CREAT: c_int = if (native_os == .macos) 0x0200 else 0o100;
+    pub const O_TRUNC: c_int = if (native_os == .macos) 0x0400 else 0o1000;
+    pub const O_CLOEXEC: c_int = if (native_os == .macos) 0x01000000 else 0o2000000;
 
     // Mode bits
     pub const S_IRWXU: mode_t = 0o700;
@@ -337,7 +372,28 @@ pub const posix = if (native_os != .windows) struct {
     pub const S_IRWXO: mode_t = 0o007;
 
     // Clock IDs
-    pub const CLOCK_MONOTONIC: c_int = 1;
+    pub const CLOCK_MONOTONIC: c_int = if (native_os == .macos) 6 else 1;
+
+    pub const DIR = opaque {};
+    pub const Dirent = if (native_os == .macos) extern struct {
+        d_ino: u64,
+        d_seekoff: u64,
+        d_reclen: u16,
+        d_namlen: u16,
+        d_type: u8,
+        d_name: [1024]u8,
+    } else extern struct {
+        d_ino: u64,
+        d_off: i64,
+        d_reclen: u16,
+        d_type: u8,
+        d_name: [256]u8,
+    };
+
+    pub const DT_UNKNOWN: u8 = 0;
+    pub const DT_DIR: u8 = 4;
+    pub const DT_REG: u8 = 8;
+    pub const DT_LNK: u8 = 10;
 
     // Stat structure (using the libc-compatible layout)
     pub const Stat = extern struct {
@@ -373,6 +429,9 @@ pub const posix = if (native_os != .windows) struct {
     pub extern "c" fn lseek(fd: c_int, offset: i64, whence: c_int) callconv(.c) i64;
     pub extern "c" fn mkdir(path: [*:0]const u8, mode: mode_t) callconv(.c) c_int;
     pub extern "c" fn getcwd(buf: [*]u8, size: usize) callconv(.c) ?[*]u8;
+    pub extern "c" fn opendir(name: [*:0]const u8) callconv(.c) ?*DIR;
+    pub extern "c" fn readdir(dirp: *DIR) callconv(.c) ?*Dirent;
+    pub extern "c" fn closedir(dirp: *DIR) callconv(.c) c_int;
     pub extern "c" fn clock_gettime(clk_id: c_int, tp: *timespec) callconv(.c) c_int;
     pub extern "c" fn _exit(status: c_int) callconv(.c) noreturn;
     pub extern "c" fn pthread_create(
@@ -427,15 +486,15 @@ pub const posix = if (native_os != .windows) struct {
     // On Linux x86_64: pthread_mutex_t = 40 bytes, pthread_cond_t = 48 bytes.
     // On Linux aarch64: same sizes.
     // We use a fixed-size byte array to hold them.
-    pub const PTHREAD_MUTEX_SIZE = 40;
+    pub const PTHREAD_MUTEX_SIZE = if (native_os == .macos) 64 else 40;
     pub const PTHREAD_COND_SIZE = 48;
 
     pub const PthreadMutex = extern struct {
-        __data: [PTHREAD_MUTEX_SIZE]u8 = @as([PTHREAD_MUTEX_SIZE]u8, @splat(0)),
+        __data: [PTHREAD_MUTEX_SIZE]u8 align(8) = @as([PTHREAD_MUTEX_SIZE]u8, @splat(0)),
     };
 
     pub const PthreadCond = extern struct {
-        __data: [PTHREAD_COND_SIZE]u8 = @as([PTHREAD_COND_SIZE]u8, @splat(0)),
+        __data: [PTHREAD_COND_SIZE]u8 align(8) = @as([PTHREAD_COND_SIZE]u8, @splat(0)),
     };
 
     // ── Virtual memory management ───────────────────────────────────────
@@ -447,7 +506,7 @@ pub const posix = if (native_os != .windows) struct {
 
     // mmap flags
     pub const MAP_PRIVATE: c_int = 0x02;
-    pub const MAP_ANONYMOUS: c_int = 0x20;
+    pub const MAP_ANONYMOUS: c_int = if (native_os == .macos) 0x1000 else 0x20;
 
     // madvise flags
     pub const MADV_DONTNEED: c_int = 4;
@@ -780,6 +839,100 @@ pub fn stdinFd() fd_t {
 // ══════════════════════════════════════════════════════════════════════════════
 // Directory Operations
 // ══════════════════════════════════════════════════════════════════════════════
+
+/// Allocation-free directory entry used by the Sig build system.
+pub const DirEntry = struct {
+    name_buf: [256]u8 = undefined,
+    name_len: usize = 0,
+    kind: Kind = .other,
+
+    pub const Kind = enum { file, directory, symlink, other };
+
+    pub fn name(self: *const DirEntry) []const u8 {
+        return self.name_buf[0..self.name_len];
+    }
+};
+
+/// List one directory into caller-owned storage. Returns null on an OS error,
+/// an overlong entry name, or insufficient output capacity.
+pub fn listDir(path: []const u8, entries: []DirEntry) ?usize {
+    if (native_os == .windows) {
+        var pattern_utf8: [4096]u8 = undefined;
+        if (path.len + 2 > pattern_utf8.len) return null;
+        @memcpy(pattern_utf8[0..path.len], path);
+        var pattern_len = path.len;
+        if (pattern_len > 0 and pattern_utf8[pattern_len - 1] != '\\' and pattern_utf8[pattern_len - 1] != '/') {
+            pattern_utf8[pattern_len] = '\\';
+            pattern_len += 1;
+        }
+        pattern_utf8[pattern_len] = '*';
+        pattern_len += 1;
+
+        var pattern_wide: [MAX_PATH_WIDE + 1]u16 = undefined;
+        _ = utf8ToWide(pattern_utf8[0..pattern_len], &pattern_wide) orelse return null;
+        var data: WIN32_FIND_DATAW = undefined;
+        const handle = kernel32.FindFirstFileW(@ptrCast(&pattern_wide), &data);
+        if (@intFromPtr(handle) == @as(usize, @bitCast(@as(isize, -1)))) return null;
+        defer _ = kernel32.FindClose(handle);
+
+        var count: usize = 0;
+        while (true) {
+            var wide_len: usize = 0;
+            while (wide_len < data.cFileName.len and data.cFileName[wide_len] != 0) : (wide_len += 1) {}
+            const is_dot = wide_len == 1 and data.cFileName[0] == '.';
+            const is_dot_dot = wide_len == 2 and data.cFileName[0] == '.' and data.cFileName[1] == '.';
+            if (!is_dot and !is_dot_dot) {
+                if (count >= entries.len) return null;
+                const entry = &entries[count];
+                const name_len = wideToUtf8(data.cFileName[0..wide_len], &entry.name_buf) orelse return null;
+                entry.name_len = name_len;
+                entry.kind = if (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0)
+                    .symlink
+                else if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY != 0)
+                    .directory
+                else
+                    .file;
+                count += 1;
+            }
+
+            if (kernel32.FindNextFileW(handle, &data) == FALSE) {
+                if (kernel32.GetLastError() != ERROR_NO_MORE_FILES) return null;
+                break;
+            }
+        }
+        return count;
+    }
+
+    var path_buf: [4096]u8 = undefined;
+    if (path.len >= path_buf.len) return null;
+    @memcpy(path_buf[0..path.len], path);
+    path_buf[path.len] = 0;
+    const path_z: [*:0]const u8 = path_buf[0..path.len :0];
+    const dir = posix.opendir(path_z) orelse return null;
+    defer _ = posix.closedir(dir);
+
+    var count: usize = 0;
+    while (posix.readdir(dir)) |native_entry| {
+        var name_len: usize = 0;
+        while (name_len < native_entry.d_name.len and native_entry.d_name[name_len] != 0) : (name_len += 1) {}
+        const is_dot = name_len == 1 and native_entry.d_name[0] == '.';
+        const is_dot_dot = name_len == 2 and native_entry.d_name[0] == '.' and native_entry.d_name[1] == '.';
+        if (is_dot or is_dot_dot) continue;
+        if (count >= entries.len or name_len > entries[count].name_buf.len) return null;
+
+        const entry = &entries[count];
+        @memcpy(entry.name_buf[0..name_len], native_entry.d_name[0..name_len]);
+        entry.name_len = name_len;
+        entry.kind = switch (native_entry.d_type) {
+            posix.DT_REG => .file,
+            posix.DT_DIR => .directory,
+            posix.DT_LNK => .symlink,
+            else => .other,
+        };
+        count += 1;
+    }
+    return count;
+}
 
 /// Create a single directory. Returns true on success or if already exists.
 pub fn mkdir(path: []const u8) bool {

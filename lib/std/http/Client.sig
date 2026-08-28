@@ -1021,7 +1021,7 @@ pub const Request = struct {
 
         if (try emitOverridableHeader("user-agent: ", r.headers.user_agent, w)) {
             try w.writeAll("user-agent: Sig/");
-            try w.writeAll(builtin.sig_version_string);
+            try w.writeAll(std.sig.version_string);
             try w.writeAll(" (std.http)\r\n");
         }
 

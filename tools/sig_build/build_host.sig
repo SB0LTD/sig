@@ -26,7 +26,9 @@ const sig_fmt = sig.fmt;
 const sig_process = sig.process;
 
 pub fn main(init: std.process.Init) !void {
-    const io = init.io;
+    // All build graph I/O goes through Sig's allocator-free OS layer. Keep the
+    // std process initializer only for its allocation-free argv view.
+    const io: sig_io.Io = .{};
 
     // ── 1. Parse argv: fixed positional args [0..7) + user args [7..] ───
     var runner_args: sig_build.Runner_Args = .{};

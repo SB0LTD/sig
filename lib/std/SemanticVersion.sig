@@ -295,6 +295,11 @@ test "zig_version" {
     const older_version: Version = .{ .major = 0, .minor = 8, .patch = 0, .pre = "dev.874" };
 
     // Simulated compatibility check using Sig version.
-    const compatible = comptime @import("builtin").sig_version.order(older_version) == .gt;
+    const builtin = @import("builtin");
+    const compiler_version = comptime if (@hasDecl(builtin, "sig_version"))
+        builtin.sig_version
+    else
+        builtin.zig_version;
+    const compatible = comptime compiler_version.order(older_version) == .gt;
     if (!compatible) @compileError("zig_version test failed");
 }

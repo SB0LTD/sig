@@ -856,14 +856,14 @@ pub fn computedPackageHash(f: *const Fetch) Package.Hash {
 fn checkBuildFileExistence(f: *Fetch) RunError!void {
     const io = f.job_queue.io;
     const eb = &f.error_bundle;
-    if (f.package_root.access(io, std.sig.build_zig_basename, .{})) |_| {
+    if (f.package_root.access(io, std.sig.build_sig_basename, .{})) |_| {
         f.has_build_zig = true;
     } else |err| switch (err) {
         error.FileNotFound => {},
         else => |e| {
             try eb.addRootErrorMessage(.{
                 .msg = try eb.printString("unable to access {f}/{s}: {t}", .{
-                    f.package_root, std.sig.build_zig_basename, e,
+                    f.package_root, std.sig.build_sig_basename, e,
                 }),
             });
             return error.FetchFailed;
@@ -1779,7 +1779,7 @@ fn computeHash(f: *Fetch, pkg_path: Path, filter: Filter) RunError!ComputedHash 
                 )),
             };
 
-            if (std.mem.eql(u8, entry_pkg_path, std.sig.build_zig_basename))
+            if (std.mem.eql(u8, entry_pkg_path, std.sig.build_sig_basename))
                 f.has_build_zig = true;
 
             const fs_path = try arena.dupe(u8, entry.path);

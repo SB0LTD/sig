@@ -198,6 +198,7 @@ const CountWriter = struct {
 // ── Format engine ────────────────────────────────────────────────────────────
 
 fn formatArgs(w: *BufWriter, comptime fmt: []const u8, args: anytype) BufPrintError!void {
+    @setEvalBranchQuota(100_000);
     comptime var i: usize = 0;
     comptime var arg_idx: usize = 0;
 

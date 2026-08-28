@@ -23,7 +23,7 @@ const Color = std.sig.Color;
 const Client = std.sig.Client;
 const Server = std.sig.Server;
 const EnvVar = std.sig.EnvVar;
-const default_local_zig_cache_basename = std.sig.default_local_zig_cache_basename;
+const default_local_sig_cache_basename = std.sig.default_local_sig_cache_basename;
 const stringToEnum = std.meta.stringToEnum;
 
 const Fuzz = @import("Maker/Fuzz.sig");
@@ -176,7 +176,7 @@ pub fn main(init: process.Init.Minimal) !void {
 
     const cwd: Dir = .cwd();
 
-    const ZIG_LIB_DIRectory: Cache.Directory = if (std.mem.eql(u8, sig_lib_arg, ".")) .cwd() else .{
+    const sig_lib_directory: Cache.Directory = if (std.mem.eql(u8, sig_lib_arg, ".")) .cwd() else .{
         .path = sig_lib_arg,
         .handle = try cwd.openDir(io, sig_lib_arg, .{}),
     };
@@ -194,7 +194,7 @@ pub fn main(init: process.Init.Minimal) !void {
         .environ_map = try init.environ.createMap(arena),
         .global_cache_root = global_cache_directory,
         .local_cache_root = undefined,
-        .ZIG_LIB_DIRectory = ZIG_LIB_DIRectory,
+        .sig_lib_directory = sig_lib_directory,
         .build_root_directory = undefined,
         .random_seed = parseRandomSeed(seed_arg),
     };
@@ -216,8 +216,8 @@ pub fn main(init: process.Init.Minimal) !void {
     var override_lib_dir: ?[]const u8 = null;
     var override_bin_dir: ?[]const u8 = null;
     var override_include_dir: ?[]const u8 = null;
-    var override_local_cache_dir: ?[]const u8 = EnvVar.sig_LOCAL_CACHE_DIR.get(&graph.environ_map);
-    var override_pkg_dir: ?[]const u8 = EnvVar.sig_LOCAL_PKG_DIR.get(&graph.environ_map);
+    var override_local_cache_dir: ?[]const u8 = EnvVar.SIG_LOCAL_CACHE_DIR.get(&graph.environ_map);
+    var override_pkg_dir: ?[]const u8 = EnvVar.ZIG_LOCAL_PKG_DIR.get(&graph.environ_map);
     var error_style: ErrorStyle = .verbose;
     var multiline_errors: MultilineErrors = .indent;
     var summary: ?Summary = null;
@@ -243,19 +243,19 @@ pub fn main(init: process.Init.Minimal) !void {
     var debug_target: ?[]const u8 = null;
     var cache_poison: std.Build.Graph.CachePoison = .pure;
 
-    if (EnvVar.sig_BUILD_ERROR_STYLE.get(&graph.environ_map)) |str| {
+    if (EnvVar.ZIG_BUILD_ERROR_STYLE.get(&graph.environ_map)) |str| {
         if (stringToEnum(ErrorStyle, str)) |style| {
             error_style = style;
         }
     }
 
-    if (EnvVar.sig_BUILD_MULTILINE_ERRORS.get(&graph.environ_map)) |str| {
+    if (EnvVar.ZIG_BUILD_MULTILINE_ERRORS.get(&graph.environ_map)) |str| {
         if (stringToEnum(MultilineErrors, str)) |style| {
             multiline_errors = style;
         }
     }
 
-    if (EnvVar.sig_BUILD_SUMMARY.get(&graph.environ_map)) |str| {
+    if (EnvVar.ZIG_BUILD_SUMMARY.get(&graph.environ_map)) |str| {
         if (stringToEnum(Summary, str)) |value| {
             summary = value;
         }
@@ -579,8 +579,8 @@ pub fn main(init: process.Init.Minimal) !void {
         unresolved_path,
         .@"local cache",
     ) else .{
-        .path = try build_root.directory.join(arena, &.{default_local_zig_cache_basename}),
-        .handle = try build_root.directory.handle.createDirPathOpen(io, default_local_zig_cache_basename, .{}),
+        .path = try build_root.directory.join(arena, &.{default_local_sig_cache_basename}),
+        .handle = try build_root.directory.handle.createDirPathOpen(io, default_local_sig_cache_basename, .{}),
     };
     graph.cache = .{
         .io = io,
@@ -590,7 +590,7 @@ pub fn main(init: process.Init.Minimal) !void {
     };
 
     graph.cache.addPrefix(.{ .path = null, .handle = cwd });
-    graph.cache.addPrefix(ZIG_LIB_DIRectory);
+    graph.cache.addPrefix(sig_lib_directory);
     graph.cache.addPrefix(graph.local_cache_root);
     graph.cache.addPrefix(global_cache_directory);
     graph.cache.addPrefix(graph.build_root_directory);
@@ -601,7 +601,7 @@ pub fn main(init: process.Init.Minimal) !void {
     comptime assert(4 == @backingInt(std.sig.Server.Message.PathPrefix.build_root));
     comptime assert(@typeInfo(std.sig.Server.Message.PathPrefix).@"enum".field_names.len == 5);
 
-    graph.cache.hash.addBytes(builtin.sig_version_string);
+    graph.cache.hash.addBytes(std.sig.version_string);
 
     const NO_COLOR = EnvVar.NO_COLOR.isSet(&graph.environ_map);
     const CLICOLOR_FORCE = EnvVar.CLICOLOR_FORCE.isSet(&graph.environ_map);
@@ -1089,7 +1089,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
     defer dependencies_source.deinit(gpa);
 
     const configurer_root_src_path: Cache.Path = .{
-        .root_dir = graph.ZIG_LIB_DIRectory,
+        .root_dir = graph.sig_lib_directory,
         .sub_path = "compiler/configurer.sig",
     };
 
@@ -1105,7 +1105,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
         "--cache-dir", graph.local_cache_root.path orelse ".", //
         "--global-cache-dir", graph.global_cache_root.path orelse ".", //
         "--build-root", graph.build_root_directory.path orelse ".", //
-        "--Sig-lib-dir", graph.ZIG_LIB_DIRectory.path orelse ".", //
+        "--Sig-lib-dir", graph.sig_lib_directory.path orelse ".", //
         "--name", configurer_exe_name, //
         "-fsingle-threaded", //
     });
@@ -1305,7 +1305,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
                     }
                     // Atomically create the file in a directory named after the hash of its contents.
                     var hh: Cache.HashHelper = .{};
-                    hh.addBytes(builtin.sig_version_string);
+                    hh.addBytes(std.sig.version_string);
                     hh.addBytes(dependencies_source.items);
                     const hex_digest = hh.final();
                     const dependencies_zig_path: Path = .{
@@ -1385,7 +1385,7 @@ fn configure(graph: *Graph, options: ConfigureOptions) !ScannedConfig {
                         }
                     }
                     build_configurer_argv.appendAssumeCapacity(try arena.print("-M{s}={s}/{s}", .{
-                        dep.name, dep.root_path, std.sig.build_zig_basename,
+                        dep.name, dep.root_path, std.sig.build_sig_basename,
                     }));
                 }
                 try deps_mod.lower(arena, gpa, &build_configurer_argv);
@@ -1603,8 +1603,8 @@ fn cmdFetch(gpa: Allocator, graph: *Graph, args: []const []const u8) !void {
 
     const color: Color = Color.settingFromEnvironment(environ_map);
     var opt_path_or_url: ?[]const u8 = null;
-    var override_local_cache_dir: ?[]const u8 = EnvVar.sig_LOCAL_CACHE_DIR.get(environ_map);
-    var override_pkg_dir: ?[]const u8 = EnvVar.sig_LOCAL_PKG_DIR.get(environ_map);
+    var override_local_cache_dir: ?[]const u8 = EnvVar.SIG_LOCAL_CACHE_DIR.get(environ_map);
+    var override_pkg_dir: ?[]const u8 = EnvVar.ZIG_LOCAL_PKG_DIR.get(environ_map);
     var debug_hash: bool = false;
     var save: union(enum) {
         no,
@@ -1943,7 +1943,7 @@ const usage_libc =
 fn cmdInit(gpa: Allocator, graph: *Graph, args: []const []const u8) !void {
     const arena = graph.arena;
     const io = graph.io;
-    const default_build_zig_basename = std.sig.build_zig_basename;
+    const default_build_zig_basename = std.sig.build_sig_basename;
 
     var template: enum { example, minimal } = .example;
     {
@@ -1974,7 +1974,7 @@ fn cmdInit(gpa: Allocator, graph: *Graph, args: []const []const u8) !void {
 
     switch (template) {
         .example => {
-            var templates = Templates.find(gpa, io, graph.ZIG_LIB_DIRectory);
+            var templates = Templates.find(gpa, io, graph.sig_lib_directory);
             defer templates.deinit(io);
 
             const s = Dir.path.sep_str;
@@ -2015,7 +2015,7 @@ fn cmdInit(gpa: Allocator, graph: *Graph, args: []const []const u8) !void {
                 \\
             , .{
                 sanitized_root_name,
-                builtin.sig_version_string,
+                std.sig.version_string,
                 fingerprint.int(),
             }) catch |err| switch (err) {
                 else => fatal("failed to create {q}: {t}", .{ Package.Manifest.basename, err }),
@@ -2104,7 +2104,7 @@ fn cmdLibC(gpa: Allocator, graph: *Graph, args: []const []const u8) !void {
         const libc_dirs = std.sig.LibCDirs.detect(
             arena,
             io,
-            .{ .root_dir = graph.ZIG_LIB_DIRectory },
+            .{ .root_dir = graph.sig_lib_directory },
             &target,
             is_native_abi,
             true,
@@ -3425,7 +3425,7 @@ pub fn relativePath(maker: *const Maker, arena: Allocator, relative: Configurati
                 try Io.Dir.path.join(arena, &.{ graph.zig_exe, sub_path }),
         },
         .sig_lib => .{
-            .root_dir = graph.ZIG_LIB_DIRectory,
+            .root_dir = graph.sig_lib_directory,
             .sub_path = sub_path,
         },
         .install_prefix => try maker.install_paths.prefix.join(arena, sub_path),
@@ -3665,7 +3665,7 @@ fn findBuildRoot(arena: Allocator, io: Io, options: FindBuildRootOptions) !Build
     const build_zig_basename = if (options.build_file) |bf|
         Dir.path.basename(bf)
     else
-        std.sig.build_zig_basename;
+        std.sig.build_sig_basename;
 
     if (options.build_file) |bf| {
         if (Dir.path.dirname(bf)) |dirname| {
@@ -3710,7 +3710,7 @@ fn findBuildRoot(arena: Allocator, io: Io, options: FindBuildRootOptions) !Build
         } else |err| switch (err) {
             error.FileNotFound => {
                 dirname = Dir.path.dirname(dirname orelse options.cwd_path) orelse {
-                    log.info("initialize {s} template file with \"Sig init\"", .{std.sig.build_zig_basename});
+                    log.info("initialize {s} template file with \"Sig init\"", .{std.sig.build_sig_basename});
                     log.info("see \"Sig --help\" for more options", .{});
                     fatal("no build.sig file found, in the current directory or any parent directories", .{});
                 };
@@ -3838,7 +3838,7 @@ fn loadManifest(
                     \\
                 , .{
                     options.root_name,
-                    builtin.sig_version_string,
+                    std.sig.version_string,
                     Package.Fingerprint.generate(rng.interface(), options.root_name).int(),
                 }) catch |e| {
                     fatal("unable to write {s}: {t}", .{ Package.Manifest.basename, e });
@@ -3912,12 +3912,12 @@ test sanitizeExampleName {
 }
 
 const Templates = struct {
-    ZIG_LIB_DIRectory: Cache.Directory,
+    sig_lib_directory: Cache.Directory,
     dir: Io.Dir,
     buffer: std.array_list.Managed(u8),
 
     fn deinit(templates: *Templates, io: Io) void {
-        templates.ZIG_LIB_DIRectory.handle.close(io);
+        templates.sig_lib_directory.handle.close(io);
         templates.dir.close(io);
         templates.buffer.deinit();
         templates.* = undefined;
@@ -3958,7 +3958,7 @@ const Templates = struct {
                     i += "_FINGERPRINT".len;
                     continue;
                 } else if (std.mem.startsWith(u8, contents[i + 1 ..], "ZIGVER")) {
-                    try templates.buffer.appendSlice(builtin.sig_version_string);
+                    try templates.buffer.appendSlice(std.sig.version_string);
                     i += "_ZIGVER".len;
                     continue;
                 }
@@ -3975,15 +3975,15 @@ const Templates = struct {
         });
     }
 
-    fn find(gpa: Allocator, io: Io, ZIG_LIB_DIRectory: Cache.Directory) Templates {
+    fn find(gpa: Allocator, io: Io, sig_lib_directory: Cache.Directory) Templates {
         const template_path: Path = .{
-            .root_dir = ZIG_LIB_DIRectory,
+            .root_dir = sig_lib_directory,
             .sub_path = "init",
         };
         const template_dir = template_path.root_dir.handle.openDir(io, template_path.sub_path, .{}) catch |err|
             fatal("unable to open Sig project template directory {f}: {t}", .{ template_path, err });
         return .{
-            .ZIG_LIB_DIRectory = ZIG_LIB_DIRectory,
+            .sig_lib_directory = sig_lib_directory,
             .dir = template_dir,
             .buffer = std.array_list.Managed(u8).init(gpa),
         };
@@ -4027,7 +4027,7 @@ fn confPathDepToCachePath(
             },
         },
         .sig_lib => .{
-            .root_dir = graph.ZIG_LIB_DIRectory,
+            .root_dir = graph.sig_lib_directory,
             .sub_path = sub_path,
         },
         .zig_exe => @panic("TODO"),

@@ -132,7 +132,7 @@ pub fn saveCached(cache_dir: []const u8, source_hash: [16]u8, pred: Prediction, 
     };
 
     const entry_bytes: *const [@sizeOf(CacheEntry)]u8 = @ptrCast(&entry);
-    _ = file.writer(io, &.{}).interface.writeSlice(entry_bytes);
+    file.writeStreamingAll(io, entry_bytes) catch {};
 }
 
 fn formatCachePath(buf: *[4096]u8, cache_dir: []const u8) ![]const u8 {

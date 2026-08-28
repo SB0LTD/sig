@@ -51,7 +51,7 @@ max_memory: ?u64 = null,
 shared_memory: bool = false,
 global_base: ?u64 = null,
 /// Set via options; intended to be read-only after that.
-SIG_LIB_DIR: ?LazyPath,
+sig_lib_dir: ?LazyPath,
 filters: []const []const u8,
 test_runner: ?TestRunner,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
@@ -281,7 +281,7 @@ pub const Options = struct {
     test_runner: ?TestRunner = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
-    SIG_LIB_DIR: ?LazyPath = null,
+    sig_lib_dir: ?LazyPath = null,
     /// Deprecated. This functionality will be moved to an external package:
     /// https://codeberg.org/ziglang/rc
     ///

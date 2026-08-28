@@ -18,7 +18,7 @@ const sig_mem = sig.mem;
 const sig_fmt = sig.fmt;
 const sig_fs = sig.fs;
 const sig_string = sig.string;
-const sig_io = sig.io;
+pub const sig_io = sig.io;
 const sig_errors = sig.errors;
 const sig_process = sig.process;
 
@@ -1274,7 +1274,8 @@ fn runGitCommand(cmd: *const Command_Buffer, stdout_buf: *[GIT_OUTPUT_BUF_SIZE]u
 
     // Read stdout from the child.
     var stdout_len: usize = 0;
-    if (child.stdout) |stdout_file| {
+    if (child.stdout) |stdout_handle| {
+        const stdout_file: sig_io.File = .{ .handle = stdout_handle };
         var reader = stdout_file.reader(io, &.{});
         while (stdout_len < GIT_OUTPUT_BUF_SIZE) {
             const remaining = GIT_OUTPUT_BUF_SIZE - stdout_len;
@@ -2125,7 +2126,7 @@ pub const Archive_Options = struct {
 
 /// Options for the LLVM-augmented link step.
 pub const Llvm_Link_Options = struct {
-    zigcpp_handle: Step_Handle,
+    sigcpp_handle: Step_Handle,
     config_handle: Step_Handle,
     lib_dirs: []const []const u8,
     llvm_libs: []const []const u8,
@@ -2391,7 +2392,8 @@ fn runLlvmConfigCommand(cmd: *const Command_Buffer, stdout_buf: *[LLVM_OUTPUT_BU
 
     // Read stdout from the child.
     var stdout_len: usize = 0;
-    if (child.stdout) |stdout_file| {
+    if (child.stdout) |stdout_handle| {
+        const stdout_file: sig_io.File = .{ .handle = stdout_handle };
         var reader = stdout_file.reader(io, &.{});
         while (stdout_len < LLVM_OUTPUT_BUF_SIZE) {
             const remaining = LLVM_OUTPUT_BUF_SIZE - stdout_len;
@@ -3020,19 +3022,19 @@ pub fn generateConfig(ctx: *Step_Context) SigError!void {
 
     printMsg(io, "llvm: generating config.sig...", .{});
 
-    // ── 7.3: Resolve version from build.sig constants ───────────────────
+    // ── 7.3: Resolve the Zig language-base version independently from the
+    // Sig release version. Conflating these made native-built Sig 0.4.0 report
+    // its Zig compatibility version as 0.4.0 instead of 0.17.0.
     var version_buf: [VERSION_BUF_SIZE]u8 = undefined;
+    var base_version_buf: [64]u8 = undefined;
     const version_override = build_ctx.options.getValue("version-string");
     const version_str = if (version_override) |v| v else blk: {
-        const sig_ver = build_ctx.sig_version[0..build_ctx.sig_version_len];
-        const is_dev = sig_mem.indexOfScalar(u8, sig_ver, '-') != null;
-        var base_buf: [64]u8 = undefined;
-        const base_version = sig_fmt.bufPrint(&base_buf, "{d}.{d}.{d}", .{
-            build_ctx.sig_version_major,
-            build_ctx.sig_version_minor,
-            build_ctx.sig_version_patch,
-        }) catch break :blk build_ctx.sig_version[0..build_ctx.sig_version_len];
-        break :blk resolveVersionString(&version_buf, base_version, is_dev, io);
+        const base_version = sig_fmt.bufPrint(&base_version_buf, "{d}.{d}.{d}", .{
+            build_ctx.zig_version_major,
+            build_ctx.zig_version_minor,
+            build_ctx.zig_version_patch,
+        }) catch return error.BufferTooSmall;
+        break :blk resolveVersionString(&version_buf, base_version, false, io);
     };
 
     // ── 7.1, 7.2, 7.4, 7.5: Delegate to generateBuildOptions ──────────
@@ -3208,7 +3210,7 @@ pub const Build_Context = struct {
     /// before calling build.sig's build function.
     compiler_path: [PATH_BUF_SIZE]u8 = undefined,
     compiler_path_len: usize = 0,
-    /// Sig upstream version components from build.sig's zig_version constant.
+    /// Zig language-base version components from build.sig's zig_version constant.
     zig_version_major: u32 = 0,
     zig_version_minor: u32 = 0,
     zig_version_patch: u32 = 0,
@@ -3216,8 +3218,8 @@ pub const Build_Context = struct {
     sig_version: [64]u8 = undefined,
     sig_version_len: usize = 0,
     /// Sig lib directory path (for --Sig-lib-dir when invoking the compiler).
-    SIG_LIB_DIR: [PATH_BUF_SIZE]u8 = undefined,
-    SIG_LIB_DIR_len: usize = 0,
+    sig_lib_dir: [PATH_BUF_SIZE]u8 = undefined,
+    sig_lib_dir_len: usize = 0,
 
     /// LLVM configuration — populated by discovery step, read by compile/link steps.
     llvm_config: Llvm_Config = .{},
@@ -3580,7 +3582,7 @@ pub const Build_Context = struct {
         var file = sig_io.Dir.cwd().openFile(io, output, .{}) catch return error.BufferTooSmall;
         defer file.close(io);
         var header: [4]u8 = undefined;
-        var reader = file.readerStreaming(io, &.{});
+        var reader = file.reader(io, &.{});
         const header_len = reader.interface.readSliceShort(&header) catch return error.BufferTooSmall;
         const valid_magic = header_len == header.len and (sig_mem.eql(u8, &header, "\x7fELF") or
             (header[0] == 'M' and header[1] == 'Z') or
@@ -3918,6 +3920,10 @@ pub const Build_Context = struct {
         var cmd: Command_Buffer = .{};
         try cmd.appendArg(compiler);
         try cmd.appendArg("test");
+        // Compiler integration tests keep the full fixed-capacity pipeline on
+        // the stack. Provision the repository's documented 32 MiB test bound.
+        try cmd.appendArg("--stack");
+        try cmd.appendArg("33554432");
 
         // Emit only this test's declared imports as root dependencies. The
         // global module registry is shared by the graph and must not leak
@@ -4239,8 +4245,8 @@ pub const Runner_Args = struct {
     runner_binary_len: usize = 0,
     compiler_path: [PATH_BUF_SIZE]u8 = undefined,
     compiler_path_len: usize = 0,
-    SIG_LIB_DIR: [PATH_BUF_SIZE]u8 = undefined,
-    SIG_LIB_DIR_len: usize = 0,
+    sig_lib_dir: [PATH_BUF_SIZE]u8 = undefined,
+    sig_lib_dir_len: usize = 0,
     build_root: [PATH_BUF_SIZE]u8 = undefined,
     build_root_len: usize = 0,
     local_cache_dir: [PATH_BUF_SIZE]u8 = undefined,
@@ -4597,7 +4603,10 @@ fn compileBuildSig(
 // ── Entry point ─────────────────────────────────────────────────────────────
 
 pub fn main(init: std.process.Init) !void {
-    const io = init.io;
+    // The Sig build system deliberately uses its zero-sized synchronous I/O
+    // capability rather than std.Io. The process initializer is retained only
+    // for its allocation-free argv view.
+    const io: sig_io.Io = .{};
 
     // ── 1. Parse argv: fixed positional args [0..7) + user args [7..] ───
     var runner_args: Runner_Args = .{};

@@ -218,7 +218,7 @@ fn cmdObjCopy(arena: Allocator, io: Io, args: []const []const u8) !void {
             .in = &stdin_reader.interface,
             .out = &stdout_writer.interface,
         };
-        try server.serveStringMessage(.sig_version, builtin.sig_version_string);
+        try server.serveStringMessage(.zig_version, std.sig.version_string);
 
         var seen_update = false;
         while (true) {

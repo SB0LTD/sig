@@ -67,7 +67,7 @@ pub const base64 = @import("base64.sig");
 pub const bit_set = @import("bit_set.sig");
 /// Deprecated; use `lang`.
 ///
-/// To be removed after Sig 0.3.3.
+/// Scheduled for removal in the next compatibility-breaking release.
 pub const builtin = lang;
 pub const lang = @import("lang.sig");
 pub const c = @import("c.sig");

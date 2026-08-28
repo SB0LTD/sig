@@ -10,33 +10,36 @@
 
 <p align="center">
   <a href="https://github.com/SB0LTD/sig/releases"><img src="https://img.shields.io/github/v/release/SB0LTD/sig?label=latest&color=f7a41d&style=flat-square" alt="Release"></a>
-  <a href="https://codeberg.org/ziglang/Sig"><img src="https://img.shields.io/badge/upstream-Sig%200.17.0--dev-blue?style=flat-square" alt="Upstream"></a>
+  <a href="https://codeberg.org/ziglang/zig"><img src="https://img.shields.io/badge/language-base-Zig%200.17.0--dev-blue?style=flat-square" alt="Language base"></a>
   <a href="https://github.com/SB0LTD/sig/actions/workflows/sig-sync.yaml"><img src="https://img.shields.io/github/actions/workflow/status/SB0LTD/sig/sig-sync.yaml?label=sync&style=flat-square" alt="Sync Status"></a>
   <a href="https://github.com/SB0LTD/sig/actions/workflows/release.yaml"><img src="https://img.shields.io/github/actions/workflow/status/SB0LTD/sig/release.yaml?label=release&style=flat-square" alt="Release Status"></a>
 </p>
 
 <p align="center">
-  <code>sig</code> is a drop-in replacement for <code>Sig</code>. All your code works. Then you rename a file to <code>.sig</code> and the compiler starts caring about where your bytes come from.
+  <code>sig</code> retains Zig language compatibility. Rename a file to <code>.sig</code> and the compiler starts caring about where your bytes come from.
 </p>
 
 ---
 
-## 0.3.2 — First-Class SB0 Target
+## 0.4.0 — Sovereign
 
-Patch release adding the consolidated native `aarch64-sb0` target.
+The compiler, standard library, native build runner, and canonical test suite are
+Sig source. The repository tracks no `.zig` source files, and the bootstrap and
+release stages invoke Sig—not an upstream Zig executable.
 
 ```
 $ sig version
-sig 0.3.2 (Sig 0.17.0-dev)
+sig 0.4.0 (zig 0.17.0)
 ```
 
-`-target aarch64-sb0` now selects the SB0 OS and ABI directly, emits native
-raw bytes, reserves x18 automatically, and has no libc or dynamic-linker
-fallback. SB0K and SB0X remain artifact kinds under this one target rather
-than separate compiler destinations.
+`sig build` executes `build.sig` through the fixed-capacity native runner. The
+production graph compiles Sig, installs the library, and runs the real 213-test
+compiler suite. `-target aarch64-sb0` remains a first-class native target with
+no libc or dynamic-linker fallback.
 
-The packaged `Sig` alias preserves the upstream machine-readable version-only
-output, while `sig version` identifies both the Sig and Sig versions.
+The packaged `Sig` alias preserves the upstream-compatible machine-readable
+version-only output, while `sig version` identifies both the Sig and Zig-base
+versions.
 
 | Platform | Backend | Download |
 |---|---|---|
@@ -59,10 +62,10 @@ of the runner or its release gate. See
 [compiler/SB0_NATIVE_RUNNER.md](compiler/SB0_NATIVE_RUNNER.md) for the wire
 contract and reproducible QEMU invocation.
 
-The final release is produced by Sig itself. CMake and upstream Sig are absent
-from the release stage. The checked-in `zig1.wasm` chain is used only to create
-the native bootstrap set; those bootstraps then compile the four final Sig
-executables with immutable LLVM closures.
+The final release is produced by Sig itself. CMake and upstream Zig are absent
+from the bootstrap and release stages: an immutable native Sig stage0 creates
+the four verified bootstraps, and those bootstraps compile the final LLVM-backed
+Sig executables with immutable LLVM closures.
 
 ---
 
@@ -95,9 +98,10 @@ Standard Sig error unions. `try`, `catch`, `orelse`. Nothing new to learn.
 
 ## The Spoon
 
-Sig is not a fork. It stays synchronized with upstream Sig within minutes of every commit.
+Sig stays synchronized with upstream Zig while maintaining its sovereign compiler,
+strict-mode, build-runner, and release layers.
 
-When a new commit lands in `ziglang/Sig`, it fires a GitHub dispatch. The sig-sync workflow cherry-picks the commit, resolves conflicts (keeping sig-owned files), validates the bootstrap, and pushes. If the standard library changed in a way that breaks the bootstrap, it triggers a rebuild chain automatically.
+When a new commit lands in `ziglang/zig`, it fires a GitHub dispatch. The sig-sync workflow cherry-picks the commit, resolves conflicts (keeping Sig-owned files), validates the bootstrap, and pushes. If the standard library changed in a way that breaks the bootstrap, it triggers a rebuild chain automatically.
 
 The result: sig never drifts. You get upstream bug fixes, optimizations, and new features without waiting.
 
@@ -105,10 +109,10 @@ The result: sig never drifts. You get upstream bug fixes, optimizations, and new
 
 | | |
 |---|---|
-| **Latest upstream commit** | [`a583d26e`](https://codeberg.org/ziglang/Sig/commit/a583d26e7016a6111c2d1f9dbe34aeedf810c63f) |
+| **Latest upstream commit** | [`a583d26e`](https://codeberg.org/ziglang/zig/commit/a583d26e7016a6111c2d1f9dbe34aeedf810c63f) |
 | **Last sync** | 2026-08-25 |
-| **Upstream** | [codeberg.org/ziglang/Sig](https://codeberg.org/ziglang/Sig) |
-| **Base version** | Sig 0.17.0-dev · LLVM 22.1.8 |
+| **Upstream** | [codeberg.org/ziglang/zig](https://codeberg.org/ziglang/zig) |
+| **Base version** | Zig 0.17.0-dev · LLVM 22.1.8 |
 | **Sync frequency** | Every commit (< 1 min latency) |
 
 ---
@@ -132,7 +136,8 @@ finds the adjacent library automatically. If `SIG_LIB_DIR` is set globally,
 unset it or point it at the extracted `sig-toolchain/lib`; mixing compiler and
 library versions can make the build runner fail before your build begins.
 
-It's a drop-in replacement. Every `.sig` file compiles unchanged. Rename to `.sig` when you're ready to go strict.
+It's language-compatible by design. Existing `.zig` files compile unchanged;
+rename a source file to `.sig` when you're ready to enable strict mode.
 
 ## How it's built
 
@@ -144,9 +149,9 @@ build-llvm                 →  build-bootstrap              →  release
 Each stage publishes an exact manifest, SHA-256 set, source commit, producer,
 and workflow run. Drafts become visible only after every required artifact and
 target-specific execution probe succeeds. Bootstrap and final compilers also
-run the canonical 210-test native compiler graph with an explicit fixed stack
+run the canonical 213-test native compiler graph with an explicit fixed stack
 budget, then cross-compile and validate an AArch64 object.
 
 ## License
 
-Same as upstream Sig — MIT. See [LICENSE](LICENSE).
+Same as upstream Zig — MIT. See [LICENSE](LICENSE).

@@ -760,12 +760,13 @@ fn spawnWindows(cmd: *const Command_Buffer, options: Spawn_Options) SigError!Chi
     // Set up STARTUPINFOW.
     var si: os.STARTUPINFOW = .{};
     si.cb = @sizeOf(os.STARTUPINFOW);
-    if (stdout_write != null or stderr_write != null) {
-        si.dwFlags = os.STARTF_USESTDHANDLES;
-        si.hStdInput = null; // inherit
-        si.hStdOutput = if (stdout_write) |h| h else null;
-        si.hStdError = if (stderr_write) |h| h else null;
-    }
+    // Explicit standard handles are required for redirected parent terminals
+    // (including CI and Codex). With CREATE_NO_WINDOW, leaving these fields
+    // unset can make an otherwise successful child silently lose all output.
+    si.dwFlags = os.STARTF_USESTDHANDLES;
+    si.hStdInput = if (options.stdin == .inherit) os.kernel32.GetStdHandle(os.STD_INPUT_HANDLE) else null;
+    si.hStdOutput = if (stdout_write) |h| h else if (options.stdout == .inherit) os.kernel32.GetStdHandle(os.STD_OUTPUT_HANDLE) else null;
+    si.hStdError = if (stderr_write) |h| h else if (options.stderr == .inherit) os.kernel32.GetStdHandle(os.STD_ERROR_HANDLE) else null;
 
     var pi: os.PROCESS_INFORMATION = undefined;
 
@@ -934,11 +935,20 @@ pub fn runCommand(
     // Read stderr from the child into the caller-provided buffer.
     stderr_len.* = 0;
     if (child.stderr) |stderr_fd| {
-        while (stderr_len.* < stderr_buf.len) {
-            const remaining = stderr_buf.len - stderr_len.*;
-            const n = os.readFd(stderr_fd, stderr_buf.ptr + stderr_len.*, remaining);
-            if (n == 0) break;
-            stderr_len.* += n;
+        var discard: [1024]u8 = undefined;
+        while (true) {
+            if (stderr_len.* < stderr_buf.len) {
+                const remaining = stderr_buf.len - stderr_len.*;
+                const n = os.readFd(stderr_fd, stderr_buf.ptr + stderr_len.*, remaining);
+                if (n == 0) break;
+                stderr_len.* += n;
+            } else {
+                // Retain a bounded diagnostic prefix but keep draining the
+                // pipe. Stopping at capacity deadlocks children that emit more
+                // than STDERR_CAPTURE_SIZE before they exit.
+                const n = os.readFd(stderr_fd, &discard, discard.len);
+                if (n == 0) break;
+            }
         }
     }
 

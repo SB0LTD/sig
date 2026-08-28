@@ -53,6 +53,8 @@ pub fn append(opts: @This(), buffer: *std.array_list.Managed(u8)) Allocator.Erro
     @setEvalBranchQuota(4000);
     try buffer.print(
         \\const std = @import("std");
+        \\pub const sig_version = std.SemanticVersion.parse(sig_version_string) catch unreachable;
+        \\pub const sig_version_string = "{s}";
         \\pub const zig_version = std.SemanticVersion.parse(zig_version_string) catch unreachable;
         \\pub const zig_version_string = "{s}";
         \\pub const zig_backend = std.lang.CompilerBackend.{f};
@@ -72,6 +74,7 @@ pub fn append(opts: @This(), buffer: *std.array_list.Managed(u8)) Allocator.Erro
         \\    .features = std.Target.{f}.featureSet(&.{{
         \\
     , .{
+        build_options.sig_version,
         build_options.version,
         std.sig.fmtIdPU(@tagName(zig_backend)),
         std.sig.fmtIdPU(@tagName(opts.output_mode)),

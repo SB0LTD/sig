@@ -17,7 +17,7 @@ const PkgConfig = @import("../PkgConfig.sig");
 
 /// Populated when there is compiler process that lives across multiple calls
 /// to `make`.
-zig_process: ?*Step.sigProcess = null,
+sig_process: ?*Step.ZigProcess = null,
 /// Populated by InstallArtifact.
 installed_path: ?Path = null,
 /// Populated by `make`, used by `Run`.
@@ -812,10 +812,10 @@ fn lowerZigArgs(
         });
     }
 
-    const opt_ZIG_LIB_DIR: ?[]const u8 = if (conf_comp.zig_lib_dir.value) |dir|
+    const opt_ZIG_LIB_DIR: ?[]const u8 = if (conf_comp.sig_lib_dir.value) |dir|
         try maker.resolveLazyPathIndexAbs(arena, dir, compile_index)
-    else if (graph.zig_lib_directory.path) |_|
-        try arena.print("{f}", .{graph.zig_lib_directory})
+    else if (graph.sig_lib_directory.path) |_|
+        try arena.print("{f}", .{graph.sig_lib_directory})
     else
         null;
 

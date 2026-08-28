@@ -562,7 +562,7 @@ pub const ExecutableOptions = struct {
     max_rss: u64 = 0,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
-    SIG_LIB_DIR: ?LazyPath = null,
+    sig_lib_dir: ?LazyPath = null,
     /// Deprecated. This functionality will be moved to an external package:
     /// https://codeberg.org/ziglang/rc
     ///
@@ -595,7 +595,7 @@ pub const ObjectOptions = struct {
     max_rss: u64 = 0,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
-    SIG_LIB_DIR: ?LazyPath = null,
+    sig_lib_dir: ?LazyPath = null,
 };
 
 pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
@@ -618,7 +618,7 @@ pub const LibraryOptions = struct {
     max_rss: u64 = 0,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
-    SIG_LIB_DIR: ?LazyPath = null,
+    sig_lib_dir: ?LazyPath = null,
     /// Deprecated. This functionality will be moved to an external package:
     /// https://codeberg.org/ziglang/rc
     ///
@@ -656,7 +656,7 @@ pub const TestOptions = struct {
     test_runner: ?Step.Compile.TestRunner = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
-    SIG_LIB_DIR: ?LazyPath = null,
+    sig_lib_dir: ?LazyPath = null,
     /// Emits an object file instead of a test binary.
     /// The object must be linked separately.
     /// Usually used in conjunction with a custom `test_runner`.
@@ -693,7 +693,7 @@ pub const AssemblyOptions = struct {
     target: ResolvedTarget,
     optimize: std.builtin.Optimize,
     max_rss: u64 = 0,
-    SIG_LIB_DIR: ?LazyPath = null,
+    sig_lib_dir: ?LazyPath = null,
 };
 
 /// This function creates a module and adds it to the package's module set, making

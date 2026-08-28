@@ -1,7 +1,7 @@
-# Build a complete Sig bootstrap set from the checked-in zig1.wasm chain.
+# Build a complete Sig bootstrap set with an immutable native Sig stage0.
 #
-# Linux and macOS build the C bootstrap natively against the immutable native
-# LLVM closures. Windows is produced by that Linux Sig compiler with the
+# Linux and macOS self-host against immutable Sig and LLVM closures. Windows is
+# produced by that Linux Sig compiler with the
 # Windows LLVM closure, avoiding the known native Windows C-backend ABI UB.
 # Nothing is published until all four packaged compilers execute and compile.
 name: build-bootstrap
@@ -18,6 +18,11 @@ on:
         required: true
         default: 'llvm-22.1.8-sig-0.3.1'
         type: string
+      stage0_tag:
+        description: 'Immutable published Sig bootstrap used as stage0'
+        required: true
+        default: 'bootstrap-sig-v55'
+        type: string
 
 concurrency:
   group: build-bootstrap-${{ inputs.version }}
@@ -29,6 +34,7 @@ permissions:
 env:
   BOOTSTRAP_TAG: ${{ inputs.version }}
   LLVM_ARTIFACT_TAG: ${{ inputs.llvm_tag }}
+  STAGE0_TAG: ${{ inputs.stage0_tag }}
 
 jobs:
   prepare-release:
@@ -36,7 +42,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       sig_version: ${{ steps.source.outputs.sig_version }}
-      zig_version: ${{ steps.source.outputs.sig_version }}
+      zig_version: ${{ steps.source.outputs.zig_version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -60,11 +66,11 @@ jobs:
           echo "sig_version=$sig_version" >> "$GITHUB_OUTPUT"
           echo "zig_version=$zig_version" >> "$GITHUB_OUTPUT"
 
-      - name: Prove WebAssembly bootstrap host shim
+      - name: Prove Sovereign source and release orchestration
         shell: bash
         run: |
-          echo "Skipped: zig1.wasm regen pending for 0.3.3 (.sig rename)"
-          echo "The wasm bootstrap chain will be restored after the first native 0.3.3 bootstrap lands."
+          chmod +x ci/prove-sovereign-source.sh
+          ci/prove-sovereign-source.sh
 
       - name: Validate inputs and create draft release
         env:
@@ -81,11 +87,12 @@ jobs:
             exit 1
           fi
           test "$(gh release view "${LLVM_ARTIFACT_TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft --jq .isDraft)" = false
+          test "$(gh release view "${STAGE0_TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft --jq .isDraft)" = false
           gh release create "${BOOTSTRAP_TAG}" \
             --repo "${GITHUB_REPOSITORY}" \
             --target "${GITHUB_SHA}" \
             --title "Sig bootstrap ${BOOTSTRAP_TAG}" \
-            --notes "Draft bootstrap set generated from the checked-in zig1.wasm chain and immutable ${LLVM_ARTIFACT_TAG} closures. Published only after x86_64 Linux, aarch64 Linux, macOS, and Windows compiler probes pass." \
+            --notes "Draft Sovereign bootstrap set self-hosted from immutable ${STAGE0_TAG} and ${LLVM_ARTIFACT_TAG} closures. Published only after x86_64 Linux, aarch64 Linux, macOS, and Windows compiler probes pass." \
             --draft \
             --prerelease
 
@@ -95,7 +102,7 @@ jobs:
     timeout-minutes: 180
     env:
       SIG_VERSION: ${{ needs.prepare-release.outputs.sig_version }}
-      ZIG_VERSION: ${{ needs.prepare-release.outputs.sig_version }}
+      ZIG_VERSION: ${{ needs.prepare-release.outputs.zig_version }}
     steps:
       - name: Free disk space
         run: |
@@ -115,13 +122,13 @@ jobs:
         shell: bash
         run: cmake -DTEST_ROOT="$RUNNER_TEMP/llvm-system-libs-test" -P cmake/tests/RelocateLlvmSystemLibraries.cmake
 
-      - name: Download and verify native Linux LLVM closure
+      - name: Download and verify portable x86_64 Linux LLVM closure
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          archive=llvm-22-x86_64-linux-native.tar.xz
+          archive=llvm-22-x86_64-linux.tar.xz
           gh release download "${LLVM_ARTIFACT_TAG}" --pattern "$archive" --pattern "$archive.sha256" --dir /tmp/llvm-download
           (cd /tmp/llvm-download && sha256sum --check --strict "$archive.sha256")
           mkdir llvm-22
@@ -150,9 +157,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Use v55 as the stage0 compiler to build the new bootstrap
+          # Use an immutable published Sig compiler as stage0.
           archive=bootstrap-sig-x86_64-linux.tar.zst
-          gh release download "bootstrap-sig-v55" --pattern "$archive" --pattern "$archive.sha256" --dir /tmp/prev-bootstrap
+          gh release download "${STAGE0_TAG}" --pattern "$archive" --pattern "$archive.sha256" --dir /tmp/prev-bootstrap
           (cd /tmp/prev-bootstrap && sha256sum --check --strict "$archive.sha256")
           mkdir .prev-bootstrap
           zstd -d "/tmp/prev-bootstrap/$archive" --stdout | tar -x -C .prev-bootstrap
@@ -161,7 +168,7 @@ jobs:
           "$PREV_SIG" version
           echo "PREV_SIG=$PREV_SIG" >> "$GITHUB_ENV"
 
-      - name: Build native Linux bootstrap
+      - name: Build portable x86_64 Linux bootstrap
         shell: bash
         run: |
           set -euo pipefail
@@ -169,7 +176,7 @@ jobs:
           ci/build-self-hosted-release.sh \
             "$PREV_SIG" \
             "$LLVM_PREFIX" \
-            native \
+            x86_64-linux-musl \
             build/zig2 \
             .sig-cache/bootstrap-linux
           file build/zig2 | grep -q 'ELF 64-bit.*x86-64'
@@ -268,7 +275,8 @@ jobs:
           schema=sb0.sig.bootstrap.v1
           artifact=$archive
           target=x86_64-linux
-          producer=zig1.wasm-c-bootstrap
+          producer=sig-native-stage0
+          stage0_tag=${STAGE0_TAG}
           llvm_artifact_tag=${LLVM_ARTIFACT_TAG}
           sig_source_commit=${GITHUB_SHA}
           workflow_run=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
@@ -348,7 +356,7 @@ jobs:
     timeout-minutes: 180
     env:
       SIG_VERSION: ${{ needs.prepare-release.outputs.sig_version }}
-      ZIG_VERSION: ${{ needs.prepare-release.outputs.sig_version }}
+      ZIG_VERSION: ${{ needs.prepare-release.outputs.zig_version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -378,7 +386,7 @@ jobs:
         run: |
           set -euo pipefail
           archive=bootstrap-sig-aarch64-macos.tar.zst
-          gh release download "bootstrap-sig-v55" --pattern "$archive" --pattern "$archive.sha256" --dir /tmp/prev-bootstrap
+          gh release download "${STAGE0_TAG}" --pattern "$archive" --pattern "$archive.sha256" --dir /tmp/prev-bootstrap
           (cd /tmp/prev-bootstrap && shasum -a 256 -c "$archive.sha256")
           mkdir .prev-bootstrap
           zstd -d "/tmp/prev-bootstrap/$archive" --stdout | tar -x -C .prev-bootstrap
@@ -440,7 +448,8 @@ jobs:
           schema=sb0.sig.bootstrap.v1
           artifact=$archive
           target=aarch64-macos
-          producer=zig1.wasm-c-bootstrap
+          producer=sig-native-stage0
+          stage0_tag=${STAGE0_TAG}
           llvm_artifact_tag=${LLVM_ARTIFACT_TAG}
           sig_source_commit=${GITHUB_SHA}
           workflow_run=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
@@ -467,7 +476,7 @@ jobs:
     timeout-minutes: 180
     env:
       SIG_VERSION: ${{ needs.prepare-release.outputs.sig_version }}
-      ZIG_VERSION: ${{ needs.prepare-release.outputs.sig_version }}
+      ZIG_VERSION: ${{ needs.prepare-release.outputs.zig_version }}
     steps:
       - name: Free disk space
         run: |
@@ -570,7 +579,7 @@ jobs:
     timeout-minutes: 45
     env:
       SIG_VERSION: ${{ needs.prepare-release.outputs.sig_version }}
-      ZIG_VERSION: ${{ needs.prepare-release.outputs.sig_version }}
+      ZIG_VERSION: ${{ needs.prepare-release.outputs.zig_version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -625,7 +634,7 @@ jobs:
           $zigText = ($zigVersion -join "`n")
           $zigBase = [regex]::Escape($env:ZIG_VERSION)
           if ($LASTEXITCODE -ne 0 -or $zigText -notmatch "^${zigBase}(?:[-+].*)?$" -or $zigText -match 'sig') { throw 'Windows bootstrap Sig alias version probe failed' }
-          & .\ci\prove-native-build.ps1 -Sig $sig -ZigLibDir $env:SIG_LIB_DIR
+          & .\ci\prove-native-build.ps1 -Sig $sig -SigLibDir $env:SIG_LIB_DIR
           & $sig ast-check compiler\core\target.sig
           if ($LASTEXITCODE -ne 0) { throw 'strict .sig parse failed' }
           & $sig test compiler\test_all.sig `

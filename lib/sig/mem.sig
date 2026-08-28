@@ -70,7 +70,7 @@ fn AsBytes(comptime T: type) type {
     if (info == .pointer) {
         const child = info.pointer.child;
         const size = @sizeOf(child);
-        if (info.pointer.is_const) {
+        if (info.pointer.attrs.@"const") {
             return *const [size]u8;
         } else {
             return *[size]u8;

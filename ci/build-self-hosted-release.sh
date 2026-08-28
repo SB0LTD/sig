@@ -130,7 +130,9 @@ case "$TARGET" in
     ;;
   x86_64-linux-musl|x86_64-linux-gnu|aarch64-linux-musl)
     # cross Linux LLVM closure is built with Sig-cxx (libc++).
-    lld_flag=-fno-lld
+    # Use the compiler's bundled ELF LLD. A host system linker cannot reliably
+    # link the musl/aarch64 closures and previously mixed the host C++ ABI in.
+    lld_flag=-flld
     cxx_stdlib_flags=(-stdlib=libc++ -isystem lib/libcxx/include -isystem lib/libcxxabi/include)
     set -- \
       -lc++ -lc++abi -lm -lz -lzstd -lpthread -ldl -lrt

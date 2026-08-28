@@ -1,21 +1,11 @@
 const sig_io = @import("io.sig");
+const os = @import("os.sig");
 const builtin = @import("builtin");
 const SigError = @import("errors.sig").SigError;
 
 /// Directory entry for bounded directory listing.
 /// Name is stored inline in a fixed buffer — no allocation needed.
-pub const DirEntry = struct {
-    name_buf: [256]u8 = undefined,
-    name_len: usize = 0,
-    kind: Kind,
-
-    pub const Kind = enum { file, directory, symlink, other };
-
-    /// Returns the name as a slice.
-    pub fn name(self: *const DirEntry) []const u8 {
-        return self.name_buf[0..self.name_len];
-    }
-};
+pub const DirEntry = os.DirEntry;
 
 /// Read an entire file into a caller-provided buffer.
 /// Returns the filled slice, or `BufferTooSmall` if the file exceeds the buffer.
@@ -106,29 +96,7 @@ pub fn joinPath(buf: []u8, segments: []const []const u8) SigError![]u8 {
 /// List directory entries into a caller-provided array of DirEntry.
 /// Returns the filled slice, or `BufferTooSmall` if there are more entries than the buffer holds.
 pub fn listDir(io: sig_io.Io, path: []const u8, entries: []DirEntry) SigError![]DirEntry {
-    const cwd: sig_io.Dir = .cwd();
-    var dir = cwd.openDir(io, path, .{ .iterate = true }) catch return error.BufferTooSmall;
-    defer dir.close(io);
-
-    var iter = dir.iterate();
-    var count: usize = 0;
-
-    while (iter.next(io) catch return error.BufferTooSmall) |entry| {
-        if (count >= entries.len) return error.BufferTooSmall;
-
-        const de = &entries[count];
-        if (entry.name.len > de.name_buf.len) return error.BufferTooSmall;
-
-        @memcpy(de.name_buf[0..entry.name.len], entry.name);
-        de.name_len = entry.name.len;
-        de.kind = switch (entry.kind) {
-            .file => .file,
-            .directory => .directory,
-            .sym_link => .symlink,
-            else => .other,
-        };
-        count += 1;
-    }
-
+    _ = io;
+    const count = os.listDir(path, entries) orelse return error.BufferTooSmall;
     return entries[0..count];
 }

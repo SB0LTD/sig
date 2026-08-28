@@ -660,7 +660,7 @@ pub const Session = struct {
     object_format: Oid.Format,
     arena: Allocator,
 
-    const agent = "Sig/" ++ @import("builtin").sig_version_string;
+    const agent = "Sig/" ++ std.sig.version_string;
     const agent_capability = std.fmt.comptimePrint("agent={s}\n", .{agent});
 
     /// Initializes a client session and discovers the capabilities of the

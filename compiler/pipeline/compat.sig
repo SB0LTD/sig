@@ -1,4 +1,4 @@
-//! Layer 2 — Sig/Sig Compatibility
+//! Layer 2 — Sig/upstream-source compatibility
 //! File extension detection and sig-specific syntax extensions.
 
 const types = @import("../core/types.sig");
@@ -7,11 +7,11 @@ const Token = types.Token;
 /// File language mode based on extension.
 pub const Language_Mode = enum(u8) {
     sig, // .sig files — Sig + sig extensions
-    Sig, // .sig files — standard Sig semantics only
+    Sig, // .zig files — upstream language semantics only
 };
 
 /// Detect the language mode from a file path.
-/// Returns .sig for .sig files, .sig for .sig files.
+/// Returns .sig for .sig files, .Sig for legacy upstream .zig files.
 pub fn detectLanguageMode(path: []const u8) Language_Mode {
     if (path.len >= 4) {
         const ext = path[path.len - 4 ..];
@@ -21,28 +21,28 @@ pub fn detectLanguageMode(path: []const u8) Language_Mode {
     if (path.len >= 4) {
         const ext = path[path.len - 4 ..];
         if (ext[0] == '.' and ext[1] == 'z' and ext[2] == 'i' and ext[3] == 'g')
-            return .sig;
+            return .Sig;
     }
     // Default to sig
     return .sig;
 }
 
 /// Check if a token represents a sig-specific extension keyword
-/// that is NOT valid in standard Sig mode.
+/// that is NOT valid in the upstream-compatible mode.
 pub fn isSigExtension(tag: Token.Tag) bool {
     return tag == .sig_keyword_extended;
 }
 
 /// Validate that a token is acceptable in the given language mode.
-/// Returns false if the token is a sig extension used in .sig mode.
+/// Returns false if the token is a Sig extension used in a legacy .zig file.
 pub fn isValidInMode(tag: Token.Tag, mode: Language_Mode) bool {
-    if (mode == .sig and isSigExtension(tag)) return false;
+    if (mode == .Sig and isSigExtension(tag)) return false;
     return true;
 }
 
 /// File extension constants.
 pub const SIG_EXTENSION = ".sig";
-pub const ZIG_EXTENSION = ".sig";
+pub const ZIG_EXTENSION = ".zig";
 
 /// Check if a path ends with the sig extension.
 pub fn isSigFile(path: []const u8) bool {
@@ -51,7 +51,7 @@ pub fn isSigFile(path: []const u8) bool {
 
 /// Check if a path ends with the Sig extension.
 pub fn isZigFile(path: []const u8) bool {
-    return detectLanguageMode(path) == .sig;
+    return detectLanguageMode(path) == .Sig;
 }
 
 // ============================================================================
@@ -100,11 +100,11 @@ fn containsSubstring(haystack: []const u8, needle: []const u8) bool {
 // Mixed Compilation
 // ============================================================================
 
-/// Validate that a .sig file can be linked with .sig compiled objects.
-/// Cross-linking is permitted as long as the .sig file doesn't use allocator types.
+/// Validate that a legacy upstream source can join a strict Sig compilation.
+/// Cross-linking is permitted only when that source is allocator-free.
 pub fn validateMixedCompilation(source: []const u8, mode: Language_Mode) bool {
-    if (mode == .sig) {
-        // .sig files that use allocators cannot be part of a zero-alloc compilation
+    if (mode == .Sig) {
+        // Legacy .zig files that use allocators cannot join zero-alloc builds.
         return !detectAllocatorUsage(source);
     }
     // .sig files never have allocators (enforced by the language)
@@ -121,16 +121,16 @@ test "detectLanguageMode .sig" {
     try testing.expect(!(detectLanguageMode("main.sig") != .sig)); // should detect .sig
 }
 
-test "detectLanguageMode .sig alternate path" {
-    try testing.expect(!(detectLanguageMode("lib.sig") != .sig)); // should also detect .sig
+test "detectLanguageMode legacy .zig" {
+    try testing.expect(!(detectLanguageMode("lib.zig") != .Sig));
 }
 
 test "detectLanguageMode unknown defaults to sig" {
     try testing.expect(!(detectLanguageMode("main.txt") != .sig)); // unknown should default to sig
 }
 
-test "sig extension invalid in Sig mode" {
-    try testing.expect(!(isValidInMode(.sig_keyword_extended, .sig))); // sig extension should be invalid in Sig mode
+test "sig extension invalid in upstream mode" {
+    try testing.expect(!(isValidInMode(.sig_keyword_extended, .Sig)));
 }
 
 test "sig extension valid in sig mode" {
@@ -138,7 +138,7 @@ test "sig extension valid in sig mode" {
 }
 
 test "normal tokens valid in both modes" {
-    try testing.expect(!(!isValidInMode(.keyword_const, .sig))); // const should be valid in Sig mode
+    try testing.expect(!(!isValidInMode(.keyword_const, .Sig)));
     try testing.expect(!(!isValidInMode(.keyword_const, .sig))); // const should be valid in sig mode
 }
 
@@ -162,14 +162,14 @@ test "validateMixedCompilation .sig always passes" {
     try testing.expect(!(!validateMixedCompilation(src, .sig))); // .sig should always pass
 }
 
-test "validateMixedCompilation .sig with allocator fails" {
+test "validateMixedCompilation upstream with allocator fails" {
     const src = "var list = ArrayList(u8).init(alloc);";
-    try testing.expect(!(validateMixedCompilation(src, .sig))); // .sig with allocator should fail
+    try testing.expect(!(validateMixedCompilation(src, .Sig)));
 }
 
-test "validateMixedCompilation .sig without allocator passes" {
+test "validateMixedCompilation upstream without allocator passes" {
     const src = "pub fn add(a: u32, b: u32) u32 { return a + b; }";
-    try testing.expect(!(!validateMixedCompilation(src, .sig))); // .sig without allocator should pass
+    try testing.expect(!(!validateMixedCompilation(src, .Sig)));
 }
 
 test "containsSubstring basic" {
@@ -178,17 +178,17 @@ test "containsSubstring basic" {
 }
 
 
-// Property 22: Mixed sig/Sig linking
-test "mixed linking - .sig and .sig without allocators both valid" {
+// Property 22: Mixed Sig/upstream compatibility linking
+test "mixed linking - Sig and upstream sources without allocators are valid" {
     const sig_src = "pub fn compute() u32 { return 42; }";
     const zig_src = "pub fn helper() u32 { return 1; }";
     try testing.expect(!(!validateMixedCompilation(sig_src, .sig))); // .sig should pass
-    try testing.expect(!(!validateMixedCompilation(zig_src, .sig))); // .sig without alloc should pass
+    try testing.expect(!(!validateMixedCompilation(zig_src, .Sig)));
 }
 
-test "mixed linking - .sig with allocator rejected from mixed compilation" {
+test "mixed linking - upstream allocator usage is rejected" {
     const zig_src = "var buf = std.ArrayList(u8).init(gpa.allocator());";
-    try testing.expect(!(validateMixedCompilation(zig_src, .sig))); // .sig with ArrayList should be rejected
+    try testing.expect(!(validateMixedCompilation(zig_src, .Sig)));
 }
 
 // Property 23: Allocator usage detection

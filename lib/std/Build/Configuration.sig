@@ -665,7 +665,7 @@ pub const Step = extern struct {
             pub const Tag = enum(u2) { none, bytes, lazy_path };
         };
         pub const TrimWhitespace = enum(u2) { none, all, leading, trailing };
-        pub const StdIo = enum(u2) { infer_from_args, inherit, check, zig_test };
+        pub const StdIo = enum(u2) { infer_from_args, inherit, check, sig_test };
 
         pub const ExpectTermStatus = enum(u2) { exited, signal, stopped, unknown };
 
@@ -719,7 +719,7 @@ pub const Step = extern struct {
         expect_errors: Storage.FlagUnion(.flags4, .expect_errors, ExpectErrors),
         linker_script: Storage.FlagOptional(.flags4, .linker_script, LazyPath.Index),
         version_script: Storage.FlagOptional(.flags4, .version_script, LazyPath.Index),
-        SIG_LIB_DIR: Storage.FlagOptional(.flags3, .sig_lib_dir, LazyPath.Index),
+        sig_lib_dir: Storage.FlagOptional(.flags3, .sig_lib_dir, LazyPath.Index),
         libc_file: Storage.FlagOptional(.flags4, .libc_file, LazyPath.Index),
         win32_manifest: Storage.FlagOptional(.flags3, .win32_manifest, LazyPath.Index),
         win32_module_definition: Storage.FlagOptional(.flags3, .win32_module_definition, LazyPath.Index),
@@ -1001,7 +1001,7 @@ pub const Step = extern struct {
             wasi_exec_model: WasiExecModel,
             win32_manifest: bool,
             win32_module_definition: bool,
-            SIG_LIB_DIR: bool,
+            sig_lib_dir: bool,
             rc_includes: std.sig.RcIncludes,
             image_base: bool,
             build_id: BuildId,

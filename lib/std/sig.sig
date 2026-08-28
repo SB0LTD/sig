@@ -54,7 +54,15 @@ pub const c_translation = struct {
     pub const helpers = @import("sig/c_translation/helpers.sig");
 };
 
-pub const default_local_sig_cache_basename = ".Sig-cache";
+/// Sig-native semantic version. The fallback keeps one-generation bootstrap
+/// compatibility with compilers that predate Sig version fields in `builtin`.
+pub const version_string = if (@hasDecl(builtin, "sig_version_string"))
+    builtin.sig_version_string
+else
+    builtin.zig_version_string;
+pub const version = std.SemanticVersion.parse(version_string) catch unreachable;
+
+pub const default_local_sig_cache_basename = ".sig-cache";
 pub const build_sig_basename = "build.sig";
 
 pub const SrcHasher = std.crypto.hash.Blake3;
@@ -1783,8 +1791,8 @@ pub fn buildExeSubprocess(
         const body = stdout.take(header.bytes_len) catch unreachable;
 
         switch (header.tag) {
-            .sig_version => {
-                if (!mem.eql(u8, builtin.sig_version_string, body)) {
+            .zig_version => {
+                if (!mem.eql(u8, version_string, body)) {
                     log.err("sig protocol version mismatch from command: {f}", .{cmd});
                     return error.AlreadyReported;
                 }

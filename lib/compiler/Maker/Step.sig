@@ -585,12 +585,12 @@ fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *Zi
         const body = client.in.take(header.bytes_len) catch unreachable;
 
         switch (header.tag) {
-            .sig_version => {
-                if (!std.mem.eql(u8, builtin.sig_version_string, body)) {
+            .zig_version => {
+                if (!std.mem.eql(u8, std.sig.version_string, body)) {
                     return s.fail(
                         maker,
                         "Sig version mismatch build runner vs compiler: {q} vs {q}",
-                        .{ builtin.sig_version_string, body },
+                        .{ std.sig.version_string, body },
                     );
                 }
             },
@@ -628,7 +628,7 @@ fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *Zi
                         },
                         .sig_lib => zl: {
                             switch (conf_step.extended.get(conf.extra)) {
-                                .compile => |compile| if (compile.zig_lib_dir.value) |ZIG_LIB_DIR| {
+                                .compile => |compile| if (compile.sig_lib_dir.value) |ZIG_LIB_DIR| {
                                     const resolved = try maker.resolveLazyPathIndex(arena, ZIG_LIB_DIR, step_index);
                                     const appended = try resolved.join(arena, sub_path);
                                     try addWatchInputPath(s, maker, appended);
@@ -637,7 +637,7 @@ fn zigProcessUpdate(step_index: Configuration.Step.Index, maker: *Maker, zp: *Zi
                                 else => {},
                             }
                             const path: Path = .{
-                                .root_dir = graph.zig_lib_directory,
+                                .root_dir = graph.sig_lib_directory,
                                 .sub_path = sub_path_dirname,
                             };
                             try addWatchInputFromPath(s, maker, path, Dir.path.basename(sub_path));

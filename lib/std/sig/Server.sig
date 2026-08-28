@@ -28,7 +28,8 @@ pub const Message = struct {
     };
 
     pub const Tag = enum(u32) {
-        /// Body is a UTF-8 string.
+        /// Body is the Sig semantic version as a UTF-8 string. The legacy tag
+        /// spelling is retained for wire compatibility with older bootstraps.
         zig_version,
         /// Body is an ErrorBundle.
         error_bundle,
