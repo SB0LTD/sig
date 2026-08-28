@@ -123,8 +123,10 @@ case "$TARGET" in
     # native Linux LLVM closure is built with system gcc/g++ (libstdc++).
     lld_flag=-fno-lld
     cxx_stdlib_flags=(-stdlib=libstdc++)
+    # Locate the system libstdc++.a so the linker can resolve GCC C++ symbols.
+    GCC_LIBSTDCXX="$(dirname "$(g++ -print-file-name=libstdc++.a)")"
     set -- \
-      -lstdc++ -lm -lz -lzstd -lpthread -ldl -lrt
+      -L"$GCC_LIBSTDCXX" -lstdc++ -lm -lz -lzstd -lpthread -ldl -lrt
     ;;
   x86_64-linux-musl|x86_64-linux-gnu|aarch64-linux-musl)
     # cross Linux LLVM closure is built with Sig-cxx (libc++).
