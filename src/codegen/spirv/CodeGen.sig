@@ -145,7 +145,7 @@ const Ptr = union(enum) {
     tracked: struct { id: Id, slot: *?Id },
 };
 
-/// Tracks how control flow leaves a Sig `block` under SPIR-V's structured
+/// Tracks how control flow leaves a Zig `block` under SPIR-V's structured
 /// control flow rules.
 const Block = union(enum) {
     const Incoming = struct {
@@ -617,7 +617,8 @@ pub fn structType(
 
 /// Returns the layout-decorated variant of `ty` for use inside a Vulkan/OpenGL
 /// interface block. Vulkan forbids nested Block decorations, so recursive calls
-/// always pass `false`.
+/// pass `false`, except through an array, whose elements are each a
+/// block of their own.
 ///
 /// This is distinct from `resolveType` because SPIR-V forbids such decorations
 /// on the pointee of a Function-scope variable.
@@ -695,26 +696,30 @@ pub fn layoutType(cg: *CodeGen, ty: Type, is_block_root: bool) Error!Id {
         },
         .array => id: {
             const elem_ty = ty.childType(zcu);
-            const elem_ty_id = try cg.layoutType(elem_ty, false);
+            const elem_ty_id = try cg.layoutType(elem_ty, is_block_root);
             const total_len = std.math.cast(u32, ty.arrayLenIncludingSentinel(zcu)) orelse
                 return cg.fail("array type of {} elements is too large", .{ty.arrayLenIncludingSentinel(zcu)});
             const id = try cg.arrayType(try cg.constInt(.u32, total_len), elem_ty_id);
-            if (elem_ty.hasRuntimeBits(zcu)) try cg.decorate(id, .{
-                .array_stride = .{ .array_stride = @intCast(elem_ty.abiSize(zcu)) },
-            });
+            if (!is_block_root and elem_ty.hasRuntimeBits(zcu)) {
+                try cg.decorate(id, .{
+                    .array_stride = .{ .array_stride = @intCast(elem_ty.abiSize(zcu)) },
+                });
+            }
             break :id id;
         },
         .spirv => if (ty.isSpirvRuntimeArray(zcu)) id: {
             const elem_ty = ty.childType(zcu);
-            const elem_ty_id = try cg.layoutType(elem_ty, false);
+            const elem_ty_id = try cg.layoutType(elem_ty, is_block_root);
             const id = cg.allocId();
             try cg.sections.globals.emit(gpa, .OpTypeRuntimeArray, .{
                 .id_result = id,
                 .element_type = elem_ty_id,
             });
-            if (elem_ty.hasRuntimeBits(zcu)) try cg.decorate(id, .{
-                .array_stride = .{ .array_stride = @intCast(elem_ty.abiSize(zcu)) },
-            });
+            if (!is_block_root and elem_ty.hasRuntimeBits(zcu)) {
+                try cg.decorate(id, .{
+                    .array_stride = .{ .array_stride = @intCast(elem_ty.abiSize(zcu)) },
+                });
+            }
             break :id id;
         } else return cg.resolveType(ty, .indirect),
         else => return cg.resolveType(ty, .indirect),
@@ -955,11 +960,18 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
             switch (target.os.tag) {
                 .vulkan, .opengl => {
                     switch (storage_class) {
-                        .uniform, .push_constant, .storage_buffer, .physical_storage_buffer => {
+                        .uniform,
+                        .push_constant,
+                        .storage_buffer,
+                        .physical_storage_buffer,
+                        => {
                             if (ty.hasRuntimeBits(zcu)) {
-                                try cg.decorate(ptr_ty_id, .{
-                                    .array_stride = .{ .array_stride = @intCast(ty.abiSize(zcu)) },
-                                });
+                                if (!ty.isSpirvRuntimeArray(zcu)) {
+                                    try cg.decorate(
+                                        ptr_ty_id,
+                                        .{ .array_stride = .{ .array_stride = @intCast(ty.abiSize(zcu)) } },
+                                    );
+                                }
                                 if (!cg.needsLayout(as, ty)) try cg.decorateLayout(ty, ty_id);
                             }
                             if (key.is_const and storage_class == .storage_buffer) {
@@ -1056,8 +1068,8 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
             try cg.sections.globals.emit(gpa, .OpExtInst, .{
                 .id_result_type = ptr_ty_id,
                 .id_result = result_id,
-                .set = try cg.importInstructionSet(.Sig),
-                .instruction = .{ .inst = @backingInt(spec.Sig.InvocationGlobal) },
+                .set = try cg.importInstructionSet(.zig),
+                .instruction = .{ .inst = @backingInt(spec.Zig.InvocationGlobal) },
                 .id_ref_4 = &.{initializer_id},
             });
         },
@@ -1278,8 +1290,8 @@ fn resolveUav(cg: *CodeGen, val: InternPool.Index) !Id {
         try cg.sections.globals.emit(gpa, .OpExtInst, .{
             .id_result_type = fn_decl_ptr_ty_id,
             .id_result = result_id,
-            .set = try cg.importInstructionSet(.Sig),
-            .instruction = .{ .inst = @backingInt(spec.Sig.InvocationGlobal) },
+            .set = try cg.importInstructionSet(.zig),
+            .instruction = .{ .inst = @backingInt(spec.Zig.InvocationGlobal) },
             .id_ref_4 = &.{initializer_id},
         });
     }
@@ -1963,13 +1975,8 @@ fn derivePtr(cg: *CodeGen, derivation: Value.PointerDeriveStep) !Id {
 
             const nav_ty_id = try cg.resolveType(nav_ty, .indirect);
             const decl_ptr_ty_id = try cg.ptrType(nav_ty_id, storage_class);
-            switch (nav_ty.zigTypeTag(zcu)) {
-                .@"struct", .@"union" => {
-                    if (cg.needsLayout(nav.resolved.?.@"addrspace", nav_ty)) {
-                        try cg.block_var_ids.put(gpa, spv_decl.result_id, {});
-                    }
-                },
-                else => {},
+            if (cg.needsLayout(nav.resolved.?.@"addrspace", nav_ty)) {
+                try cg.block_var_ids.put(gpa, spv_decl.result_id, {});
             }
             if (decl_ptr_ty_id == ty_id) return spv_decl.result_id;
             switch (target.os.tag) {
@@ -2047,6 +2054,13 @@ fn derivePtr(cg: *CodeGen, derivation: Value.PointerDeriveStep) !Id {
                 while (cur.toIntern() != dst_child.toIntern()) {
                     switch (cur.zigTypeTag(zcu)) {
                         .array => {
+                            if (dst_child.zigTypeTag(zcu) == .array and
+                                dst_child.childType(zcu).toIntern() == cur.childType(zcu).toIntern() and
+                                dst_child.arrayLenIncludingSentinel(zcu) <= cur.arrayLenIncludingSentinel(zcu))
+                            {
+                                cur = dst_child;
+                                break;
+                            }
                             cur = cur.childType(zcu);
                             depth += 1;
                         },
@@ -2086,7 +2100,7 @@ fn derivePtr(cg: *CodeGen, derivation: Value.PointerDeriveStep) !Id {
                 }
             }
 
-            return cg.fail("cannot perform pointer cast: '{f}' to '{f}'", .{
+            return cg.fail("cannot cast pointer '{f}' to '{f}'", .{
                 parent_ptr_ty.fmt(pt),
                 oac.new_ptr_ty.fmt(pt),
             });
@@ -2313,7 +2327,7 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
             const child_ty: Type = switch (ptr_info.packed_offset.host_size) {
                 0 => .fromInterned(ptr_info.child),
                 else => switch (ptr_info.flags.vector_index) {
-                    // Accepted proposal https://github.com/ziglang/Sig/issues/24061 will eliminate these usages of `pt`.
+                    // Accepted proposal https://github.com/ziglang/zig/issues/24061 will eliminate these usages of `pt`.
                     .none => try pt.intType(.unsigned, ptr_info.packed_offset.host_size * 8),
                     else => try pt.vectorType(.{
                         .child = ptr_info.child,
@@ -4359,7 +4373,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) Error!void {
 
     const air_tags = cg.air.instructions.items(.tag);
     const maybe_result_id: ?Id = switch (air_tags[@backingInt(inst)]) {
-        // Sig fmt: off
+        // zig fmt: off
             .add, .add_wrap, .add_optimized => try cg.airArithOp(inst, .OpFAdd, .OpIAdd, .OpIAdd),
             .sub, .sub_wrap, .sub_optimized => try cg.airArithOp(inst, .OpFSub, .OpISub, .OpISub),
             .mul, .mul_wrap, .mul_optimized => try cg.airArithOp(inst, .OpFMul, .OpIMul, .OpIMul),
@@ -4529,7 +4543,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) Error!void {
             .work_group_size => try cg.airWorkGroupSize(inst),
             .work_group_id => try cg.airWorkGroupId(inst),
 
-            // Sig fmt: on
+            // zig fmt: on
 
         else => |tag| return cg.todo("implement AIR tag {s}", .{@tagName(tag)}),
     };
@@ -4638,7 +4652,7 @@ fn airShift(cg: *CodeGen, inst: Air.Inst.Index, unsigned: Opcode, signed: Opcode
         .float, .bool => unreachable,
     }
 
-    // Sometimes Sig doesn't make both of the arguments the same types here. SPIR-V expects that,
+    // Sometimes Zig doesn't make both of the arguments the same types here. SPIR-V expects that,
     // so just manually upcast it if required.
 
     // Note: The sign may differ here between the shift and the base type, in case
@@ -5435,7 +5449,7 @@ fn airShlOverflow(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
         .float, .bool => unreachable,
     }
 
-    // Sometimes Sig doesn't make both of the arguments the same types here. SPIR-V expects that,
+    // Sometimes Zig doesn't make both of the arguments the same types here. SPIR-V expects that,
     // so just manually upcast it if required.
     const casted_shift = try cg.buildConvert(base.ty.scalarType(zcu), shift);
 
@@ -5484,7 +5498,7 @@ fn airMulAdd(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     const set = try cg.importExtendedSet();
     const opcode: u32 = switch (target.os.tag) {
         .opencl => @backingInt(spec.OpenClOpcode.fma),
-        // NOTE: Vulkan's FMA does not meet Sig's nor OpenCL's precision guarantees and needs
+        // NOTE: Vulkan's FMA does not meet Zig's nor OpenCL's precision guarantees and needs
         // to be emulated.
         .vulkan, .opengl => @backingInt(spec.GlslOpcode.Fma),
         else => unreachable,
@@ -6029,7 +6043,13 @@ fn bitCast(
             while (cur.toIntern() != dst_child.toIntern()) : (try indices.append(gpa, 0)) {
                 cur = switch (cur.zigTypeTag(zcu)) {
                     .array, .vector => cur.childType(zcu),
-                    .@"struct" => cur.fieldType(0, zcu),
+                    .@"struct" => field: {
+                        for (0..cur.structFieldCount(zcu)) |i| {
+                            const field_ty = cur.fieldType(i, zcu);
+                            if (field_ty.hasRuntimeBits(zcu) and cur.structFieldOffset(i, zcu) == 0) break :field field_ty;
+                        }
+                        unreachable;
+                    },
                     else => unreachable,
                 };
             }
@@ -6054,7 +6074,7 @@ fn bitCast(
         }
 
         // TODO: Some more cases are missing here
-        //   See fn bitCast in llvm.sig
+        //   See fn bitCast in llvm.zig
 
         if (src_ty.zigTypeTag(zcu) == .int and dst_ty.isPtrAtRuntime(zcu)) {
             if (target.os.tag != .opencl) {
@@ -6739,9 +6759,11 @@ fn ptrElemPtr(cg: *CodeGen, ptr_ty: Type, ptr_id: Id, index_id: Id) !Id {
     const zcu = cg.zcu;
     // Construct new pointer type for the resulting pointer
     const as = ptr_ty.ptrAddressSpace(zcu);
-    const elem_ty_id = try cg.pointeeType(as, ptr_ty.indexableElem(zcu), false);
+    const is_single_ptr = ptr_ty.isSinglePointer(zcu);
+    const elem_is_block = cg.block_var_ids.contains(ptr_id);
+    const elem_ty_id = try cg.pointeeType(as, ptr_ty.indexableElem(zcu), elem_is_block);
     const elem_ptr_ty_id = try cg.ptrType(elem_ty_id, cg.storageClass(as));
-    if (ptr_ty.isSinglePointer(zcu)) {
+    if (is_single_ptr) {
         // Pointer-to-array. In this case, the resulting pointer is not of the same type
         // as the ptr_ty (we want a *T, not a *[N]T), and hence we need to use accessChain.
         return cg.accessChainId(elem_ptr_ty_id, ptr_id, &.{index_id});
@@ -8201,7 +8223,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
 
     // First, pre-allocate the labels for the cases.
     const case_labels = cg.allocIds(num_cases);
-    // We always need the default case - if Sig has none, we will generate unreachable there.
+    // We always need the default case - if zig has none, we will generate unreachable there.
     const default_label = cg.allocId();
     const switch_default = if (last_range_case != null) cg.allocId() else default_label;
 
@@ -8844,7 +8866,7 @@ fn airAssembly(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
             .constant, .constant_composite, .string => return cg.fail("cannot return constant from assembly", .{}),
         }
         // TODO: Multiple results
-        // TODO: Check that the output type from assembly is the same as the type actually expected by Sig.
+        // TODO: Check that the output type from assembly is the same as the type actually expected by Zig.
 
     }
 
@@ -8977,18 +8999,18 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.codegen);
 
 const builtin = @import("builtin");
-const link = @import("../../link.sig");
-const codegen = @import("../../codegen.sig");
-const Zcu = @import("../../Zcu.sig");
-const Type = @import("../../Type.sig");
-const Value = @import("../../Value.sig");
-const Air = @import("../../Air.sig");
-const InternPool = @import("../../InternPool.sig");
-const Section = @import("Section.sig");
-const Assembler = @import("Assembler.sig");
-const Mir = @import("Mir.sig");
+const link = @import("../../link.zig");
+const codegen = @import("../../codegen.zig");
+const Zcu = @import("../../Zcu.zig");
+const Type = @import("../../Type.zig");
+const Value = @import("../../Value.zig");
+const Air = @import("../../Air.zig");
+const InternPool = @import("../../InternPool.zig");
+const Section = @import("Section.zig");
+const Assembler = @import("Assembler.zig");
+const Mir = @import("Mir.zig");
 
-const spec = @import("spec.sig");
+const spec = @import("spec.zig");
 const Opcode = spec.Opcode;
 const Word = spec.Word;
 const Id = spec.Id;
