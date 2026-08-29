@@ -5063,6 +5063,11 @@ fn compileSigBuildRunner(
         .have_zcu = true,
         .emit_bin = true,
         .is_test = false,
+        // The build runner (tools/sig_build) binds libc syscalls via `extern "c"`
+        // (open/read/write/waitpid/posix_spawn/pthread_*). libc is implicit on
+        // macOS (libSystem) but must be requested explicitly on Linux, otherwise
+        // these externs fail with "dependency on libc must be explicitly specified".
+        .link_libc = true,
     });
     const root_mod = try Module.create(arena, .{
         .paths = root_paths,
