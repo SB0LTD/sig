@@ -46,6 +46,7 @@ codegen_size="$(wc -c < "$TMP/sb0-codegen.bin" | tr -d ' ')"
 echo "sb0-target: codegen probe head8=$codegen_head8 head4=$codegen_head4 size=$codegen_size"
 test "$codegen_head8" = 5f2003d5ffffff17
 test "$codegen_head4" != 7f454c46
+echo "sb0-target: codegen byte assertions passed, compiling custom-entry probe..."
 
 # A first-class SB0 kernel supplies its own reset symbol. The standard library
 # must not synthesize a POSIX _start or instantiate host I/O merely because the
@@ -64,9 +65,14 @@ test "$codegen_head4" != 7f454c46
   --cache-dir "$TMP/custom-entry-cache" \
   --global-cache-dir "$TMP/global-cache" \
   -femit-bin="$TMP/sb0-custom-entry.bin"
+echo "sb0-target: custom-entry probe compiled OK"
 
-test "$(od -An -tx1 -N8 "$TMP/sb0-custom-entry.bin" | tr -d ' \n')" = 5f2003d5ffffff17
-test "$(od -An -tx1 -N4 "$TMP/sb0-custom-entry.bin" | tr -d ' \n')" != 7f454c46
+custom_head8="$(od -An -tx1 -N8 "$TMP/sb0-custom-entry.bin" | tr -d ' \n')"
+custom_head4="$(od -An -tx1 -N4 "$TMP/sb0-custom-entry.bin" | tr -d ' \n')"
+echo "sb0-target: custom-entry head8=$custom_head8 head4=$custom_head4"
+test "$custom_head8" = 5f2003d5ffffff17
+test "$custom_head4" != 7f454c46
+echo "sb0-target: custom-entry assertions passed, running negative target tests..."
 
 expect_failure() {
   local expected="$1"
@@ -75,7 +81,12 @@ expect_failure() {
     echo "expected command to fail: $*" >&2
     exit 1
   fi
-  grep -F "$expected" "$TMP/failure.txt"
+  echo "sb0-target: negative case produced expected failure, checking message for: $expected"
+  if ! grep -F "$expected" "$TMP/failure.txt"; then
+    echo "sb0-target: MISSING expected message '$expected'. Actual stderr was:" >&2
+    cat "$TMP/failure.txt" >&2
+    return 1
+  fi
 }
 
 common=(
