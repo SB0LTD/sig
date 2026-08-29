@@ -1,7 +1,7 @@
 const builtin = @import("builtin");
 const native_endian = builtin.cpu.arch.endian();
 
-const std = @import("../std.sig");
+const std = @import("../std.zig");
 const mem = std.mem;
 const elf = std.elf;
 const fs = std.fs;
@@ -10,11 +10,11 @@ const Target = std.Target;
 const posix = std.posix;
 const Io = std.Io;
 
-pub const NativePaths = @import("system/NativePaths.sig");
+pub const NativePaths = @import("system/NativePaths.zig");
 
-pub const windows = @import("system/windows.sig");
-pub const darwin = @import("system/darwin.sig");
-pub const linux = @import("system/linux.sig");
+pub const windows = @import("system/windows.zig");
+pub const darwin = @import("system/darwin.zig");
+pub const linux = @import("system/linux.zig");
 
 pub const Executor = union(enum) {
     native,
@@ -220,7 +220,7 @@ pub const DetectError = error{
 /// components by detecting the native system, and then resolves
 /// standard/default parts relative to that.
 pub fn resolveTargetQuery(io: Io, query: Target.Query) DetectError!Target {
-    // Until https://github.com/ziglang/Sig/issues/4592 is implemented (support detecting the
+    // Until https://github.com/ziglang/zig/issues/4592 is implemented (support detecting the
     // native CPU architecture as being different than the current target), we use this:
     const query_cpu_arch = query.cpu_arch orelse builtin.cpu.arch;
     const query_os_tag = query.os_tag orelse builtin.os.tag;
@@ -444,13 +444,6 @@ pub fn resolveTargetQuery(io: Io, query: Target.Query) DetectError!Target {
 
     // These CPU feature hacks have to come after ABI detection.
     {
-        // x18 is reserved by the consolidated SB0 AArch64 ABI. Apply this
-        // after user feature overrides so `-mcpu=...-reserve_x18` cannot make
-        // an ABI-incompatible image.
-        if (result.os.tag == .sb0 and result.cpu.arch == .aarch64) {
-            result.cpu.features.addFeature(@backingInt(Target.aarch64.Feature.reserve_x18));
-        }
-
         if (result.cpu.arch == .hexagon) {
             // Both LLVM and LLD have broken support for the small data area. Yet LLVM has the
             // feature on by default for all Hexagon CPUs. Clang sort of solves this by defaulting
@@ -475,7 +468,7 @@ pub fn resolveTargetQuery(io: Io, query: Target.Query) DetectError!Target {
     // It's possible that we detect the native ABI, but fail to detect the OS version or were told
     // to use the default OS version range. In that case, while we can't determine the exact native
     // OS version, we do at least know that some ABIs require a particular OS version (by way of
-    // `std.sig.target.available_libcs`). So in this case, adjust the OS version to the minimum that
+    // `std.zig.target.available_libcs`). So in this case, adjust the OS version to the minimum that
     // we know is required.
     if (result.abi != query_abi and query.os_version_min == null) {
         const result_ver_range = &result.os.version_range;
@@ -544,8 +537,8 @@ fn detectNativeCpuAndFeatures(io: Io, cpu_arch: Target.Cpu.Arch, os: Target.Os, 
     // although it is a runtime value, is guaranteed to be one of the architectures in the set
     // of the respective switch prong.
     switch (builtin.cpu.arch) {
-        .loongarch32, .loongarch64 => return @import("system/loongarch.sig").detectNativeCpuAndFeatures(cpu_arch, os, query),
-        .x86_64, .x86 => return @import("system/x86.sig").detectNativeCpuAndFeatures(cpu_arch, os, query),
+        .loongarch32, .loongarch64 => return @import("system/loongarch.zig").detectNativeCpuAndFeatures(cpu_arch, os, query),
+        .x86_64, .x86 => return @import("system/x86.zig").detectNativeCpuAndFeatures(cpu_arch, os, query),
         else => {},
     }
 
@@ -557,7 +550,7 @@ fn detectNativeCpuAndFeatures(io: Io, cpu_arch: Target.Cpu.Arch, os: Target.Os, 
     }
 
     // This architecture does not have CPU model & feature detection yet.
-    // See https://github.com/ziglang/Sig/issues/4591
+    // See https://github.com/ziglang/zig/issues/4591
     return null;
 }
 
@@ -967,16 +960,10 @@ fn detectAbiAndDynamicLinker(io: Io, cpu: Target.Cpu, os: Target.Os, query: Targ
     if (!native_target_has_ld or have_all_info or os_is_non_native or is_illumos or is_darwin) {
         return defaultAbiAndDynamicLinker(cpu, os, query);
     }
-    if (query.abi) |abi| {
-        if (abi.isMusl()) {
-            // musl implies static linking.
-            return defaultAbiAndDynamicLinker(cpu, os, query);
-        }
-    }
-    // The current target's ABI cannot be relied on for this. For example, we may build the Sig
+    // The current target's ABI cannot be relied on for this. For example, we may build the zig
     // compiler for target riscv64-linux-musl and provide a tarball for users to download.
-    // A user could then run that Sig compiler on riscv64-linux-gnu. This use case is well-defined
-    // and supported by Sig. But that means that we must detect the system ABI here rather than
+    // A user could then run that zig compiler on riscv64-linux-gnu. This use case is well-defined
+    // and supported by Zig. But that means that we must detect the system ABI here rather than
     // relying on `builtin.target`.
     const all_abis = comptime blk: {
         assert(@backingInt(Target.Abi.none) == 0);
