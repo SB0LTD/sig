@@ -620,7 +620,7 @@ pub fn signalToExitCode(signal: u32) u8 {
 }
 
 /// Spawn a child process from a Command_Buffer.
-/// Uses CreateProcessW on Windows, fork+execvp on POSIX.
+/// Uses CreateProcessW on Windows, posix_spawnp on POSIX.
 /// Returns a Child handle that the caller must .wait() and .kill() on.
 pub fn spawn(
     io: sig_io.Io,
@@ -816,7 +816,8 @@ fn argNeedsQuoting(arg: []const u8) bool {
     return false;
 }
 
-/// POSIX implementation: fork + execvp with optional pipe setup.
+/// POSIX implementation: posix_spawn (fork+exec atomically inside libc) with
+/// optional pipe setup. Avoids fork-without-exec, which is unsafe on macOS.
 fn spawnPosix(cmd: *const Command_Buffer, options: Spawn_Options) SigError!Child {
     // Build null-terminated argv array on the stack.
     // Each arg needs a null-terminated copy.
@@ -859,9 +860,55 @@ fn spawnPosix(cmd: *const Command_Buffer, options: Spawn_Options) SigError!Child
         cwd_z = @ptrCast(&cwd_z_buf);
     }
 
-    const pid = os.posix.fork();
-    if (pid < 0) {
-        // Fork failed — cleanup pipes.
+    // Use posix_spawn rather than fork()+exec. fork-without-exec is unsafe on
+    // macOS (the child aborts the instant it touches malloc/libdispatch), and
+    // posix_spawn performs the fork+exec atomically inside libc. All the child
+    // setup (pipe dup2/close, cwd) is expressed declaratively via a file-actions
+    // object, so no non-async-signal-safe code runs in the child.
+    var actions: os.posix.PosixSpawnFileActions = .{};
+    if (os.posix.posix_spawn_file_actions_init(&actions) != 0) {
+        if (stdout_pipe[0] >= 0) {
+            _ = os.posix.close(stdout_pipe[0]);
+            _ = os.posix.close(stdout_pipe[1]);
+        }
+        if (stderr_pipe[0] >= 0) {
+            _ = os.posix.close(stderr_pipe[0]);
+            _ = os.posix.close(stderr_pipe[1]);
+        }
+        return error.BufferTooSmall;
+    }
+    defer _ = os.posix.posix_spawn_file_actions_destroy(&actions);
+
+    // Change directory in the child before exec, if requested. addchdir_np is
+    // available on macOS 10.15+ and glibc 2.29+.
+    if (cwd_z) |cz| {
+        _ = os.posix.posix_spawn_file_actions_addchdir_np(&actions, cz);
+    }
+
+    // Redirect the pipe write ends onto stdout(1)/stderr(2) in the child, then
+    // close both original pipe fds in the child so it doesn't leak them.
+    if (options.stdout == .pipe) {
+        _ = os.posix.posix_spawn_file_actions_adddup2(&actions, stdout_pipe[1], 1);
+        _ = os.posix.posix_spawn_file_actions_addclose(&actions, stdout_pipe[0]);
+        _ = os.posix.posix_spawn_file_actions_addclose(&actions, stdout_pipe[1]);
+    }
+    if (options.stderr == .pipe) {
+        _ = os.posix.posix_spawn_file_actions_adddup2(&actions, stderr_pipe[1], 2);
+        _ = os.posix.posix_spawn_file_actions_addclose(&actions, stderr_pipe[0]);
+        _ = os.posix.posix_spawn_file_actions_addclose(&actions, stderr_pipe[1]);
+    }
+
+    var pid: c_int = -1;
+    // posix_spawnp searches PATH for the executable, matching execvp semantics.
+    const spawn_rc = os.posix.posix_spawnp(
+        &pid,
+        argv_ptrs[0].?,
+        &actions,
+        null,
+        @ptrCast(&argv_ptrs),
+        os.posix.environ,
+    );
+    if (spawn_rc != 0 or pid < 0) {
         if (stdout_pipe[0] >= 0) {
             _ = os.posix.close(stdout_pipe[0]);
             _ = os.posix.close(stdout_pipe[1]);
@@ -873,35 +920,8 @@ fn spawnPosix(cmd: *const Command_Buffer, options: Spawn_Options) SigError!Child
         return error.BufferTooSmall;
     }
 
-    if (pid == 0) {
-        // ── Child process ──
-        // Set up pipes: redirect stdout/stderr write ends to fd 1/2.
-        if (options.stdout == .pipe) {
-            _ = os.posix.dup2(stdout_pipe[1], 1);
-            _ = os.posix.close(stdout_pipe[0]);
-            _ = os.posix.close(stdout_pipe[1]);
-        }
-        if (options.stderr == .pipe) {
-            _ = os.posix.dup2(stderr_pipe[1], 2);
-            _ = os.posix.close(stderr_pipe[0]);
-            _ = os.posix.close(stderr_pipe[1]);
-        }
-
-        // Change directory if specified.
-        if (cwd_z) |cz| {
-            // Use chdir — declared as extern below (or use _chdir).
-            _ = chdir(cz);
-        }
-
-        // Execute. This replaces the child process image.
-        _ = os.posix.execvp(argv_ptrs[0].?, @ptrCast(&argv_ptrs));
-
-        // If execvp returns, the exec failed. Exit with 127.
-        os.posix._exit(127);
-    }
-
     // ── Parent process ──
-    // Close write ends of pipes (child has them).
+    // Close write ends of pipes (the spawned child owns its own copies).
     if (stdout_pipe[1] >= 0) _ = os.posix.close(stdout_pipe[1]);
     if (stderr_pipe[1] >= 0) _ = os.posix.close(stderr_pipe[1]);
 
@@ -911,9 +931,6 @@ fn spawnPosix(cmd: *const Command_Buffer, options: Spawn_Options) SigError!Child
         .stderr = if (options.stderr == .pipe) stderr_pipe[0] else null,
     };
 }
-
-// chdir extern for POSIX child process CWD setup.
-extern "c" fn chdir(path: [*:0]const u8) callconv(.c) c_int;
 
 /// Convenience: spawn, capture stderr, wait, return exit code as `u8`.
 /// Maps POSIX signal termination to `min(128 + signal, 255)`.

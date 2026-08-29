@@ -456,6 +456,58 @@ pub const posix = if (native_os != .windows) struct {
     pub extern "c" fn waitpid(pid: c_int, status: *c_int, options: c_int) callconv(.c) c_int;
     pub extern "c" fn pipe(pipefd: *[2]c_int) callconv(.c) c_int;
     pub extern "c" fn dup2(oldfd: c_int, newfd: c_int) callconv(.c) c_int;
+
+    // ── posix_spawn (macOS-safe process creation) ───────────────────────
+    // fork()-without-exec is unsafe on Apple platforms: the child may abort
+    // the moment it touches malloc/libdispatch/CoreFoundation between fork
+    // and exec. posix_spawn performs the fork+exec atomically inside libc
+    // using vfork/spawn primitives that are safe on macOS and Linux alike.
+    //
+    // posix_spawn_file_actions_t and posix_spawnattr_t are opaque. glibc uses
+    // 80 and 336 bytes respectively; macOS uses a single pointer (8 bytes) for
+    // file_actions and 8 for attr. A generously oversized, pointer-aligned
+    // fixed buffer safely accommodates both ABIs.
+    pub const PosixSpawnFileActions = extern struct {
+        __data: [80]u8 align(@alignOf(usize)) = @as([80]u8, @splat(0)),
+    };
+    pub const PosixSpawnAttr = extern struct {
+        __data: [512]u8 align(@alignOf(usize)) = @as([512]u8, @splat(0)),
+    };
+
+    pub extern "c" fn posix_spawn(
+        pid: *c_int,
+        path: [*:0]const u8,
+        file_actions: ?*const PosixSpawnFileActions,
+        attrp: ?*const PosixSpawnAttr,
+        argv: [*:null]const ?[*:0]const u8,
+        envp: [*:null]const ?[*:0]const u8,
+    ) callconv(.c) c_int;
+    pub extern "c" fn posix_spawnp(
+        pid: *c_int,
+        file: [*:0]const u8,
+        file_actions: ?*const PosixSpawnFileActions,
+        attrp: ?*const PosixSpawnAttr,
+        argv: [*:null]const ?[*:0]const u8,
+        envp: [*:null]const ?[*:0]const u8,
+    ) callconv(.c) c_int;
+    pub extern "c" fn posix_spawn_file_actions_init(file_actions: *PosixSpawnFileActions) callconv(.c) c_int;
+    pub extern "c" fn posix_spawn_file_actions_destroy(file_actions: *PosixSpawnFileActions) callconv(.c) c_int;
+    pub extern "c" fn posix_spawn_file_actions_adddup2(
+        file_actions: *PosixSpawnFileActions,
+        fildes: c_int,
+        newfildes: c_int,
+    ) callconv(.c) c_int;
+    pub extern "c" fn posix_spawn_file_actions_addclose(
+        file_actions: *PosixSpawnFileActions,
+        fildes: c_int,
+    ) callconv(.c) c_int;
+    pub extern "c" fn posix_spawn_file_actions_addchdir_np(
+        file_actions: *PosixSpawnFileActions,
+        path: [*:0]const u8,
+    ) callconv(.c) c_int;
+
+    // Access to the process environment for posix_spawn's envp argument.
+    pub extern "c" var environ: [*:null]const ?[*:0]const u8;
     pub extern "c" fn kill(pid: c_int, sig: c_int) callconv(.c) c_int;
     pub extern "c" fn getenv(name: [*:0]const u8) callconv(.c) ?[*:0]const u8;
 
