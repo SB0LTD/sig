@@ -288,13 +288,18 @@ jobs:
           sha256sum --check --strict "$archive.sha256"
           mkdir /tmp/bootstrap-package-check
           zstd -d "$archive" --stdout | tar -x -C /tmp/bootstrap-package-check
+          echo "pkg-linux: extracted, checking sig version..."
           /tmp/bootstrap-package-check/$root/bin/sig version | grep -q "sig ${SIG_VERSION}"
+          echo "pkg-linux: sig version OK, checking Sig alias version..."
           zig_output="$(/tmp/bootstrap-package-check/$root/bin/Sig version)"
+          echo "pkg-linux: Sig alias version = '$zig_output'"
           [[ "$zig_output" = "$ZIG_VERSION" || "$zig_output" = "$ZIG_VERSION"-* || "$zig_output" = "$ZIG_VERSION"+* ]]
           [[ "$zig_output" != *sig* ]]
+          echo "pkg-linux: version checks OK, running native build proof..."
           bash ci/prove-native-build.sh \
             "/tmp/bootstrap-package-check/$root/bin/sig" \
             "/tmp/bootstrap-package-check/$root/lib"
+          echo "pkg-linux: native build proof OK"
 
       - name: Package aarch64 Linux bootstrap
         shell: bash
