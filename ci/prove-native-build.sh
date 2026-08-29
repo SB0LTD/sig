@@ -26,9 +26,17 @@ prove_cross_target="${PROVE_CROSS_TARGET:-1}"
 
 (
     cd "$default_project"
-    "$sig" build --help \
+    echo "prove-native-build: running 'sig build --help'..."
+    if ! "$sig" build --help \
         --cache-dir "$proof_root/default-cache" \
-        --global-cache-dir "$proof_root/global-cache" >help.txt
+        --global-cache-dir "$proof_root/global-cache" >help.txt 2>help.err; then
+        echo "prove-native-build: 'sig build --help' FAILED (exit $?). stdout:" >&2
+        cat help.txt >&2 || true
+        echo "prove-native-build: stderr:" >&2
+        cat help.err >&2 || true
+        exit 1
+    fi
+    echo "prove-native-build: 'sig build --help' OK"
     grep -q '^Native build file:.*build.sig$' help.txt
     grep -q '^  native-release-proof' help.txt
     grep -q '^  native-release-test' help.txt
