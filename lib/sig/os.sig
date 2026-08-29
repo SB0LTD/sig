@@ -441,6 +441,19 @@ pub const posix = if (native_os != .windows) struct {
         arg: ?*anyopaque,
     ) callconv(.c) c_int;
     pub extern "c" fn pthread_join(thread: u64, retval: ?*?*anyopaque) callconv(.c) c_int;
+
+    // pthread_attr_t is opaque: 64 bytes on macOS, 56 on glibc. Oversized,
+    // pointer-aligned buffer accommodates both ABIs. Used to give worker
+    // threads a large stack — the build runner keeps ~1 MiB fixed-capacity
+    // buffers (Command_Buffer) on the stack, which overflows the small default
+    // thread stack (512 KiB on macOS) and aborts.
+    pub const PthreadAttr = extern struct {
+        __data: [64]u8 align(@alignOf(usize)) = @as([64]u8, @splat(0)),
+    };
+    pub extern "c" fn pthread_attr_init(attr: *PthreadAttr) callconv(.c) c_int;
+    pub extern "c" fn pthread_attr_destroy(attr: *PthreadAttr) callconv(.c) c_int;
+    pub extern "c" fn pthread_attr_setstacksize(attr: *PthreadAttr, stacksize: usize) callconv(.c) c_int;
+
     pub extern "c" fn pthread_mutex_init(mutex: *PthreadMutex, attr: ?*const anyopaque) callconv(.c) c_int;
     pub extern "c" fn pthread_mutex_lock(mutex: *PthreadMutex) callconv(.c) c_int;
     pub extern "c" fn pthread_mutex_unlock(mutex: *PthreadMutex) callconv(.c) c_int;
@@ -1180,6 +1193,24 @@ pub fn threadSpawn(func: ThreadFn, arg: ?*anyopaque) ?ThreadHandle {
 
         const ctx = allocThreadCtx(func, arg) orelse return null;
         var tid: u64 = 0;
+
+        // The build runner keeps large fixed-capacity buffers (a ~1 MiB
+        // Command_Buffer, plus PATH-sized scratch) on the worker-thread stack.
+        // The default pthread stack is only 512 KiB on macOS, so a worker
+        // overflows and aborts the moment it constructs a Command_Buffer. Give
+        // each worker a generous stack. glibc's default is 8 MiB; we request
+        // 16 MiB uniformly so both platforms have ample headroom.
+        const WORKER_STACK_SIZE: usize = 16 * 1024 * 1024;
+        var attr: posix.PthreadAttr = .{};
+        if (posix.pthread_attr_init(&attr) == 0) {
+            _ = posix.pthread_attr_setstacksize(&attr, WORKER_STACK_SIZE);
+            const ret = posix.pthread_create(&tid, @ptrCast(&attr), &Wrapper.threadStart, @ptrCast(ctx));
+            _ = posix.pthread_attr_destroy(&attr);
+            if (ret != 0) return null;
+            return tid;
+        }
+
+        // Fallback: attr init failed; spawn with the default stack.
         const ret = posix.pthread_create(&tid, null, &Wrapper.threadStart, @ptrCast(ctx));
         if (ret != 0) return null;
         return tid;
