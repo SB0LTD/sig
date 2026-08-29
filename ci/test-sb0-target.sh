@@ -40,8 +40,12 @@ echo "sb0-target: unit tests passed, now compiling aarch64-sb0 codegen probe..."
   -femit-bin="$TMP/sb0-codegen.bin"
 echo "sb0-target: codegen probe compiled OK"
 
-test "$(od -An -tx1 -N8 "$TMP/sb0-codegen.bin" | tr -d ' \n')" = 5f2003d5ffffff17
-test "$(od -An -tx1 -N4 "$TMP/sb0-codegen.bin" | tr -d ' \n')" != 7f454c46
+codegen_head8="$(od -An -tx1 -N8 "$TMP/sb0-codegen.bin" | tr -d ' \n')"
+codegen_head4="$(od -An -tx1 -N4 "$TMP/sb0-codegen.bin" | tr -d ' \n')"
+codegen_size="$(wc -c < "$TMP/sb0-codegen.bin" | tr -d ' ')"
+echo "sb0-target: codegen probe head8=$codegen_head8 head4=$codegen_head4 size=$codegen_size"
+test "$codegen_head8" = 5f2003d5ffffff17
+test "$codegen_head4" != 7f454c46
 
 # A first-class SB0 kernel supplies its own reset symbol. The standard library
 # must not synthesize a POSIX _start or instantiate host I/O merely because the
