@@ -452,7 +452,19 @@ fn mainArgs(
         },
         .version => {
             dev.check(.version_command);
-            try Io.File.stdout().writeStreamingAll(io, "sig " ++ build_options.sig_version ++ " (zig " ++ build_options.version ++ ")\n");
+            // When invoked through the capitalized `Sig` alias (the drop-in
+            // zig-compatible entry point), emit only the underlying toolchain
+            // version so tools that shell out to it as `zig` parse a bare
+            // semantic version. Invoked as `sig`, emit the full Sig identity.
+            const invoked_basename = fs.path.basename(args[0]);
+            const as_compat_alias = mem.eql(u8, invoked_basename, "Sig") or
+                mem.endsWith(u8, invoked_basename, "/Sig") or
+                mem.endsWith(u8, invoked_basename, "\\Sig");
+            if (as_compat_alias) {
+                try Io.File.stdout().writeStreamingAll(io, build_options.version ++ "\n");
+            } else {
+                try Io.File.stdout().writeStreamingAll(io, "sig " ++ build_options.sig_version ++ " (zig " ++ build_options.version ++ ")\n");
+            }
             return;
         },
         .env => {
