@@ -539,14 +539,39 @@ pub const posix = if (native_os != .windows) struct {
     // On Linux aarch64: same sizes.
     // We use a fixed-size byte array to hold them.
     pub const PTHREAD_MUTEX_SIZE = if (native_os == .macos) 64 else 40;
-    pub const PTHREAD_COND_SIZE = 48;
+    pub const PTHREAD_COND_SIZE = if (native_os == .macos) 48 else 48;
+
+    // macOS/Darwin does NOT treat an all-zero pthread_mutex_t/pthread_cond_t as
+    // a valid initialized object the way glibc does. Apple's libpthread stores a
+    // magic signature in the leading `long` of each object; locking/waiting on a
+    // zeroed object trips __pthread_mutex_global_init and aborts (SIGABRT). The
+    // C macros PTHREAD_MUTEX_INITIALIZER / PTHREAD_COND_INITIALIZER expand to a
+    // struct whose first field is that signature with the remaining bytes zero.
+    // These signature values are stable, long-standing constants in Apple's
+    // open-source libpthread (pthread_impl.h).
+    const DARWIN_MUTEX_SIG_init: u64 = 0x32AAABA7; // _PTHREAD_MUTEX_SIG_init
+    const DARWIN_COND_SIG_init: u64 = 0x3CB0B1BB; //  _PTHREAD_COND_SIG_init
+
+    fn darwinPthreadInit(comptime size: usize, comptime sig: u64) [size]u8 {
+        var bytes: [size]u8 = @splat(0);
+        // Signature occupies the first `long` (8 bytes on arm64/x86_64), LE.
+        const sig_bytes = @as([8]u8, @bitCast(sig));
+        @memcpy(bytes[0..8], &sig_bytes);
+        return bytes;
+    }
 
     pub const PthreadMutex = extern struct {
-        __data: [PTHREAD_MUTEX_SIZE]u8 align(8) = @as([PTHREAD_MUTEX_SIZE]u8, @splat(0)),
+        __data: [PTHREAD_MUTEX_SIZE]u8 align(8) = if (native_os == .macos)
+            darwinPthreadInit(PTHREAD_MUTEX_SIZE, DARWIN_MUTEX_SIG_init)
+        else
+            @as([PTHREAD_MUTEX_SIZE]u8, @splat(0)),
     };
 
     pub const PthreadCond = extern struct {
-        __data: [PTHREAD_COND_SIZE]u8 align(8) = @as([PTHREAD_COND_SIZE]u8, @splat(0)),
+        __data: [PTHREAD_COND_SIZE]u8 align(8) = if (native_os == .macos)
+            darwinPthreadInit(PTHREAD_COND_SIZE, DARWIN_COND_SIG_init)
+        else
+            @as([PTHREAD_COND_SIZE]u8, @splat(0)),
     };
 
     // ── Virtual memory management ───────────────────────────────────────
@@ -1207,6 +1232,11 @@ fn allocThreadCtx(func: ThreadFn, arg: ?*anyopaque) ?*ThreadCtx {
 pub const MutexImpl = if (native_os == .windows) struct {
     srwlock: SRWLOCK = SRWLOCK_INIT,
 
+    /// No-op on Windows: SRWLOCK_INIT is a valid zero-initialized lock.
+    pub fn initInPlace(self: *MutexImpl) void {
+        self.srwlock = SRWLOCK_INIT;
+    }
+
     pub fn lock(self: *MutexImpl) void {
         kernel32.AcquireSRWLockExclusive(&self.srwlock);
     }
@@ -1217,6 +1247,13 @@ pub const MutexImpl = if (native_os == .windows) struct {
 } else struct {
     // Pthread-based mutex for POSIX hosts
     pmutex: posix.PthreadMutex = .{},
+
+    /// Initialize the pthread mutex explicitly. Required on macOS, where a
+    /// zeroed pthread_mutex_t is not a usable object. On Linux this is
+    /// equivalent to the zero default but harmless.
+    pub fn initInPlace(self: *MutexImpl) void {
+        _ = posix.pthread_mutex_init(&self.pmutex, null);
+    }
 
     pub fn lock(self: *MutexImpl) void {
         _ = posix.pthread_mutex_lock(&self.pmutex);
@@ -1233,6 +1270,11 @@ pub const MutexImpl = if (native_os == .windows) struct {
 
 pub const ConditionImpl = if (native_os == .windows) struct {
     cond_var: CONDITION_VARIABLE = CONDITION_VARIABLE_INIT,
+
+    /// No-op on Windows: CONDITION_VARIABLE_INIT is a valid zero-init value.
+    pub fn initInPlace(self: *ConditionImpl) void {
+        self.cond_var = CONDITION_VARIABLE_INIT;
+    }
 
     pub fn wait(self: *ConditionImpl, mutex: *MutexImpl) void {
         _ = kernel32.SleepConditionVariableSRW(
@@ -1253,6 +1295,12 @@ pub const ConditionImpl = if (native_os == .windows) struct {
 } else struct {
     // Pthread-based condition variable for POSIX hosts
     pcond: posix.PthreadCond = .{},
+
+    /// Initialize the pthread condition explicitly. Required on macOS, where a
+    /// zeroed pthread_cond_t is not a usable object.
+    pub fn initInPlace(self: *ConditionImpl) void {
+        _ = posix.pthread_cond_init(&self.pcond, null);
+    }
 
     pub fn wait(self: *ConditionImpl, mutex: *MutexImpl) void {
         _ = posix.pthread_cond_wait(&self.pcond, &mutex.pmutex);

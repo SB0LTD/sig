@@ -1647,6 +1647,13 @@ pub const Thread_Pool = struct {
     /// `num_threads` is clamped to [1, MAX_THREADS].
     pub fn init(self: *Thread_Pool, num_threads: usize, io: sig_io.Io) void {
         self.io = io;
+        // Explicitly initialize the synchronization primitives before any
+        // worker thread can touch them. On macOS a zero-initialized
+        // pthread_mutex_t/pthread_cond_t is not a valid object and locking it
+        // aborts; this makes the default-constructed fields usable everywhere.
+        self.mutex.reset();
+        self.cond.reset();
+        self.done_cond.reset();
         self.shutdown = false;
         self.active_count = 0;
         self.completed_count = 0;

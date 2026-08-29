@@ -234,6 +234,13 @@ pub const Mutex = struct {
     /// Constant for field initialization: `mutex: Mutex = Mutex.init,`
     pub const init: Mutex = .{ .impl = .{} };
 
+    /// Explicitly initialize the underlying OS primitive. Safe to call on a
+    /// default-constructed Mutex. Required on macOS, where a zeroed
+    /// pthread_mutex_t is not a valid object; a no-op on Windows.
+    pub fn reset(self: *Mutex) void {
+        self.impl.initInPlace();
+    }
+
     /// Acquire the lock. The `io` parameter is accepted for API compatibility
     /// but unused (synchronous blocking operation).
     pub fn lockUncancelable(self: *Mutex, io: Io) void {
@@ -262,6 +269,12 @@ pub const Condition = struct {
 
     /// Constant for field initialization: `cond: Condition = Condition.init,`
     pub const init: Condition = .{ .impl = .{} };
+
+    /// Explicitly initialize the underlying OS primitive. Safe to call on a
+    /// default-constructed Condition. Required on macOS; a no-op on Windows.
+    pub fn reset(self: *Condition) void {
+        self.impl.initInPlace();
+    }
 
     /// Wait on this condition, releasing the mutex atomically.
     /// Re-acquires the mutex before returning.
