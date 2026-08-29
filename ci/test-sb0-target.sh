@@ -24,6 +24,7 @@ test -f "$ROOT/test/sb0_target_contract.sig"
   --cache-dir "$TMP/unit-cache" \
   --global-cache-dir "$TMP/global-cache"
 
+echo "sb0-target: unit tests passed, now compiling aarch64-sb0 codegen probe..."
 "$SIG" build-exe "$ROOT/test/sb0_codegen_probe.sig" \
   -target aarch64-sb0 \
   -OReleaseFast \
@@ -37,6 +38,7 @@ test -f "$ROOT/test/sb0_target_contract.sig"
   --cache-dir "$TMP/codegen-cache" \
   --global-cache-dir "$TMP/global-cache" \
   -femit-bin="$TMP/sb0-codegen.bin"
+echo "sb0-target: codegen probe compiled OK"
 
 test "$(od -An -tx1 -N8 "$TMP/sb0-codegen.bin" | tr -d ' \n')" = 5f2003d5ffffff17
 test "$(od -An -tx1 -N4 "$TMP/sb0-codegen.bin" | tr -d ' \n')" != 7f454c46
