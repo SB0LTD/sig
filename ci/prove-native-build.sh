@@ -40,6 +40,18 @@ prove_cross_target="${PROVE_CROSS_TARGET:-1}"
         --cache-dir "$proof_root/default-cache" \
         --global-cache-dir "$proof_root/global-cache"
     grep -qx 'native build.sig executed' native-sig-build.proof
+    # Diagnostic: isolate whether the recursive panic is in the build runner or
+    # the nested `sig test` it spawns. Run the same test directly first.
+    echo "prove-native-build: running native_test.sig directly via 'sig test'..."
+    if "$sig" test --stack 33554432 -Mroot=native_test.sig \
+        --cache-dir "$proof_root/direct-test-cache" \
+        --global-cache-dir "$proof_root/global-cache" \
+        --Sig-lib-dir "$SIG_LIB_DIR"; then
+        echo "prove-native-build: direct 'sig test' PASSED"
+    else
+        echo "prove-native-build: direct 'sig test' FAILED with exit $?"
+    fi
+    echo "prove-native-build: now running build runner 'native-release-test'..."
     "$sig" build native-release-test \
         --cache-dir "$proof_root/default-cache" \
         --global-cache-dir "$proof_root/global-cache"
