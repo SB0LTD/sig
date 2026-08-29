@@ -3920,6 +3920,7 @@ pub const Build_Context = struct {
         const io = ctx.io;
         const handle: usize = ctx.step_handle;
         const entry = &build_ctx.steps.entries[handle];
+        printMsg(io, "testStepFn: entered for step handle {d}", .{handle});
 
         const source_path = entry.desc[0..entry.desc_len];
         const compiler = if (ctx.compiler_path.len > 0) ctx.compiler_path else "sig";
@@ -4016,7 +4017,9 @@ pub const Build_Context = struct {
 
         var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
         var stderr_len: usize = 0;
+        printMsg(io, "testStepFn: about to spawn nested 'sig test' for step '{s}'", .{entry.name[0..entry.name_len]});
         const exit_code = try runCommand(&cmd, &stderr_buf, &stderr_len, io);
+        printMsg(io, "testStepFn: nested 'sig test' returned exit={d} stderr_len={d}", .{ exit_code, stderr_len });
         if (exit_code != 0) {
             if (stderr_len > 0) printMsg(io, "test step '{s}' failed:\n{s}", .{ entry.name[0..entry.name_len], stderr_buf[0..stderr_len] });
             return error.BufferTooSmall;
