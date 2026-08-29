@@ -4,6 +4,73 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.4.1] — 2026-08-29 — Self-Hosted SB0 Linking
+
+Sig gains a pure-Sig, self-hosted linker for the native SB0 target. Compiling
+`aarch64-sb0` code with `-ofmt=raw -fno-llvm` no longer routes through LLD or
+panics with "TODO implement raw object format"; the self-hosted backend emits a
+complete SB0X image directly.
+
+### Added
+- `src/link/Sb0.sig`: a self-hosted SB0 native linker backend built on the
+  incremental `MappedFile` node substrate. It collects AArch64 machine code from
+  the self-hosted code generator, resolves relocations in place
+  (`branch26`, `adrp`, `add_abs_lo12`, `ldst_abs_lo12`, `abs64`) via the shared
+  `link/aarch64.sig` relocation writers, and emits a flat SB0X userspace image
+  (64-byte header + one RX segment descriptor + payload).
+- External, global, and lazy symbol resolution in the SB0 linker: named runtime
+  references (`memset`, `memcpy`, `memmove`, compiler-rt helpers, panic handlers)
+  are collected during code generation and bound to in-image definitions at
+  flush; genuinely undefined symbols are reported rather than silently dropped.
+  This lets ordinary Sig programs — slices, loops, `for`, optionals, error
+  unions, bounds checks — compile end to end through the self-hosted path with no
+  LLVM.
+- A canonical SB0X/SB0K image-format encoder published as the pure, dependency
+  free `zpm` module `platform/sb0x` (single source of truth), mirrored
+  bootstrap-safely in the compiler as `src/link/Sb0Format.sig` and cross-checked
+  by byte-pinned tests so the two cannot drift.
+- Cross-OS executable emitters in the zero-alloc compiler's linker for the
+  shipped target matrix: AArch64 ELF and PE/COFF alongside the existing x86_64
+  paths, and a real (previously header-only) Mach-O executable emitter for
+  x86_64 and aarch64.
+
+### Changed
+- `Config.resolve` routes every SB0 target to the self-hosted backend
+  exclusively (SB0X is the native container, not an LLVM/LLD object format);
+  `-fllvm` on an SB0 target now errors instead of silently selecting LLVM.
+
+### AArch64 self-hosted code generation
+The AArch64 instruction selector gained the lowerings that were blocking
+ordinary programs. Verified through a category test corpus that compiles each
+form for `aarch64-sb0` with `-fno-llvm`:
+- Signed saturating `add_sat`/`sub_sat` (32/64-bit).
+- Packed-struct field extraction, both the in-register case and loads from
+  memory, via `ubfm`/`sbfm` bitfield extract over the host container.
+- Safety-checked `@intFromFloat` (`int_from_float_safe` /
+  `int_from_float_optimized_safe`).
+- Confirmed that 128-bit float arithmetic and conversions lower correctly to the
+  standard compiler-rt routines (`__addtf3`, `__trunctfdf2`, `__extenddftf2`);
+  those routines are a runtime-library dependency, not a code-generation gap.
+
+The corpus (wide integers, signed saturation, aggregate ABI, packed structs,
+switch ranges, native floats plus int/float conversion, and a representative
+program using slices, loops, `for`, optionals, and error unions) compiles fully
+through the self-hosted path with no LLVM.
+
+### Known limitations
+- The self-hosted backend is **not** yet the default or a full LLVM replacement.
+  LLVM remains the release backend for the four LLVM platforms;
+  `selfHostedBackendIsAsRobustAsLlvm` still blesses only x86_64-ELF, so this
+  release does not flip the default backend selection.
+- 128-bit float programs require the compiler-rt routines to be linked (as any
+  freestanding image must supply its runtime); the compiler emits the calls but
+  does not bundle the library into an SB0 image automatically.
+- The safety trap for out-of-range `int_from_float_safe` is not yet emitted; the
+  converted value is correct for in-range inputs.
+- SB0 self-hosted output is verified to produce structurally valid SB0X images
+  and to link real programs on this host; runtime execution of that output is
+  validated by the SB0 loader/ABI gates, not by the host build.
+
 ## [0.4.0] — 2026-08-28 — Sovereign
 
 Sig now owns its native build and release path end to end. The tracked compiler,

@@ -200,7 +200,7 @@ pub const Linker = struct {
             .elf => self.emitElfExecutable(output, main_code),
             .pe_coff => self.emitPeCoffExecutable(output, main_code),
             .sb0_native => self.emitSb0NativeExecutable(output, main_code),
-            .macho => self.emitMachO(output),
+            .macho => self.emitMachOExecutable(output, main_code),
             .wasm => self.emitWasm(output),
             .raw => self.emitRaw(output, main_code),
         };
@@ -219,14 +219,27 @@ pub const Linker = struct {
     /// Layout:
     ///   ELF header (64), program header (56), _start stub, main bytes.
     /// The _start stub calls main and exits via Linux exit_group(0).
+    ///
+    /// Supported architectures: x86_64 (EM_X86_64) and aarch64 (EM_AARCH64).
+    /// Both host arches emit the same ELF container and differ only in the
+    /// e_machine field and the fixed-length `_start` stub instructions, so a
+    /// single host can cross-emit either Linux target deterministically.
     pub fn emitElfExecutable(self: *Linker, output: []u8, main_code: []const u8) usize {
-        if (self.target.arch != .x86_64) return 0;
+        const e_machine: u16 = switch (self.target.arch) {
+            .x86_64 => 0x3E, // EM_X86_64
+            .aarch64 => 0xB7, // EM_AARCH64
+            else => return 0,
+        };
         if (main_code.len == 0) return 0;
 
         const elf_header_size: usize = 64;
         const ph_header_size: usize = 56;
         const text_offset: usize = elf_header_size + ph_header_size;
-        const start_stub_len: usize = 14;
+        // x86_64 stub is 14 bytes; aarch64 stub is 4 fixed-width instructions (16 bytes).
+        const start_stub_len: usize = switch (self.target.arch) {
+            .aarch64 => 16,
+            else => 14,
+        };
         const image_size: usize = text_offset + start_stub_len + main_code.len;
         const base_vaddr: u64 = 0x400000;
         if (output.len < image_size) return 0;
@@ -253,8 +266,8 @@ pub const Linker = struct {
 
         self.writeU16LE(output[pos..], 2);
         pos += 2; // e_type: ET_EXEC
-        self.writeU16LE(output[pos..], 0x3E);
-        pos += 2; // e_machine: EM_X86_64
+        self.writeU16LE(output[pos..], e_machine);
+        pos += 2; // e_machine: EM_X86_64 / EM_AARCH64
         self.writeU32LE(output[pos..], 1);
         pos += 4; // e_version
         self.writeU64LE(output[pos..], base_vaddr + @as(u64, @intCast(text_offset)));
@@ -297,22 +310,44 @@ pub const Linker = struct {
         pos += 8; // p_align
 
         pos = text_offset;
-        // call main
-        output[pos] = 0xE8;
-        self.writeU32LE(output[pos + 1 ..], @intCast(start_stub_len - 5));
-        pos += 5;
-        // xor edi, edi
-        output[pos] = 0x31;
-        output[pos + 1] = 0xFF;
-        pos += 2;
-        // mov eax, 231 ; exit_group
-        output[pos] = 0xB8;
-        self.writeU32LE(output[pos + 1 ..], 231);
-        pos += 5;
-        // syscall
-        output[pos] = 0x0F;
-        output[pos + 1] = 0x05;
-        pos += 2;
+        switch (self.target.arch) {
+            .aarch64 => {
+                // AArch64 Linux `_start` stub (4 instructions, little-endian).
+                // main sits immediately after the 16-byte stub.
+                //   bl   main            ; branch-and-link to main (offset +16 = imm26 4)
+                //   mov  x0, #0          ; status = 0
+                //   mov  x8, #94         ; __NR_exit_group
+                //   svc  #0
+                const bl_imm26: u32 = @intCast((start_stub_len - 0) >> 2);
+                self.writeU32LE(output[pos..], 0x94000000 | (bl_imm26 & 0x03FFFFFF));
+                pos += 4;
+                self.writeU32LE(output[pos..], 0xD2800000); // movz x0, #0
+                pos += 4;
+                self.writeU32LE(output[pos..], 0xD2800BC8); // movz x8, #94 (exit_group)
+                pos += 4;
+                self.writeU32LE(output[pos..], 0xD4000001); // svc #0
+                pos += 4;
+            },
+            else => {
+                // x86_64 Linux `_start` stub (14 bytes).
+                // call main
+                output[pos] = 0xE8;
+                self.writeU32LE(output[pos + 1 ..], @intCast(start_stub_len - 5));
+                pos += 5;
+                // xor edi, edi
+                output[pos] = 0x31;
+                output[pos + 1] = 0xFF;
+                pos += 2;
+                // mov eax, 231 ; exit_group
+                output[pos] = 0xB8;
+                self.writeU32LE(output[pos + 1 ..], 231);
+                pos += 5;
+                // syscall
+                output[pos] = 0x0F;
+                output[pos + 1] = 0x05;
+                pos += 2;
+            },
+        }
 
         self.copyBytes(output[pos..], main_code);
         return image_size;
@@ -327,8 +362,18 @@ pub const Linker = struct {
     }
 
     /// Emit a PE32+ executable with one .text section and an ExitProcess import.
+    ///
+    /// Supported architectures: x86_64 (Machine 0x8664) and aarch64
+    /// (Machine 0xAA64). The PE container, optional header, import table and
+    /// IAT are identical across both; only the COFF `Machine` field and the
+    /// fixed-length entry stub differ, so a single host cross-emits either
+    /// Windows target deterministically.
     pub fn emitPeCoffExecutable(self: *Linker, output: []u8, main_code: []const u8) usize {
-        if (self.target.arch != .x86_64) return 0;
+        const machine: u16 = switch (self.target.arch) {
+            .x86_64 => 0x8664, // IMAGE_FILE_MACHINE_AMD64
+            .aarch64 => 0xAA64, // IMAGE_FILE_MACHINE_ARM64
+            else => return 0,
+        };
         if (main_code.len == 0) return 0;
 
         const pe_offset: usize = 0x80;
@@ -338,7 +383,11 @@ pub const Linker = struct {
         const headers_size: usize = 0x200;
         const text_rva: usize = 0x1000;
         const text_raw: usize = headers_size;
-        const entry_stub_len: usize = 13;
+        // x86_64 entry stub is 13 bytes; aarch64 is 5 fixed-width instructions (20 bytes).
+        const entry_stub_len: usize = switch (self.target.arch) {
+            .aarch64 => 20,
+            else => 13,
+        };
         const code_len: usize = entry_stub_len + main_code.len;
         const import_desc_off: usize = alignForward(code_len, 8);
         const null_desc_off: usize = import_desc_off + 20;
@@ -368,8 +417,8 @@ pub const Linker = struct {
         output[pos + 3] = 0;
         pos += 4;
 
-        self.writeU16LE(output[pos..], 0x8664);
-        pos += 2; // Machine: AMD64
+        self.writeU16LE(output[pos..], machine);
+        pos += 2; // Machine: AMD64 / ARM64
         self.writeU16LE(output[pos..], 1);
         pos += 2; // NumberOfSections
         self.writeU32LE(output[pos..], 0);
@@ -478,13 +527,54 @@ pub const Linker = struct {
 
         const code_start = text_raw;
         const main_offset = entry_stub_len;
-        output[code_start] = 0xE8;
-        self.writeU32LE(output[code_start + 1 ..], @intCast(main_offset - 5));
-        output[code_start + 5] = 0x31;
-        output[code_start + 6] = 0xC9; // xor ecx, ecx
-        output[code_start + 7] = 0xFF;
-        output[code_start + 8] = 0x15; // call qword ptr [rip+disp32]
-        self.writeU32LE(output[code_start + 9 ..], @intCast((text_rva + iat_off) - (text_rva + entry_stub_len)));
+        switch (self.target.arch) {
+            .aarch64 => {
+                // AArch64 Windows entry stub (5 instructions, 20 bytes).
+                //   bl   main                     ; call user main (main sits after the stub)
+                //   movz w0, #0                   ; exit code 0
+                //   adrp x16, page(IAT ExitProcess)
+                //   ldr  x16, [x16, #lo12(IAT)]   ; load imported ExitProcess address
+                //   blr  x16                      ; ExitProcess(0)
+                const entry_rva: usize = text_rva; // AddressOfEntryPoint
+                const iat_entry_rva: usize = text_rva + iat_off;
+
+                // insn0: bl main (main is at entry_stub_len bytes past the branch)
+                const bl_imm26: u32 = @intCast(main_offset >> 2);
+                self.writeU32LE(output[code_start..], 0x94000000 | (bl_imm26 & 0x03FFFFFF));
+
+                // insn1: movz w0, #0
+                self.writeU32LE(output[code_start + 4 ..], 0x52800000);
+
+                // insn2: adrp x16, page(IAT)
+                const adrp_pc: usize = entry_rva + 8; // rva of the adrp instruction
+                const page_delta: i64 = @as(i64, @intCast(iat_entry_rva & ~@as(usize, 0xFFF))) -
+                    @as(i64, @intCast(adrp_pc & ~@as(usize, 0xFFF)));
+                const pages: i64 = @divTrunc(page_delta, 0x1000);
+                const imm21: u32 = @intCast(@as(i64, pages) & 0x1FFFFF);
+                const immlo: u32 = imm21 & 0x3;
+                const immhi: u32 = (imm21 >> 2) & 0x7FFFF;
+                const adrp: u32 = 0x90000000 | (immlo << 29) | (immhi << 5) | 16;
+                self.writeU32LE(output[code_start + 8 ..], adrp);
+
+                // insn3: ldr x16, [x16, #lo12(IAT)]  (unsigned offset, scaled by 8)
+                const lo12: u32 = @intCast(iat_entry_rva & 0xFFF);
+                const ldr: u32 = 0xF9400000 | ((lo12 >> 3) << 10) | (16 << 5) | 16;
+                self.writeU32LE(output[code_start + 12 ..], ldr);
+
+                // insn4: blr x16
+                self.writeU32LE(output[code_start + 16 ..], 0xD63F0200);
+            },
+            else => {
+                // x86_64 Windows entry stub (13 bytes).
+                output[code_start] = 0xE8;
+                self.writeU32LE(output[code_start + 1 ..], @intCast(main_offset - 5));
+                output[code_start + 5] = 0x31;
+                output[code_start + 6] = 0xC9; // xor ecx, ecx
+                output[code_start + 7] = 0xFF;
+                output[code_start + 8] = 0x15; // call qword ptr [rip+disp32]
+                self.writeU32LE(output[code_start + 9 ..], @intCast((text_rva + iat_off) - (text_rva + entry_stub_len)));
+            },
+        }
         self.copyBytes(output[code_start + main_offset ..], main_code);
 
         const section_base = text_raw;
@@ -506,43 +596,227 @@ pub const Linker = struct {
         return total_size;
     }
 
-    /// Emit a Mach-O binary header into the output buffer.
-    /// Writes: magic (0xfeedfacf for 64-bit), header, and load commands.
-    /// Returns bytes written.
+    /// Emit a Mach-O executable using a trivial default `main` (single `ret`).
+    /// Retained for callers/tests that only need a valid runnable container.
     pub fn emitMachO(self: *Linker, output: []u8) usize {
-        var pos: usize = 0;
-        if (pos + 32 > output.len) return 0;
-        // Magic: 0xfeedfacf (64-bit)
-        self.writeU32LE(output[pos..], 0xFEEDFACF);
-        pos += 4;
-        // CPU type
+        // x86_64 `ret` = 0xC3; aarch64 `ret` = 0xD65F03C0.
+        return switch (self.target.arch) {
+            .aarch64 => self.emitMachOExecutable(output, &[_]u8{ 0xC0, 0x03, 0x5F, 0xD6 }),
+            else => self.emitMachOExecutable(output, &[_]u8{0xC3}),
+        };
+    }
+
+    /// Emit a runnable Mach-O 64-bit executable (MH_EXECUTE) with a real
+    /// __PAGEZERO + __TEXT segment layout and an LC_UNIXTHREAD entry.
+    ///
+    /// Supported architectures: x86_64 (CPU_TYPE_X86_64) and aarch64
+    /// (CPU_TYPE_ARM64). The container is static and dyld-free: the kernel sets
+    /// the initial thread register state from LC_UNIXTHREAD and jumps straight
+    /// to the entry stub, which calls `main` then issues the platform `exit`
+    /// syscall directly. A single host cross-emits either macOS target.
+    ///
+    /// Layout:
+    ///   mach_header_64 (32)
+    ///   LC_SEGMENT_64 __PAGEZERO (72)
+    ///   LC_SEGMENT_64 __TEXT + 1 section __text (152)
+    ///   LC_UNIXTHREAD (arch-sized thread state)
+    ///   entry stub + main bytes (the __text section content)
+    pub fn emitMachOExecutable(self: *Linker, output: []u8, main_code: []const u8) usize {
         const cputype: u32 = switch (self.target.arch) {
             .x86_64 => 0x01000007, // CPU_TYPE_X86_64
-            .aarch64 => 0x0100000C, // CPU_TYPE_ARM64
-            .arm => 0x0000000C, // CPU_TYPE_ARM
-            else => 0,
+            .aarch64 => 0x0100000C, // CPU_TYPE_ARM64 (CPU_ARCH_ABI64 | CPU_TYPE_ARM)
+            else => return 0,
         };
+        if (main_code.len == 0) return 0;
+
+        const header_size: usize = 32;
+        const seg_cmd_size: usize = 72; // LC_SEGMENT_64 base (no sections)
+        const section_size: usize = 80; // section_64
+        const pagezero_size: usize = seg_cmd_size;
+        const text_seg_size: usize = seg_cmd_size + section_size;
+
+        // LC_UNIXTHREAD carries the full thread state; layout differs per arch.
+        //   x86_64: flavor x86_THREAD_STATE64 (4), count 42 -> 168 state bytes
+        //   arm64 : flavor ARM_THREAD_STATE64 (6), count 68 -> 272 state bytes
+        const thread_state_words: usize = switch (self.target.arch) {
+            .aarch64 => 68,
+            else => 42,
+        };
+        const unixthread_size: usize = 16 + thread_state_words * 4; // cmd,cmdsize,flavor,count + state
+        const size_of_cmds: usize = pagezero_size + text_seg_size + unixthread_size;
+        const ncmds: u32 = 3;
+
+        // Entry stub sits at the start of __text; main follows immediately.
+        const entry_stub_len: usize = switch (self.target.arch) {
+            .aarch64 => 16, // bl main; movz x0,#0; movz x16,#1; svc #0x80
+            else => 15, // call main; xor edi,edi; mov eax,0x2000001; syscall
+        };
+
+        const text_file_off: usize = header_size + size_of_cmds;
+        const text_size: usize = entry_stub_len + main_code.len;
+        const total_size: usize = text_file_off + text_size;
+        if (output.len < total_size) return 0;
+
+        const pagezero_vmsize: u64 = 0x1_0000_0000;
+        const text_vmaddr: u64 = pagezero_vmsize; // __TEXT maps right after __PAGEZERO
+        const entry_vaddr: u64 = text_vmaddr + @as(u64, @intCast(text_file_off));
+
+        self.zeroBuffer(output[0..total_size]);
+        var pos: usize = 0;
+
+        // ── mach_header_64 ──
+        self.writeU32LE(output[pos..], 0xFEEDFACF);
+        pos += 4; // magic MH_MAGIC_64
         self.writeU32LE(output[pos..], cputype);
         pos += 4;
-        // CPU subtype
         self.writeU32LE(output[pos..], 0x03);
-        pos += 4; // CPU_SUBTYPE_ALL
-        // File type: MH_EXECUTE = 2
+        pos += 4; // cpusubtype: *_ALL
         self.writeU32LE(output[pos..], 2);
+        pos += 4; // filetype: MH_EXECUTE
+        self.writeU32LE(output[pos..], ncmds);
         pos += 4;
-        // Number of load commands (placeholder)
+        self.writeU32LE(output[pos..], @intCast(size_of_cmds));
+        pos += 4;
+        self.writeU32LE(output[pos..], 0x1);
+        pos += 4; // flags: MH_NOUNDEFS
         self.writeU32LE(output[pos..], 0);
-        pos += 4;
-        // Size of load commands
+        pos += 4; // reserved
+
+        // ── LC_SEGMENT_64: __PAGEZERO ──
+        self.writeU32LE(output[pos..], 0x19);
+        pos += 4; // cmd: LC_SEGMENT_64
+        self.writeU32LE(output[pos..], @intCast(pagezero_size));
+        pos += 4; // cmdsize
+        self.writeSegName(output[pos..], "__PAGEZERO");
+        pos += 16;
+        self.writeU64LE(output[pos..], 0);
+        pos += 8; // vmaddr
+        self.writeU64LE(output[pos..], pagezero_vmsize);
+        pos += 8; // vmsize
+        self.writeU64LE(output[pos..], 0);
+        pos += 8; // fileoff
+        self.writeU64LE(output[pos..], 0);
+        pos += 8; // filesize
         self.writeU32LE(output[pos..], 0);
-        pos += 4;
-        // Flags
+        pos += 4; // maxprot: VM_PROT_NONE
         self.writeU32LE(output[pos..], 0);
-        pos += 4;
-        // Reserved (64-bit)
+        pos += 4; // initprot: VM_PROT_NONE
         self.writeU32LE(output[pos..], 0);
-        pos += 4;
-        return pos;
+        pos += 4; // nsects
+        self.writeU32LE(output[pos..], 0);
+        pos += 4; // flags
+
+        // ── LC_SEGMENT_64: __TEXT (covers the header + code) ──
+        self.writeU32LE(output[pos..], 0x19);
+        pos += 4; // cmd: LC_SEGMENT_64
+        self.writeU32LE(output[pos..], @intCast(text_seg_size));
+        pos += 4; // cmdsize (base + 1 section)
+        self.writeSegName(output[pos..], "__TEXT");
+        pos += 16;
+        self.writeU64LE(output[pos..], text_vmaddr);
+        pos += 8; // vmaddr
+        self.writeU64LE(output[pos..], @intCast(alignForward(total_size, 0x1000)));
+        pos += 8; // vmsize (page-rounded)
+        self.writeU64LE(output[pos..], 0);
+        pos += 8; // fileoff (segment starts at 0, includes header)
+        self.writeU64LE(output[pos..], @intCast(total_size));
+        pos += 8; // filesize
+        self.writeU32LE(output[pos..], 0x5);
+        pos += 4; // maxprot: READ|EXECUTE
+        self.writeU32LE(output[pos..], 0x5);
+        pos += 4; // initprot: READ|EXECUTE
+        self.writeU32LE(output[pos..], 1);
+        pos += 4; // nsects
+        self.writeU32LE(output[pos..], 0);
+        pos += 4; // flags
+
+        // section_64: __text
+        self.writeSegName(output[pos..], "__text");
+        pos += 16; // sectname
+        self.writeSegName(output[pos..], "__TEXT");
+        pos += 16; // segname
+        self.writeU64LE(output[pos..], entry_vaddr);
+        pos += 8; // addr
+        self.writeU64LE(output[pos..], @intCast(text_size));
+        pos += 8; // size
+        self.writeU32LE(output[pos..], @intCast(text_file_off));
+        pos += 4; // offset
+        self.writeU32LE(output[pos..], 2);
+        pos += 4; // align (2^2 = 4)
+        self.writeU32LE(output[pos..], 0);
+        pos += 4; // reloff
+        self.writeU32LE(output[pos..], 0);
+        pos += 4; // nreloc
+        self.writeU32LE(output[pos..], 0x80000400);
+        pos += 4; // flags: S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS
+        self.writeU32LE(output[pos..], 0);
+        pos += 4; // reserved1
+        self.writeU32LE(output[pos..], 0);
+        pos += 4; // reserved2
+        self.writeU32LE(output[pos..], 0);
+        pos += 4; // reserved3
+
+        // ── LC_UNIXTHREAD: initial register state, PC = entry ──
+        self.writeU32LE(output[pos..], 0x5);
+        pos += 4; // cmd: LC_UNIXTHREAD
+        self.writeU32LE(output[pos..], @intCast(unixthread_size));
+        pos += 4; // cmdsize
+        switch (self.target.arch) {
+            .aarch64 => {
+                self.writeU32LE(output[pos..], 6);
+                pos += 4; // flavor: ARM_THREAD_STATE64
+                self.writeU32LE(output[pos..], 68);
+                pos += 4; // count
+                // state: x0..x28 (29), fp(x29), lr(x30), sp, pc, cpsr, pad => 68 words.
+                // pc is at word index 32 (after 32 x-regs incl. fp/lr, then sp).
+                const pc_word_index: usize = 32;
+                self.writeU64LE(output[pos + pc_word_index * 4 ..], entry_vaddr);
+                pos += 68 * 4;
+            },
+            else => {
+                self.writeU32LE(output[pos..], 4);
+                pos += 4; // flavor: x86_THREAD_STATE64
+                self.writeU32LE(output[pos..], 42);
+                pos += 4; // count
+                // x86_THREAD_STATE64 layout (u64 registers): rax,rbx,rcx,rdx,rdi,
+                // rsi,rbp,rsp,r8..r15 (16 regs), then rip. rip is the 17th u64,
+                // i.e. word index 32.
+                const rip_word_index: usize = 32;
+                self.writeU64LE(output[pos + rip_word_index * 4 ..], entry_vaddr);
+                pos += 42 * 4;
+            },
+        }
+
+        // ── __text content: entry stub + main ──
+        const code_start = text_file_off;
+        switch (self.target.arch) {
+            .aarch64 => {
+                // bl main; movz x0,#0; movz x16,#1 (SYS_exit); svc #0x80
+                const bl_imm26: u32 = @intCast(entry_stub_len >> 2);
+                self.writeU32LE(output[code_start..], 0x94000000 | (bl_imm26 & 0x03FFFFFF));
+                self.writeU32LE(output[code_start + 4 ..], 0xD2800000); // movz x0, #0
+                self.writeU32LE(output[code_start + 8 ..], 0xD2800030); // movz x16, #1
+                self.writeU32LE(output[code_start + 12 ..], 0xD4001001); // svc #0x80
+            },
+            else => {
+                // call main; xor edi,edi; mov eax,0x2000001 (SYS_exit); syscall
+                var c = code_start;
+                output[c] = 0xE8;
+                self.writeU32LE(output[c + 1 ..], @intCast(entry_stub_len - 5));
+                c += 5;
+                output[c] = 0x31;
+                output[c + 1] = 0xFF; // xor edi, edi
+                c += 2;
+                output[c] = 0xB8;
+                self.writeU32LE(output[c + 1 ..], 0x2000001); // mov eax, SYS_exit
+                c += 5;
+                output[c] = 0x0F;
+                output[c + 1] = 0x05; // syscall
+            },
+        }
+        self.copyBytes(output[code_start + entry_stub_len ..], main_code);
+
+        return total_size;
     }
 
     /// Emit a WebAssembly module header into the output buffer.
@@ -769,6 +1043,17 @@ pub const Linker = struct {
         buf[5] = @truncate(val >> 40);
         buf[6] = @truncate(val >> 48);
         buf[7] = @truncate(val >> 56);
+    }
+
+    /// Write a Mach-O 16-byte fixed segment/section name field, zero-padded.
+    /// Names longer than 16 bytes are truncated; the field is not required to
+    /// be NUL-terminated when it uses the full 16 bytes.
+    fn writeSegName(self: *const Linker, buf: []u8, name: []const u8) void {
+        _ = self;
+        var i: usize = 0;
+        while (i < 16) : (i += 1) {
+            buf[i] = if (i < name.len) name[i] else 0;
+        }
     }
 
     /// Zero the full destination buffer before writing a deterministic image.
@@ -1152,7 +1437,7 @@ test "emitPeCoff produces MZ magic" {
 test "emitMachO produces Mach-O magic" {
     const target = Target_Triple{ .arch = .aarch64, .os = .macos, .abi = .none };
     var linker = Linker.init(target);
-    var buf: [64]u8 = undefined;
+    var buf: [1024]u8 = undefined;
     const written = linker.emitMachO(&buf);
     try testing.expect(!(written < 32)); // Mach-O header should be at least 32 bytes
     // 0xFEEDFACF in little-endian
@@ -1344,4 +1629,171 @@ test "multi-unit section merge - relocations from multiple units" {
     linker.addRelocation(r1);
     linker.addRelocation(r2);
     try testing.expect(!(linker.relocationCount() != 2)); // expected 2 relocations from 2 units
+}
+
+// ============================================================================
+// Cross-OS multi-target executable emission
+//
+// Validates that a single host can emit runnable images for every sls-shipped
+// target: x86_64 + aarch64 for Linux (ELF), Windows (PE/COFF) and macOS
+// (Mach-O). aarch64-sb0 (SB0X/SB0K) is covered by the SB0 tests above.
+// ============================================================================
+
+test "ELF aarch64 - EM_AARCH64 machine and aarch64 _start stub" {
+    var linker = Linker.init(.{ .arch = .aarch64, .os = .linux, .abi = .gnu });
+    // aarch64 main body: a single `ret` (0xD65F03C0).
+    const main_code = [_]u8{ 0xC0, 0x03, 0x5F, 0xD6 };
+    var buf: [512]u8 = undefined;
+    const n = linker.emitElfExecutable(&buf, &main_code);
+    try testing.expect(!(n == 0)); // aarch64 ELF should emit
+
+    // ELF magic.
+    if (buf[0] != 0x7f or buf[1] != 'E' or buf[2] != 'L' or buf[3] != 'F')
+        return error.TestUnexpectedResult;
+    // e_machine at offset 18 == EM_AARCH64 (0xB7).
+    try testing.expect(!(buf[18] != 0xB7 or buf[19] != 0x00));
+
+    // _start stub begins right after ELF header (64) + program header (56) = 120.
+    const stub_off: usize = 120;
+    // First instruction: bl main => 0x94000004 (imm26 = 16/4 = 4), little-endian.
+    try testing.expect(!(buf[stub_off + 0] != 0x04));
+    try testing.expect(!(buf[stub_off + 1] != 0x00));
+    try testing.expect(!(buf[stub_off + 2] != 0x00));
+    try testing.expect(!(buf[stub_off + 3] != 0x94));
+    // svc #0 as the last stub instruction: 0xD4000001.
+    try testing.expect(!(buf[stub_off + 12] != 0x01));
+    try testing.expect(!(buf[stub_off + 15] != 0xD4));
+    // main body copied immediately after the 16-byte stub.
+    try testing.expect(!(buf[stub_off + 16] != 0xC0));
+    try testing.expect(!(buf[stub_off + 19] != 0xD6));
+}
+
+test "ELF x86_64 still emits EM_X86_64" {
+    var linker = Linker.init(.{ .arch = .x86_64, .os = .linux, .abi = .gnu });
+    var buf: [256]u8 = undefined;
+    const n = linker.emitElf(&buf);
+    try testing.expect(!(n == 0));
+    try testing.expect(!(buf[18] != 0x3E or buf[19] != 0x00)); // EM_X86_64
+}
+
+test "ELF rejects unsupported arch" {
+    var linker = Linker.init(.{ .arch = .riscv64, .os = .linux, .abi = .gnu });
+    const main_code = [_]u8{ 0x67, 0x80, 0x00, 0x00 };
+    var buf: [256]u8 = undefined;
+    try testing.expect(!(linker.emitElfExecutable(&buf, &main_code) != 0));
+}
+
+test "PE aarch64 - ARM64 machine field and aarch64 entry stub" {
+    var linker = Linker.init(.{ .arch = .aarch64, .os = .windows, .abi = .msvc });
+    const main_code = [_]u8{ 0xC0, 0x03, 0x5F, 0xD6 }; // ret
+    var buf: [2048]u8 = undefined;
+    const n = linker.emitPeCoffExecutable(&buf, &main_code);
+    try testing.expect(!(n == 0)); // aarch64 PE should emit
+
+    // MZ magic.
+    try testing.expect(!(buf[0] != 0x4D or buf[1] != 0x5A));
+    // PE signature at 0x80.
+    try testing.expect(!(buf[0x80] != 'P' or buf[0x81] != 'E'));
+    // Machine field right after PE\0\0 (offset 0x84) == IMAGE_FILE_MACHINE_ARM64 (0xAA64).
+    try testing.expect(!(buf[0x84] != 0x64 or buf[0x85] != 0xAA));
+
+    // Entry stub begins at file offset headers_size (0x200); first insn is `bl main`.
+    const code_off: usize = 0x200;
+    // bl main => imm26 = 20/4 = 5 => 0x94000005.
+    try testing.expect(!(buf[code_off + 0] != 0x05));
+    try testing.expect(!(buf[code_off + 3] != 0x94));
+    // blr x16 as the final stub instruction: 0xD63F0200.
+    try testing.expect(!(buf[code_off + 16] != 0x00));
+    try testing.expect(!(buf[code_off + 19] != 0xD6));
+}
+
+test "PE x86_64 still emits AMD64 machine field" {
+    var linker = Linker.init(.{ .arch = .x86_64, .os = .windows, .abi = .msvc });
+    var buf: [1024]u8 = undefined;
+    const n = linker.emitPeCoff(&buf);
+    try testing.expect(!(n == 0));
+    try testing.expect(!(buf[0x84] != 0x64 or buf[0x85] != 0x86)); // 0x8664 AMD64
+}
+
+test "PE rejects unsupported arch" {
+    var linker = Linker.init(.{ .arch = .arm, .os = .windows, .abi = .msvc });
+    const main_code = [_]u8{ 0x1E, 0xFF, 0x2F, 0xE1 };
+    var buf: [1024]u8 = undefined;
+    try testing.expect(!(linker.emitPeCoffExecutable(&buf, &main_code) != 0));
+}
+
+test "MachO x86_64 - runnable executable with LC_UNIXTHREAD" {
+    var linker = Linker.init(.{ .arch = .x86_64, .os = .macos, .abi = .none });
+    const main_code = [_]u8{0xC3}; // ret
+    var buf: [1024]u8 = undefined;
+    const n = linker.emitMachOExecutable(&buf, &main_code);
+    try testing.expect(!(n == 0)); // x86_64 Mach-O should emit
+
+    // MH_MAGIC_64 = 0xFEEDFACF (little-endian).
+    if (buf[0] != 0xCF or buf[1] != 0xFA or buf[2] != 0xED or buf[3] != 0xFE)
+        return error.TestUnexpectedResult;
+    // cputype at offset 4 == CPU_TYPE_X86_64 (0x01000007).
+    try testing.expect(!(buf[4] != 0x07 or buf[5] != 0x00 or buf[6] != 0x00 or buf[7] != 0x01));
+    // filetype at offset 12 == MH_EXECUTE (2).
+    try testing.expect(!(buf[12] != 0x02 or buf[13] != 0x00));
+    // ncmds at offset 16 == 3.
+    try testing.expect(!(buf[16] != 0x03));
+    // First load command is LC_SEGMENT_64 (0x19) at offset 32.
+    try testing.expect(!(buf[32] != 0x19));
+}
+
+test "MachO aarch64 - ARM64 cputype and runnable executable" {
+    var linker = Linker.init(.{ .arch = .aarch64, .os = .macos, .abi = .none });
+    const main_code = [_]u8{ 0xC0, 0x03, 0x5F, 0xD6 }; // ret
+    var buf: [1024]u8 = undefined;
+    const n = linker.emitMachOExecutable(&buf, &main_code);
+    try testing.expect(!(n == 0)); // aarch64 Mach-O should emit
+
+    if (buf[0] != 0xCF or buf[1] != 0xFA or buf[2] != 0xED or buf[3] != 0xFE)
+        return error.TestUnexpectedResult;
+    // cputype == CPU_TYPE_ARM64 (0x0100000C).
+    try testing.expect(!(buf[4] != 0x0C or buf[5] != 0x00 or buf[6] != 0x00 or buf[7] != 0x01));
+    try testing.expect(!(buf[12] != 0x02 or buf[13] != 0x00)); // MH_EXECUTE
+    try testing.expect(!(buf[16] != 0x03)); // ncmds
+}
+
+test "MachO rejects unsupported arch" {
+    var linker = Linker.init(.{ .arch = .riscv64, .os = .macos, .abi = .none });
+    const main_code = [_]u8{ 0x67, 0x80, 0x00, 0x00 };
+    var buf: [1024]u8 = undefined;
+    try testing.expect(!(linker.emitMachOExecutable(&buf, &main_code) != 0));
+}
+
+test "emitExecutable dispatches to real Mach-O for macOS targets" {
+    var linker = Linker.init(.{ .arch = .aarch64, .os = .macos, .abi = .none });
+    const main_code = [_]u8{ 0xC0, 0x03, 0x5F, 0xD6 };
+    var buf: [1024]u8 = undefined;
+    const n = linker.emitExecutable(&buf, &main_code);
+    // A real executable is much larger than the old 32-byte header stub.
+    try testing.expect(!(n < 400)); // dispatched emitter must produce full image
+    if (buf[0] != 0xCF or buf[1] != 0xFA or buf[2] != 0xED or buf[3] != 0xFE)
+        return error.TestUnexpectedResult;
+}
+
+test "all sls host targets emit non-empty runnable images from one host" {
+    const Case = struct { arch: Target_Triple.Arch, os: Target_Triple.Os, abi: Target_Triple.Abi };
+    const cases = [_]Case{
+        .{ .arch = .x86_64, .os = .linux, .abi = .gnu },
+        .{ .arch = .aarch64, .os = .linux, .abi = .gnu },
+        .{ .arch = .x86_64, .os = .windows, .abi = .msvc },
+        .{ .arch = .aarch64, .os = .windows, .abi = .msvc },
+        .{ .arch = .x86_64, .os = .macos, .abi = .none },
+        .{ .arch = .aarch64, .os = .macos, .abi = .none },
+        .{ .arch = .aarch64, .os = .sb0, .abi = .sb0 },
+    };
+    for (cases) |c| {
+        var linker = Linker.init(.{ .arch = c.arch, .os = c.os, .abi = c.abi });
+        // aarch64 main body ends in ret; x86_64 uses its ret.
+        const aarch64_ret = [_]u8{ 0xC0, 0x03, 0x5F, 0xD6 };
+        const x86_ret = [_]u8{0xC3};
+        const main_code: []const u8 = if (c.arch == .aarch64) aarch64_ret[0..] else x86_ret[0..];
+        var buf: [2048]u8 = undefined;
+        const n = linker.emitExecutable(&buf, main_code);
+        try testing.expect(!(n == 0)); // every supported host target must emit a runnable image
+    }
 }

@@ -4316,6 +4316,7 @@ fn createModule(
             error.Sb0RequiresAarch64 => fatal("Sb0 backend requires aarch64 target", .{}),
             error.Sb0RequiresSb0Abi => fatal("Sb0 backend requires sb0 ABI", .{}),
             error.Sb0RequiresNativeObjectFormat => fatal("Sb0 backend requires native object format", .{}),
+            error.Sb0RequiresSelfHostedBackend => fatal("Sb0 targets are served by the self-hosted backend; -fllvm is not supported", .{}),
         };
     }
 

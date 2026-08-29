@@ -21,6 +21,27 @@
 
 ---
 
+## 0.4.1 — Self-Hosted SB0 Linking
+
+Sig gains a pure-Sig, self-hosted linker for the native SB0 target. Compiling
+`aarch64-sb0` with `-ofmt=raw -fno-llvm` emits a complete SB0X image directly —
+no LLD, no ELF/PE intermediate. The linker resolves external, global, and lazy
+symbols, so ordinary programs (slices, loops, optionals, error unions, and the
+`memset`/`memcpy` runtime they reference) compile end to end through the
+self-hosted AArch64 code generator with no LLVM.
+
+```
+$ sig version
+sig 0.4.1 (zig 0.17.0)
+```
+
+The SB0X/SB0K native image format is now a canonical, dependency-free
+[zpm](https://github.com/SB0LTD/zpm) module (`platform/sb0x`), mirrored
+byte-for-byte inside the compiler. The self-hosted backend is not yet the
+default for the LLVM platforms; LLVM remains the release backend there. See the
+[changelog](CHANGELOG.md#041--2026-08-29--self-hosted-sb0-linking) for the
+verified capability and current limitations.
+
 ## 0.4.0 — Sovereign
 
 The compiler, standard library, native build runner, and canonical test suite are

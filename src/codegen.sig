@@ -875,6 +875,8 @@ pub fn genNavRef(
         }
     } else if (lf.cast(.coff2)) |coff| {
         return @fromBackingInt(@intCast(@backingInt(try coff.navSymbol(zcu, nav_index))));
+    } else if (lf.cast(.sb0)) |sb0| {
+        return sb0.navSymbolId(nav_index);
     } else {
         std.debug.panic("TODO genNavRef for '{t}'", .{lf.tag});
     }
