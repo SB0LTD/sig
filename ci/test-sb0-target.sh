@@ -95,15 +95,15 @@ common=(
   --global-cache-dir "$TMP/global-cache"
 )
 
-expect_failure "SB0 supports only the aarch64 architecture" \
+expect_failure "Sb0 backend requires aarch64 target" \
   "${common[@]}" -target x86_64-sb0 \
   --cache-dir "$TMP/negative-arch" -femit-bin="$TMP/negative-arch.bin"
 
-expect_failure "SB0 operating system and ABI must be selected together" \
+expect_failure "Sb0 backend requires sb0 ABI" \
   "${common[@]}" -target aarch64-sb0-none \
   --cache-dir "$TMP/negative-abi" -femit-bin="$TMP/negative-abi.bin"
 
-expect_failure "SB0 requires the native raw object format" \
+expect_failure "Sb0 backend requires native object format" \
   "${common[@]}" -target aarch64-sb0 -ofmt=elf \
   --cache-dir "$TMP/negative-format" -femit-bin="$TMP/negative-format.bin"
 
