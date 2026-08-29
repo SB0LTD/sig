@@ -127,6 +127,8 @@ pub fn emit(
         else if (lf.cast(.macho)) |mf|
             @fromBackingInt(@intCast(mf.getZigObject().?.getOrCreateMetadataForLazySymbol(mf, pt, lazy_reloc.symbol) catch |err|
                 return zcu.codegenFail(func.owner_nav, "{s} creating lazy symbol", .{@errorName(err)})))
+        else if (lf.cast(.sb0)) |sb0|
+            try sb0.getOrCreateLazySymbol(lazy_reloc.symbol)
         else
             return zcu.codegenFail(func.owner_nav, "external symbols unimplemented for {t}", .{lf.tag}),
         mir.body[lazy_reloc.reloc.label],
@@ -142,6 +144,8 @@ pub fn emit(
             @fromBackingInt(@intCast(try ef.getGlobalSymbol(std.mem.span(global_reloc.name), null)))
         else if (lf.cast(.macho)) |mf|
             @fromBackingInt(@intCast(try mf.getGlobalSymbol(std.mem.span(global_reloc.name), null)))
+        else if (lf.cast(.sb0)) |sb0|
+            try sb0.getGlobalSymbol(std.mem.span(global_reloc.name), null)
         else
             return zcu.codegenFail(func.owner_nav, "external symbols unimplemented for {t}", .{lf.tag}),
         mir.body[global_reloc.reloc.label],
@@ -259,6 +263,17 @@ fn emitReloc(
                     .sub => unreachable,
                 },
             }
+        } else if (lf.cast(.sb0)) |sb0| {
+            // SB0 flat images have no GOT; `got_load` page/pageoff refs resolve
+            // directly to the symbol's intra-image address.
+            const kind_sb0: @TypeOf(sb0.*).RelocKind = switch (decoded.decode()) {
+                else => unreachable,
+                .pc_relative_addressing => |pc| switch (pc.group.op) {
+                    .adr, .adrp => .adr_prel_pg_hi21,
+                },
+                .add_subtract_immediate => .add_abs_lo12,
+            };
+            try sb0.addReloc(atom_index, offset, sym_index, @bitCast(addend), kind_sb0);
         },
         .branch_exception_generating_system => |decoded| if (lf.cast(.elf)) |ef| {
             const zo = ef.zigObjectPtr().?;
@@ -288,6 +303,8 @@ fn emitReloc(
                     .symbolnum = @intCast(@backingInt(sym_index)),
                 },
             });
+        } else if (lf.cast(.sb0)) |sb0| {
+            try sb0.addReloc(atom_index, offset, sym_index, @bitCast(addend), .branch26);
         },
         .load_store => |decoded| if (lf.cast(.elf)) |ef| {
             const zo = ef.zigObjectPtr().?;
@@ -354,6 +371,33 @@ fn emitReloc(
                     .symbolnum = @intCast(@backingInt(sym_index)),
                 },
             });
+        } else if (lf.cast(.sb0)) |sb0| {
+            // The LDST low-12 immediate is scaled by the access size; derive the
+            // log2 size so the SB0 linker can unscale the resolved low bits.
+            const size_log2: u3 = switch (decoded.decode().register_unsigned_immediate.decode()) {
+                .integer => |integer| switch (integer.decode()) {
+                    .unallocated, .prfm => unreachable,
+                    .strb, .ldrb, .ldrsb => 0,
+                    .strh, .ldrh, .ldrsh => 1,
+                    .ldrsw => 2,
+                    .str => |encoded| switch (encoded.sf) {
+                        .word => 2,
+                        .doubleword => 3,
+                    },
+                    .ldr => |encoded| switch (encoded.sf) {
+                        .word => 2,
+                        .doubleword => 3,
+                    },
+                },
+                .vector => |vector| switch (vector.group.opc1.decode(vector.group.size)) {
+                    .byte => 0,
+                    .half => 1,
+                    .single => 2,
+                    .double => 3,
+                    .quad => 4,
+                },
+            };
+            try sb0.addLdstReloc(atom_index, offset, sym_index, @bitCast(addend), size_log2);
         },
     }
 }

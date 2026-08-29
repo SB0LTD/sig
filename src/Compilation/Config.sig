@@ -123,6 +123,7 @@ pub const ResolveError = error{
     Sb0RequiresAarch64,
     Sb0RequiresSb0Abi,
     Sb0RequiresNativeObjectFormat,
+    Sb0RequiresSelfHostedBackend,
     WasiExecModelRequiresWasi,
     SharedMemoryIsWasmOnly,
     ObjectFilesCannotShareMemory,
@@ -331,6 +332,17 @@ pub fn resolve(options: Options) ResolveError!Config {
     const use_llvm = b: {
         // If we have no Sig code to compile, no need for LLVM.
         if (!options.have_zcu) break :b false;
+
+        // SB0 is a native target served exclusively by the self-hosted aarch64
+        // backend and the self-hosted SB0 linker (see `link/Sb0.sig`). SB0X is
+        // the native container, not an LLVM/LLD object format, so we never route
+        // SB0 through LLVM even though LLVM nominally accepts `aarch64`/`.raw`.
+        if (target.os.tag == .sb0) {
+            if (options.emit_llvm_ir or options.emit_llvm_bc)
+                return error.EmittingLlvmModuleRequiresLlvmBackend;
+            if (options.use_llvm == true) return error.Sb0RequiresSelfHostedBackend;
+            break :b false;
+        }
 
         // If emitting to LLVM bitcode object format, must use LLVM backend.
         if (options.emit_llvm_ir or options.emit_llvm_bc) {

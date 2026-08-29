@@ -672,6 +672,15 @@ pub const File = struct {
                     .mode = .write_only,
                 });
             },
+            .sb0 => if (base.file == null) {
+                dev.check(.sb0_linker);
+                const sb0 = base.cast(.sb0).?;
+                sb0.mf.memory_map.file = try base.emit.root_dir.handle.openFile(io, base.emit.sub_path, .{
+                    .mode = .read_write,
+                });
+                base.file = sb0.mf.memory_map.file;
+                try sb0.mf.ensureTotalCapacity(@intCast(sb0.mf.nodes.items[0].location().resolve(&sb0.mf)[1]));
+            },
             .plan9 => unreachable,
         }
     }
@@ -749,6 +758,15 @@ pub const File = struct {
                 base.file = null;
             },
             .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
+            .sb0 => if (base.file) |f| {
+                dev.check(.sb0_linker);
+                const sb0 = base.cast(.sb0).?;
+                sb0.mf.unmap();
+                assert(sb0.mf.memory_map.file.handle == f.handle);
+                sb0.mf.memory_map.file.close(io);
+                sb0.mf.memory_map.file = undefined;
+                base.file = null;
+            },
             .plan9 => unreachable,
         }
     }
@@ -1087,6 +1105,7 @@ pub const File = struct {
             .wasm,
             .spirv,
             .plan9,
+            .sb0,
             .lld,
             => return .unimplemented,
             inline else => |tag| {
@@ -1267,6 +1286,7 @@ pub const File = struct {
         wasm,
         spirv,
         plan9,
+        sb0,
         lld,
 
         pub fn Type(comptime tag: Tag) type {
@@ -1278,6 +1298,7 @@ pub const File = struct {
                 .c => C,
                 .wasm => Wasm,
                 .spirv => SpirV,
+                .sb0 => Sb0,
                 .lld => Lld,
                 .plan9 => comptime unreachable,
             };
@@ -1293,7 +1314,11 @@ pub const File = struct {
                 .c => .c,
                 .spirv => .spirv,
                 .hex => @panic("TODO implement hex object format"),
-                .raw => @panic("TODO implement raw object format"),
+                // The self-hosted `.raw` path is only reached for SB0 native
+                // images (Config forces `aarch64-sb0` to `-ofmt=raw`, and the
+                // LLD raw path is handled before this switch). Route to the
+                // self-hosted SB0 linker, which emits a flat SB0X image.
+                .raw => .sb0,
             };
         }
 
@@ -1378,6 +1403,7 @@ pub const File = struct {
     pub const MachO = @import("link/MachO.sig");
     pub const SpirV = @import("link/SpirV.sig");
     pub const Wasm = @import("link/Wasm.sig");
+    pub const Sb0 = @import("link/Sb0.sig");
     pub const Dwarf = @import("link/Dwarf.sig");
 };
 

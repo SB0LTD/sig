@@ -1,18 +1,29 @@
 # Graphify ignore for sig compiler project
 # Skip vendored/generated/build artifacts
 
+.build/
 .build-gen/
 .deploy-ctx/
 .sig-cache/
+.sig-cache-sb0/
+.sig-gcache-sb0/
+.zig-cache/
+.nbfull/
+.rc/
+.rgc/
 bld/
 build/
 crashdumps/
 graphify-out/
 llvm-22/
 sig-release-win/
+sig-out/
+sig-out-040/
 stage1/
+stage2-out/
 stage3-out/
 tmp-build-context/
+tmp-bootstrap/
 cmake/
 .git/
 ci/

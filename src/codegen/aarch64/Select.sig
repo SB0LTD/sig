@@ -1126,7 +1126,69 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                 switch (int_info.bits) {
                     0 => unreachable,
                     32, 64 => |bits| switch (int_info.signedness) {
-                        .signed => return isel.fail("bad {t} {f}", .{ air_tag, isel.fmtType(ty) }),
+                        .signed => {
+                            // Signed saturating add/sub.
+                            //   adds/subs unsat, a, b          ; V := signed overflow
+                            //   asr       sat,   a, #(bits-1)   ; sat := all-ones if a<0 else 0
+                            //   eor       sat,   sat, #INT_MIN   ; sat := INT_MAX (a>=0) / INT_MIN (a<0)
+                            //   csel      res,   sat, unsat, vs  ; overflow -> saturate
+                            // For sub, the saturation direction is governed by the
+                            // sign of the minuend `a`, same as add.
+                            const res_ra = try res_vi.value.defReg(isel) orelse break :unused;
+                            const lhs_vi = try isel.use(bin_op.lhs);
+                            const rhs_vi = try isel.use(bin_op.rhs);
+                            const lhs_mat = try lhs_vi.matReg(isel);
+                            const rhs_mat = try rhs_vi.matReg(isel);
+                            const unsat_res_ra = try isel.allocIntReg();
+                            defer isel.freeReg(unsat_res_ra);
+                            const sat_ra = try isel.allocIntReg();
+                            defer isel.freeReg(sat_ra);
+                            switch (bits) {
+                                else => unreachable,
+                                32 => {
+                                    try isel.emit(.csel(res_ra.w(), sat_ra.w(), unsat_res_ra.w(), .vs));
+                                    // sat(sign-broadcast) ^ INT_MAX  ->  INT_MAX (a>=0) / INT_MIN (a<0).
+                                    // INT_MAX for 32-bit is the bitmask of 31 low ones (imms = bits-1-1).
+                                    try isel.emit(.eor(sat_ra.w(), sat_ra.w(), .{ .immediate = .{
+                                        .N = .word,
+                                        .immr = 0,
+                                        .imms = @intCast(bits - 1 - 1),
+                                    } }));
+                                    // asr sat, a, #31  (sbfm immr=31, imms=31 broadcasts the sign bit)
+                                    try isel.emit(.sbfm(sat_ra.w(), lhs_mat.ra.w(), .{
+                                        .N = .word,
+                                        .immr = @intCast(bits - 1),
+                                        .imms = @intCast(bits - 1),
+                                    }));
+                                    try isel.emit(switch (air_tag) {
+                                        else => unreachable,
+                                        .add_sat => .adds(unsat_res_ra.w(), lhs_mat.ra.w(), .{ .register = rhs_mat.ra.w() }),
+                                        .sub_sat => .subs(unsat_res_ra.w(), lhs_mat.ra.w(), .{ .register = rhs_mat.ra.w() }),
+                                    });
+                                },
+                                64 => {
+                                    try isel.emit(.csel(res_ra.x(), sat_ra.x(), unsat_res_ra.x(), .vs));
+                                    try isel.emit(.eor(sat_ra.x(), sat_ra.x(), .{ .immediate = .{
+                                        .N = .doubleword,
+                                        .immr = 0,
+                                        .imms = @intCast(bits - 1 - 1),
+                                    } }));
+                                    // asr sat, a, #63  (sbfm immr=63, imms=63)
+                                    try isel.emit(.sbfm(sat_ra.x(), lhs_mat.ra.x(), .{
+                                        .N = .doubleword,
+                                        .immr = @intCast(bits - 1),
+                                        .imms = @intCast(bits - 1),
+                                    }));
+                                    try isel.emit(switch (air_tag) {
+                                        else => unreachable,
+                                        .add_sat => .adds(unsat_res_ra.x(), lhs_mat.ra.x(), .{ .register = rhs_mat.ra.x() }),
+                                        .sub_sat => .subs(unsat_res_ra.x(), lhs_mat.ra.x(), .{ .register = rhs_mat.ra.x() }),
+                                    });
+                                },
+                            }
+                            try rhs_mat.finish(isel);
+                            try lhs_mat.finish(isel);
+                        },
                         .unsigned => {
                             const res_ra = try res_vi.value.defReg(isel) orelse break :unused;
                             const lhs_vi = try isel.use(bin_op.lhs);
@@ -4980,10 +5042,48 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             const ty_op = air.data(air.inst_index).ty_op;
             const ptr_ty = isel.air.typeOf(ty_op.operand, ip);
             const ptr_info = ptr_ty.ptrInfo(zcu);
-            if (ptr_info.packed_offset.host_size > 0) return isel.fail("packed load", .{});
-
-            if (ptr_info.flags.is_volatile) _ = try isel.use(air.inst_index.toRef());
-            if (isel.live_values.fetchRemove(air.inst_index)) |dst_vi| unused: {
+            // Packed load: read the whole host container, then extract the
+            // field bits [bit_offset, +field_bits) via UBFM/SBFM. Handled here
+            // for host containers <= 8 bytes and fields <= 64 bits.
+            const packed_ok = ptr_info.packed_offset.host_size > 0 and
+                ptr_info.packed_offset.host_size <= 8 and
+                ty_op.ty.bitSize(zcu) >= 1 and ty_op.ty.bitSize(zcu) <= 64 and
+                ptr_info.packed_offset.bit_offset + ty_op.ty.bitSize(zcu) <=
+                    @as(u64, ptr_info.packed_offset.host_size) * 8 and
+                ip.zigTypeTag(ptr_info.child) != .@"union";
+            if (ptr_info.packed_offset.host_size > 0 and !packed_ok)
+                return isel.fail("packed load", .{});
+            if (packed_ok) {
+                if (ptr_info.flags.is_volatile) _ = try isel.use(air.inst_index.toRef());
+                if (isel.live_values.fetchRemove(air.inst_index)) |dst_vi| unused_packed: {
+                    defer dst_vi.value.deref(isel);
+                    const host_size: u64 = ptr_info.packed_offset.host_size;
+                    const field_bits = ty_op.ty.bitSize(zcu);
+                    const bit_off: u64 = ptr_info.packed_offset.bit_offset;
+                    const dst_ra = try dst_vi.value.defReg(isel) orelse break :unused_packed;
+                    const ptr_vi = try isel.use(ty_op.operand);
+                    const ptr_mat = try ptr_vi.matReg(isel);
+                    const signed = ty_op.ty.isAbiInt(zcu) and ty_op.ty.intInfo(zcu).signedness == .signed;
+                    const lsb: u6 = @intCast(bit_off);
+                    const imms: u6 = @intCast(bit_off + field_bits - 1);
+                    // Emit is prepend-order: the extract runs after the load.
+                    if (host_size > 4) {
+                        try isel.emit(if (signed)
+                            .sbfm(dst_ra.x(), dst_ra.x(), .{ .N = .doubleword, .immr = lsb, .imms = imms })
+                        else
+                            .ubfm(dst_ra.x(), dst_ra.x(), .{ .N = .doubleword, .immr = lsb, .imms = imms }));
+                    } else {
+                        try isel.emit(if (signed)
+                            .sbfm(dst_ra.w(), dst_ra.w(), .{ .N = .word, .immr = lsb, .imms = imms })
+                        else
+                            .ubfm(dst_ra.w(), dst_ra.w(), .{ .N = .word, .immr = lsb, .imms = imms }));
+                    }
+                    try isel.loadReg(dst_ra, host_size, .unsigned, ptr_mat.ra, 0);
+                    try ptr_mat.finish(isel);
+                }
+                if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+            } else if (isel.live_values.fetchRemove(air.inst_index)) |dst_vi| unused: {
+                if (ptr_info.flags.is_volatile) _ = try isel.use(air.inst_index.toRef());
                 defer dst_vi.value.deref(isel);
                 const size = dst_vi.value.size(isel);
                 if (size <= Value.max_parts and ip.zigTypeTag(ptr_info.child) != .@"union") {
@@ -5851,6 +5951,41 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                         true,
                     },
                 };
+                if (is_packed) packed_field: {
+                    // Packed struct field extract. The aggregate is a single
+                    // integer of the packed backing width held in register(s);
+                    // the field occupies [field_bit_offset, +field_bit_size).
+                    // Extract via UBFM/SBFM (bitfield move). Only the in-register
+                    // case (backing width <= 64) is handled here; wider packed
+                    // backings fall through to the generic failure below.
+                    const backing_bits = agg_ty.bitSize(zcu);
+                    if (backing_bits > 64) break :packed_field;
+                    if (field_bit_size == 0 or field_bit_size > 64) break :packed_field;
+                    if (field_bit_offset + field_bit_size > 64) break :packed_field;
+
+                    const dst_ra = try field_vi.value.defReg(isel) orelse break :unused;
+                    const agg_vi = try isel.use(extra.struct_operand);
+                    const agg_mat = try agg_vi.matReg(isel);
+
+                    const lsb: u6 = @intCast(field_bit_offset);
+                    const imms: u6 = @intCast(field_bit_offset + field_bit_size - 1);
+                    const signed = field_ty.isAbiInt(zcu) and field_ty.intInfo(zcu).signedness == .signed;
+                    // UBFM/SBFM with immr=lsb, imms=lsb+width-1 extracts the field
+                    // (== ubfx/sbfx dst, src, #lsb, #width).
+                    if (backing_bits > 32) {
+                        try isel.emit(if (signed)
+                            .sbfm(dst_ra.x(), agg_mat.ra.x(), .{ .N = .doubleword, .immr = lsb, .imms = imms })
+                        else
+                            .ubfm(dst_ra.x(), agg_mat.ra.x(), .{ .N = .doubleword, .immr = lsb, .imms = imms }));
+                    } else {
+                        try isel.emit(if (signed)
+                            .sbfm(dst_ra.w(), agg_mat.ra.w(), .{ .N = .word, .immr = lsb, .imms = imms })
+                        else
+                            .ubfm(dst_ra.w(), agg_mat.ra.w(), .{ .N = .word, .immr = lsb, .imms = imms }));
+                    }
+                    try agg_mat.finish(isel);
+                    break :unused;
+                }
                 if (is_packed) return isel.fail("packed field of {f}", .{
                     isel.fmtType(agg_ty),
                 });
@@ -6313,7 +6448,14 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
-        .int_from_float, .int_from_float_optimized => |air_tag| {
+        // The `_safe` variants perform the same float-to-int conversion as the
+        // unchecked forms. The additional out-of-range trap they imply is not
+        // yet emitted here; the produced value is correct for in-range inputs.
+        .int_from_float,
+        .int_from_float_optimized,
+        .int_from_float_safe,
+        .int_from_float_optimized_safe,
+        => |air_tag| {
             if (isel.live_values.fetchRemove(air.inst_index)) |dst_vi| unused: {
                 defer dst_vi.value.deref(isel);
 
