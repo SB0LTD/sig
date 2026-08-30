@@ -2914,16 +2914,62 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
 
             as.source = unwrapped_asm.source;
             const asm_start = isel.instructions.items.len;
-            while (as.nextInstruction() catch |err| switch (err) {
-                error.InvalidSyntax => {
-                    const remaining_source = std.mem.span(as.source);
-                    return isel.fail("unable to assemble: '{s}'", .{std.mem.trim(
-                        u8,
-                        as.source[0 .. std.mem.findScalar(u8, remaining_source, '\n') orelse remaining_source.len],
-                        &std.ascii.whitespace,
-                    )});
-                },
-            }) |instruction| try isel.emit(instruction);
+            // GNU local-label state for this asm block. `label_pos[n]` is the
+            // append-space instruction index where label `n` is defined (i.e.
+            // the index of the next instruction emitted after the label), or
+            // `null` if undefined. Append-space is forward/source order, so a
+            // branch at index `b` to a label at index `t` has PC-relative byte
+            // displacement `(t - b) << 2` (forward positive, backward negative)
+            // — the natural on-disk offset, since the later `std.mem.reverse`
+            // only reorders storage, not the encoded immediates.
+            var label_pos: [10]?u32 = @splat(null);
+            const PendingBranch = struct {
+                slot: u32,
+                branch: codegen.aarch64.Assemble.LabelBranch,
+            };
+            var pending: [64]PendingBranch = undefined;
+            var pending_len: usize = 0;
+            while (true) {
+                const line = as.nextLine() catch |err| switch (err) {
+                    error.InvalidSyntax => {
+                        const remaining_source = std.mem.span(as.source);
+                        return isel.fail("unable to assemble: '{s}'", .{std.mem.trim(
+                            u8,
+                            as.source[0 .. std.mem.findScalar(u8, remaining_source, '\n') orelse remaining_source.len],
+                            &std.ascii.whitespace,
+                        )});
+                    },
+                };
+                switch (line) {
+                    .end => break,
+                    .instruction => |instruction| try isel.emit(instruction),
+                    .label_def => |n| label_pos[n] = @intCast(isel.instructions.items.len - asm_start),
+                    .branch => |b| {
+                        if (pending_len >= pending.len)
+                            return isel.fail("too many label branches in one asm block", .{});
+                        pending[pending_len] = .{ .slot = @intCast(isel.instructions.items.len - asm_start), .branch = b };
+                        pending_len += 1;
+                        // Placeholder; patched below once all labels are known.
+                        try isel.emit(.nop());
+                    },
+                }
+            }
+            // Resolve label branches in append (forward/source) space.
+            for (pending[0..pending_len]) |p| {
+                const target = label_pos[p.branch.label] orelse
+                    return isel.fail("reference to undefined asm label '{d}'", .{p.branch.label});
+                const disp_bytes: i64 = (@as(i64, target) - @as(i64, p.slot)) << 2;
+                const slot = &isel.instructions.items[asm_start + p.slot];
+                slot.* = switch (p.branch.kind) {
+                    .b => .b(@intCast(disp_bytes)),
+                    .bl => .bl(@intCast(disp_bytes)),
+                    .b_cond => .@"b."(p.branch.cond, @intCast(disp_bytes)),
+                    .cbz => .cbz(p.branch.reg, @intCast(disp_bytes)),
+                    .cbnz => .cbnz(p.branch.reg, @intCast(disp_bytes)),
+                    .tbz => .tbz(p.branch.reg, p.branch.bit, @intCast(disp_bytes)),
+                    .tbnz => .tbnz(p.branch.reg, p.branch.bit, @intCast(disp_bytes)),
+                };
+            }
             std.mem.reverse(codegen.aarch64.encoding.Instruction, isel.instructions.items[asm_start..]);
 
             it = unwrapped_asm.iterateInputs();

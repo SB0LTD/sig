@@ -31,11 +31,14 @@ compile_runner() {
   local output="$2"
   local cache="$3"
   # SB0 uses the self-hosted backend + native SB0 linker (no LLVM, no LLD).
+  # SB0 images are freestanding and supply their own runtime, so no hosted
+  # compiler-rt library is linked.
   "$SIG" build-exe "$source" \
   -target aarch64-sb0 \
   -mcpu=baseline \
   -ofmt=raw \
   -fno-llvm \
+  -fno-compiler-rt \
   -OReleaseFast \
   -fno-stack-check \
   -fno-stack-protector \

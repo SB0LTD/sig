@@ -33,6 +33,15 @@ complete SB0X image directly.
   shipped target matrix: AArch64 ELF and PE/COFF alongside the existing x86_64
   paths, and a real (previously header-only) Mach-O executable emitter for
   x86_64 and aarch64.
+- GNU-style local labels and label-relative branches in the self-hosted AArch64
+  inline assembler (`src/codegen/aarch64/Assemble.sig`, `Select.sig`). Numeric
+  label definitions (`1:`) and references (`1b` backward, `1f` forward) are now
+  understood, and the full family of immediate branches resolves against them:
+  `b`, `bl`, `b.<cond>`, `cbz`, `cbnz`, `tbz`, `tbnz`. Displacements are computed
+  in forward program order and back-patched after the block is assembled, so
+  self-referential loops such as `1: wfe; b 1b` assemble to the exact expected
+  encoding under `-fno-llvm`. Previously such asm errored with
+  "unable to assemble: '1:'".
 
 ### Changed
 - `Config.resolve` routes every SB0 target to the self-hosted backend

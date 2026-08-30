@@ -33,6 +33,7 @@ echo "sb0-target: unit tests passed, now compiling aarch64-sb0 codegen probe..."
   -target aarch64-sb0 \
   -ofmt=raw \
   -fno-llvm \
+  -fno-compiler-rt \
   -OReleaseFast \
   -fno-stack-check \
   -fno-stack-protector \
@@ -65,6 +66,7 @@ echo "sb0-target: codegen byte assertions passed, compiling custom-entry probe..
   -target aarch64-sb0 \
   -ofmt=raw \
   -fno-llvm \
+  -fno-compiler-rt \
   -OReleaseFast \
   -fentry=_image_start \
   -fno-stack-check \

@@ -34,6 +34,223 @@ pub fn nextInstruction(as: *Assemble) !?Instruction {
     return error.InvalidSyntax;
 }
 
+// ── GNU-style local labels and label-relative branches ──
+//
+// The pattern-matching assembler above resolves each line to a single encoded
+// `Instruction` purely from its own tokens; it has no notion of position, so it
+// cannot encode a branch whose displacement depends on where a label lands.
+// `nextLine` is a thin superset that recognizes three additional constructs and
+// leaves everything else to `nextInstruction`:
+//
+//   * a local-label definition line, e.g. `1:`
+//   * a branch to a local label, e.g. `b 1b`, `b.eq 2f`, `cbz x0, 1b`,
+//     `tbnz x1, #3, 1f`
+//   * anything else → a normal encoded instruction
+//
+// Label displacements are resolved by the caller (the inline-asm code selector),
+// which records label positions and back-patches the branch placeholders once
+// all instructions in the block are known.
+
+/// A branch whose target is a GNU local label (`<n>b` / `<n>f`). The caller
+/// resolves `label`/`forward` to a concrete PC-relative displacement.
+pub const LabelBranch = struct {
+    kind: Kind,
+    /// The local label digit (0-9) named by the reference.
+    label: u8,
+    /// true for a forward reference (`<n>f`), false for backward (`<n>b`).
+    forward: bool,
+    /// Register operand for register-carrying branches (cbz/cbnz/tbz/tbnz).
+    reg: aarch64.encoding.Register = undefined,
+    /// Tested bit index for tbz/tbnz.
+    bit: u6 = 0,
+    /// Condition for `b.<cond>`.
+    cond: aarch64.encoding.ConditionCode = .al,
+
+    pub const Kind = enum { b, bl, b_cond, cbz, cbnz, tbz, tbnz };
+};
+
+/// One logical assembler line.
+pub const Line = union(enum) {
+    /// A fully-encoded, position-independent instruction.
+    instruction: Instruction,
+    /// A local-label definition; payload is the label digit (0-9).
+    label_def: u8,
+    /// A branch to a local label, to be resolved by the caller.
+    branch: LabelBranch,
+    /// End of source.
+    end,
+};
+
+/// Advance past run of separators/blank lines. Returns false at end of source.
+fn skipSeparators(as: *Assemble) bool {
+    while (true) switch (as.source[0]) {
+        0 => return false,
+        ' ', '\t', '\r', '\n', ';' => as.source = as.source[1..],
+        else => return true,
+    };
+}
+
+fn isIdentByte(c: u8) bool {
+    return switch (c) {
+        '0'...'9', 'A'...'Z', 'a'...'z', '_', '.' => true,
+        else => false,
+    };
+}
+
+fn eqlIgnoreCase(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |x, y| if (std.ascii.toLower(x) != std.ascii.toLower(y)) return false;
+    return true;
+}
+
+/// Parse a local-label reference token like `1b` or `2f`. Returns the digit and
+/// direction, or null if `tok` is not a well-formed local-label reference.
+fn parseLabelRef(tok: []const u8) ?struct { label: u8, forward: bool } {
+    if (tok.len != 2) return null;
+    if (tok[0] < '0' or tok[0] > '9') return null;
+    return switch (tok[1]) {
+        'b', 'B' => .{ .label = tok[0] - '0', .forward = false },
+        'f', 'F' => .{ .label = tok[0] - '0', .forward = true },
+        else => null,
+    };
+}
+
+/// Read the next whitespace/comma/newline-delimited token from `as.source`
+/// without the pattern-matcher's placeholder machinery. Advances `as.source`.
+/// Returns an empty slice at end-of-line or end-of-source.
+fn rawToken(as: *Assemble, buf: []u8) []const u8 {
+    // Skip leading spaces/tabs and commas (operand separators) but not newlines.
+    while (true) switch (as.source[0]) {
+        ' ', '\t', '\r', ',' => as.source = as.source[1..],
+        else => break,
+    };
+    switch (as.source[0]) {
+        0, '\n', ';' => return buf[0..0],
+        else => {},
+    }
+    var n: usize = 0;
+    // A '#' prefixes immediates; keep it as part of the token.
+    if (as.source[0] == '#') {
+        if (n < buf.len) buf[n] = '#';
+        n += 1;
+        as.source = as.source[1..];
+    }
+    while (isIdentByte(as.source[0]) or as.source[0] == '-' or as.source[0] == '+') {
+        if (n < buf.len) buf[n] = as.source[0];
+        n += 1;
+        as.source = as.source[1..];
+    }
+    return buf[0..@min(n, buf.len)];
+}
+
+/// Line-oriented superset of `nextInstruction` that also recognizes local-label
+/// definitions and branches to local labels. Non-label lines are delegated to
+/// the pattern-matching assembler unchanged.
+pub fn nextLine(as: *Assemble) !Line {
+    if (!as.skipSeparators()) return .end;
+
+    const line_start = as.source;
+
+    // Detect a label definition: an optional single digit immediately followed
+    // by ':' with nothing else meaningful before it (e.g. `1:`).
+    if (as.source[0] >= '0' and as.source[0] <= '9' and as.source[1] == ':') {
+        const digit = as.source[0] - '0';
+        as.source = as.source[2..];
+        return .{ .label_def = digit };
+    }
+
+    // Detect a branch mnemonic whose target is a local label. We read the first
+    // token (the mnemonic, possibly `b.<cond>`), and only take over if it is one
+    // of the branch mnemonics AND the eventual target token is a local label.
+    // Otherwise we restore `as.source` and fall through to `nextInstruction`.
+    var mn_buf: [16]u8 = undefined;
+    const mnemonic = as.rawToken(&mn_buf);
+
+    const BranchShape = enum { none, b, bl, b_cond, reg_label, reg_bit_label };
+    var shape: BranchShape = .none;
+    var kind: LabelBranch.Kind = .b;
+    var cond: aarch64.encoding.ConditionCode = .al;
+
+    if (eqlIgnoreCase(mnemonic, "b")) {
+        shape = .b;
+        kind = .b;
+    } else if (eqlIgnoreCase(mnemonic, "bl")) {
+        shape = .b;
+        kind = .bl;
+    } else if (mnemonic.len >= 3 and (mnemonic[0] == 'b' or mnemonic[0] == 'B') and mnemonic[1] == '.') {
+        if (std.meta.stringToEnum(aarch64.encoding.ConditionCode, blk: {
+            var cbuf: [2]u8 = undefined;
+            const suffix = mnemonic[2..];
+            if (suffix.len != 2) break :blk "";
+            cbuf[0] = std.ascii.toLower(suffix[0]);
+            cbuf[1] = std.ascii.toLower(suffix[1]);
+            break :blk cbuf[0..2];
+        })) |c| {
+            shape = .b_cond;
+            kind = .b_cond;
+            cond = c;
+        }
+    } else if (eqlIgnoreCase(mnemonic, "cbz")) {
+        shape = .reg_label;
+        kind = .cbz;
+    } else if (eqlIgnoreCase(mnemonic, "cbnz")) {
+        shape = .reg_label;
+        kind = .cbnz;
+    } else if (eqlIgnoreCase(mnemonic, "tbz")) {
+        shape = .reg_bit_label;
+        kind = .tbz;
+    } else if (eqlIgnoreCase(mnemonic, "tbnz")) {
+        shape = .reg_bit_label;
+        kind = .tbnz;
+    }
+
+    if (shape != .none) {
+        var reg: aarch64.encoding.Register = undefined;
+        var bit: u6 = 0;
+
+        if (shape == .reg_label or shape == .reg_bit_label) {
+            var rbuf: [16]u8 = undefined;
+            const rtok = as.rawToken(&rbuf);
+            if (aarch64.encoding.Register.parse(rtok)) |r| {
+                reg = r;
+            } else {
+                as.source = line_start;
+                return .{ .instruction = (try as.nextInstruction()) orelse unreachable };
+            }
+        }
+        if (shape == .reg_bit_label) {
+            var bbuf: [16]u8 = undefined;
+            const btok = as.rawToken(&bbuf);
+            const bslice = if (btok.len > 0 and btok[0] == '#') btok[1..] else btok;
+            const parsed = std.fmt.parseInt(u6, bslice, 0) catch {
+                as.source = line_start;
+                return .{ .instruction = (try as.nextInstruction()) orelse unreachable };
+            };
+            bit = parsed;
+        }
+
+        var tbuf: [16]u8 = undefined;
+        const target = as.rawToken(&tbuf);
+        if (parseLabelRef(target)) |ref| {
+            return .{ .branch = .{
+                .kind = kind,
+                .label = ref.label,
+                .forward = ref.forward,
+                .reg = reg,
+                .bit = bit,
+                .cond = cond,
+            } };
+        }
+        // Not a local-label branch (e.g. `b <symbol>` or numeric form the
+        // pattern assembler handles); restore and delegate.
+        as.source = line_start;
+    } else {
+        as.source = line_start;
+    }
+
+    return .{ .instruction = (try as.nextInstruction()) orelse return .end };
+}
+
 fn zonCast(comptime Result: type, zon_value: anytype, symbols: anytype) Result {
     const ZonValue = @TypeOf(zon_value);
     const Symbols = @TypeOf(symbols);
@@ -3436,6 +3653,133 @@ test "unary vector" {
     try std.testing.expectFmt("fcvtzu x26, d27", "{f}", .{(try as.nextInstruction()).?});
 
     try std.testing.expect(null == try as.nextInstruction());
+}
+
+test "nextLine parses local-label definitions" {
+    var as: Assemble = .{
+        .source =
+        \\1:
+        \\wfe
+        \\2:
+        ,
+        .operands = .empty,
+    };
+    try std.testing.expectEqual(@as(u8, 1), (try as.nextLine()).label_def);
+    try std.testing.expectFmt("wfe", "{f}", .{(try as.nextLine()).instruction});
+    try std.testing.expectEqual(@as(u8, 2), (try as.nextLine()).label_def);
+    try std.testing.expectEqual(Line.end, try as.nextLine());
+}
+
+test "nextLine recognizes local-label branches (b/bl/b.cond)" {
+    var as: Assemble = .{
+        .source =
+        \\b 1b
+        \\bl 2f
+        \\b.eq 3b
+        \\b.lt 4f
+        ,
+        .operands = .empty,
+    };
+    {
+        const br = (try as.nextLine()).branch;
+        try std.testing.expectEqual(LabelBranch.Kind.b, br.kind);
+        try std.testing.expectEqual(@as(u8, 1), br.label);
+        try std.testing.expect(!br.forward);
+    }
+    {
+        const br = (try as.nextLine()).branch;
+        try std.testing.expectEqual(LabelBranch.Kind.bl, br.kind);
+        try std.testing.expectEqual(@as(u8, 2), br.label);
+        try std.testing.expect(br.forward);
+    }
+    {
+        const br = (try as.nextLine()).branch;
+        try std.testing.expectEqual(LabelBranch.Kind.b_cond, br.kind);
+        try std.testing.expectEqual(aarch64.encoding.ConditionCode.eq, br.cond);
+        try std.testing.expectEqual(@as(u8, 3), br.label);
+        try std.testing.expect(!br.forward);
+    }
+    {
+        const br = (try as.nextLine()).branch;
+        try std.testing.expectEqual(LabelBranch.Kind.b_cond, br.kind);
+        try std.testing.expectEqual(aarch64.encoding.ConditionCode.lt, br.cond);
+        try std.testing.expectEqual(@as(u8, 4), br.label);
+        try std.testing.expect(br.forward);
+    }
+    try std.testing.expectEqual(Line.end, try as.nextLine());
+}
+
+test "nextLine recognizes register/bit local-label branches (cbz/cbnz/tbz/tbnz)" {
+    var as: Assemble = .{
+        .source =
+        \\cbz x0, 1b
+        \\cbnz w1, 2f
+        \\tbz x2, #3, 3b
+        \\tbnz w4, #5, 4f
+        ,
+        .operands = .empty,
+    };
+    {
+        const br = (try as.nextLine()).branch;
+        try std.testing.expectEqual(LabelBranch.Kind.cbz, br.kind);
+        try std.testing.expectEqual(@as(u8, 1), br.label);
+        try std.testing.expect(!br.forward);
+    }
+    {
+        const br = (try as.nextLine()).branch;
+        try std.testing.expectEqual(LabelBranch.Kind.cbnz, br.kind);
+        try std.testing.expectEqual(@as(u8, 2), br.label);
+        try std.testing.expect(br.forward);
+    }
+    {
+        const br = (try as.nextLine()).branch;
+        try std.testing.expectEqual(LabelBranch.Kind.tbz, br.kind);
+        try std.testing.expectEqual(@as(u6, 3), br.bit);
+        try std.testing.expectEqual(@as(u8, 3), br.label);
+        try std.testing.expect(!br.forward);
+    }
+    {
+        const br = (try as.nextLine()).branch;
+        try std.testing.expectEqual(LabelBranch.Kind.tbnz, br.kind);
+        try std.testing.expectEqual(@as(u6, 5), br.bit);
+        try std.testing.expectEqual(@as(u8, 4), br.label);
+        try std.testing.expect(br.forward);
+    }
+    try std.testing.expectEqual(Line.end, try as.nextLine());
+}
+
+test "nextLine delegates non-label branches and ordinary instructions" {
+    // A register branch and a plain instruction must go through the normal
+    // pattern assembler, not the local-label path.
+    var as: Assemble = .{
+        .source =
+        \\wfe
+        \\ret
+        ,
+        .operands = .empty,
+    };
+    try std.testing.expectFmt("wfe", "{f}", .{(try as.nextLine()).instruction});
+    try std.testing.expectFmt("ret", "{f}", .{(try as.nextLine()).instruction});
+    try std.testing.expectEqual(Line.end, try as.nextLine());
+}
+
+test "nextLine handles the wfe/b self-loop probe shape" {
+    // Mirrors test/sb0_codegen_probe.sig: `1: wfe; b 1b`.
+    var as: Assemble = .{
+        .source =
+        \\1:
+        \\wfe
+        \\b 1b
+        ,
+        .operands = .empty,
+    };
+    try std.testing.expectEqual(@as(u8, 1), (try as.nextLine()).label_def);
+    try std.testing.expectFmt("wfe", "{f}", .{(try as.nextLine()).instruction});
+    const br = (try as.nextLine()).branch;
+    try std.testing.expectEqual(LabelBranch.Kind.b, br.kind);
+    try std.testing.expectEqual(@as(u8, 1), br.label);
+    try std.testing.expect(!br.forward);
+    try std.testing.expectEqual(Line.end, try as.nextLine());
 }
 
 const aarch64 = @import("../aarch64.sig");
