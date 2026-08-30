@@ -45,14 +45,35 @@ echo "sb0-target: unit tests passed, now compiling aarch64-sb0 codegen probe..."
   -femit-bin="$TMP/sb0-codegen.bin"
 echo "sb0-target: codegen probe compiled OK"
 
-# Offset 0: SB0X magic "SB0X" (0x53 0x42 0x30 0x58). Offset 4: format_version 1.
-# The wfe;b. loop payload (5f2003d5 ffffff17) sits at the segment payload
-# offset payloadOffset(1) == 104.
+# SB0X container layout (see src/link/Sb0Format.sig / src/link/Sb0.sig):
+#   offset 0  : magic "SB0X" (0x53 0x42 0x30 0x58)
+#   offset 4  : format_version (u8) == 1
+#   offset 8  : entry_offset (u64 LE) — the entry point's offset within the
+#               segment's virtual address space
+#   offset 104: start of the RX code payload (payloadOffset(1) == 64+40)
+# The `1: wfe; b 1b` self-loop of the entry function is the 8 bytes
+# 5f2003d5 ffffff17, located at file offset 104 + entry_offset.
+
+# Read a little-endian u64 from a file at a byte offset (prints a decimal value).
+read_u64_le() {
+  # od yields 8 space-separated bytes low..high; fold them into a value.
+  local bytes
+  bytes="$(od -An -tu1 -j"$2" -N8 "$1")"
+  local val=0 shift=0 b
+  for b in $bytes; do
+    val=$(( val + (b << shift) ))
+    shift=$(( shift + 8 ))
+  done
+  printf '%s\n' "$val"
+}
+
 codegen_magic="$(od -An -tx1 -N4 "$TMP/sb0-codegen.bin" | tr -d ' \n')"
 codegen_fmtver="$(od -An -tx1 -j4 -N1 "$TMP/sb0-codegen.bin" | tr -d ' \n')"
-codegen_code8="$(od -An -tx1 -j104 -N8 "$TMP/sb0-codegen.bin" | tr -d ' \n')"
+codegen_entry="$(read_u64_le "$TMP/sb0-codegen.bin" 8)"
+codegen_code_off=$(( 104 + codegen_entry ))
+codegen_code8="$(od -An -tx1 -j"$codegen_code_off" -N8 "$TMP/sb0-codegen.bin" | tr -d ' \n')"
 codegen_size="$(wc -c < "$TMP/sb0-codegen.bin" | tr -d ' ')"
-echo "sb0-target: codegen probe magic=$codegen_magic fmtver=$codegen_fmtver code8=$codegen_code8 size=$codegen_size"
+echo "sb0-target: codegen probe magic=$codegen_magic fmtver=$codegen_fmtver entry=$codegen_entry code8@$codegen_code_off=$codegen_code8 size=$codegen_size"
 test "$codegen_magic" = 53423058
 test "$codegen_magic" != 7f454c46
 test "$codegen_fmtver" = 01
@@ -81,8 +102,10 @@ echo "sb0-target: custom-entry probe compiled OK"
 
 custom_magic="$(od -An -tx1 -N4 "$TMP/sb0-custom-entry.bin" | tr -d ' \n')"
 custom_fmtver="$(od -An -tx1 -j4 -N1 "$TMP/sb0-custom-entry.bin" | tr -d ' \n')"
-custom_code8="$(od -An -tx1 -j104 -N8 "$TMP/sb0-custom-entry.bin" | tr -d ' \n')"
-echo "sb0-target: custom-entry magic=$custom_magic fmtver=$custom_fmtver code8=$custom_code8"
+custom_entry="$(read_u64_le "$TMP/sb0-custom-entry.bin" 8)"
+custom_code_off=$(( 104 + custom_entry ))
+custom_code8="$(od -An -tx1 -j"$custom_code_off" -N8 "$TMP/sb0-custom-entry.bin" | tr -d ' \n')"
+echo "sb0-target: custom-entry magic=$custom_magic fmtver=$custom_fmtver entry=$custom_entry code8@$custom_code_off=$custom_code8"
 test "$custom_magic" = 53423058
 test "$custom_magic" != 7f454c46
 test "$custom_fmtver" = 01
