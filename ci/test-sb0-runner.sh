@@ -30,12 +30,13 @@ compile_runner() {
   local source="$1"
   local output="$2"
   local cache="$3"
+  # SB0 uses the self-hosted backend + native SB0 linker (no LLVM, no LLD).
   "$SIG" build-exe "$source" \
   -target aarch64-sb0 \
   -mcpu=baseline \
+  -ofmt=raw \
+  -fno-llvm \
   -OReleaseFast \
-  -fllvm \
-  -flld \
   -fno-stack-check \
   -fno-stack-protector \
   -fno-unwind-tables \
