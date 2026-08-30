@@ -638,10 +638,24 @@ jobs:
           New-Item -ItemType Directory -Force .bootstrap-package | Out-Null
           & zstd -d $archive -o .bootstrap-package\bootstrap.tar
           if ($LASTEXITCODE -ne 0) { throw 'zstd extraction failed' }
-          tar -xf .bootstrap-package\bootstrap.tar -C .bootstrap-package
-          if ($LASTEXITCODE -ne 0) { throw 'tar extraction failed' }
-          $sig = Resolve-Path '.bootstrap-package\bootstrap-sig-x86_64-windows\bin\sig.exe'
-          $Sig = Resolve-Path '.bootstrap-package\bootstrap-sig-x86_64-windows\bin\Sig.exe'
+          # The archive carries both bin/sig.exe and its bin/Sig.exe alias as
+          # distinct entries. On case-insensitive NTFS they map to one physical
+          # file, so tar reports a benign "Can't create Sig.exe" collision for
+          # the second entry. Tolerate that specific case: the extraction is
+          # correct as long as bin/sig.exe lands. Any other failure still throws.
+          $tarOut = & tar -xf .bootstrap-package\bootstrap.tar -C .bootstrap-package 2>&1
+          $sigPath = '.bootstrap-package\bootstrap-sig-x86_64-windows\bin\sig.exe'
+          if (-not (Test-Path $sigPath)) {
+            $tarOut | ForEach-Object { Write-Host $_ }
+            throw 'tar extraction failed'
+          }
+          # Materialize the Sig.exe alias as a real copy so both invocation
+          # names exist on Windows (case-insensitive lookup would also resolve
+          # Sig.exe to sig.exe, but an explicit copy is unambiguous).
+          $SigPath = '.bootstrap-package\bootstrap-sig-x86_64-windows\bin\Sig.exe'
+          Copy-Item $sigPath $SigPath -Force
+          $sig = Resolve-Path $sigPath
+          $Sig = Resolve-Path $SigPath
           $packageRoot = Split-Path (Split-Path $sig -Parent) -Parent
           $env:SIG_LIB_DIR = Join-Path $packageRoot 'lib'
           if ((Get-FileHash $sig).Hash -ne (Get-FileHash $Sig).Hash) { throw 'sig.exe and Sig.exe differ' }
