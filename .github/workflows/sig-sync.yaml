@@ -34,7 +34,13 @@ jobs:
           # [sig] Codeberg frequently returns HTTP 504 from GitHub Actions runners
           # (large repo + cloud IP rate limiting). Use aggressive retry with shallow
           # fetch to reduce payload, then deepen only if needed.
-          git remote add upstream https://codeberg.org/ziglang/Sig.git 2>/dev/null || true
+          # Upstream is Zig's canonical repository, which migrated from GitHub
+          # to Codeberg (Nov 2025). The repo is `zig` (the previous
+          # `ziglang/Sig.git` path does not exist and makes git prompt for
+          # credentials, which fails non-interactively in CI).
+          git remote add upstream https://codeberg.org/ziglang/zig.git 2>/dev/null || true
+          # If a prior run added the wrong URL, correct it in place.
+          git remote set-url upstream https://codeberg.org/ziglang/zig.git
 
           # Configure git for better network resilience
           git config --global http.postBuffer 524288000
@@ -408,7 +414,7 @@ jobs:
           date = "$SYNC_DATE"
           Sig = "$ZIG_VER"
           with open('README.md', 'r') as f: content = f.read()
-          content = re.sub(r'\| \*\*Latest upstream commit\*\* \|[^|]*\|', f'| **Latest upstream commit** | [\`{short}\`](https://codeberg.org/ziglang/Sig/commit/{commit}) |', content)
+          content = re.sub(r'\| \*\*Latest upstream commit\*\* \|[^|]*\|', f'| **Latest upstream commit** | [\`{short}\`](https://codeberg.org/ziglang/zig/commit/{commit}) |', content)
           content = re.sub(r'\| \*\*Last sync\*\* \|[^|]*\|', f'| **Last sync** | {date} |', content)
           content = re.sub(r'\| \*\*Base version\*\* \|[^|]*\|', f'| **Base version** | Sig {Sig}-dev · LLVM 22.1.8 |', content)
           with open('README.md', 'w') as f: f.write(content)

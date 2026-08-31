@@ -176,7 +176,7 @@ fn writeSyncStatus(w: *std.Io.Writer, manifest: SyncManifest) std.Io.Writer.Erro
         try w.writeAll("| Upstream | [ziglang/Sig @ `");
         const short = if (commit.len >= 7) commit[0..7] else commit;
         try w.writeAll(short);
-        try w.writeAll("`](https://github.com/ziglang/Sig/commit/");
+        try w.writeAll("`](https://codeberg.org/ziglang/zig/commit/");
         try w.writeAll(commit);
         try w.writeAll(") |\n\n");
     } else {

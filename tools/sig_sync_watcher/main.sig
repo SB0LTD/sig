@@ -80,7 +80,7 @@ fn handleConnection(conn: fd_t) void {
 
     // 1. Fetch Codeberg RSS → latest upstream commit
     var rss_buf: [65536]u8 = undefined;
-    const rss_len = curlGet("https://codeberg.org/ziglang/Sig/rss/branch/master", null, &rss_buf) catch |err| {
+    const rss_len = curlGet("https://codeberg.org/ziglang/zig/rss/branch/master", null, &rss_buf) catch |err| {
         log("RSS fetch failed: {s}", .{@errorName(err)});
         sendResponse(conn, "502 Bad Gateway", "RSS fetch failed");
         return;
