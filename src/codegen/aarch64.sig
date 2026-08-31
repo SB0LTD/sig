@@ -171,7 +171,16 @@ pub fn generate(
     isel.verify(true);
 
     const prologue = isel.instructions.items.len;
-    const epilogue = try isel.layout(param_it, is_sysv_var_args, saved_gra_len, saved_vra_len, mod);
+    // A `callconv(.naked)` function has no compiler-managed frame: it emits only
+    // its own body (typically inline asm), with no register saves, no stack
+    // allocation, and no epilogue/`ret`. Skipping `layout` leaves both the
+    // prologue and epilogue slices empty (`prologue == epilogue`), so the body
+    // is emitted verbatim. `layout`'s own epilogue is already gated on
+    // `isel.returns`, which stays false for a naked noreturn body.
+    const epilogue = if (func_type.cc == .naked)
+        prologue
+    else
+        try isel.layout(param_it, is_sysv_var_args, saved_gra_len, saved_vra_len, mod);
 
     try isel.instructions.shrinkToLen(gpa);
     try isel.literals.shrinkToLen(gpa);

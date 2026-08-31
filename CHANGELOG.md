@@ -42,6 +42,12 @@ complete SB0X image directly.
   self-referential loops such as `1: wfe; b 1b` assemble to the exact expected
   encoding under `-fno-llvm`. Previously such asm errored with
   "unable to assemble: '1:'".
+- `callconv(.naked)` support in the self-hosted AArch64 code generator
+  (`src/codegen/aarch64.sig`). Naked functions now emit only their body with no
+  compiler-managed frame — no register saves, no stack allocation, and no
+  epilogue/`ret`. Previously every function, naked or not, received a standard
+  `stp x29, x30, [sp, #-16]!; mov x29, sp` prologue, which buried a naked entry
+  point's instructions and broke bare-metal SB0 reset/entry code.
 
 ### Changed
 - `Config.resolve` routes every SB0 target to the self-hosted backend
