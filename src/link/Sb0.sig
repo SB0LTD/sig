@@ -692,12 +692,28 @@ fn flushInner(sb0: *Sb0, arena: Allocator, tid: Zcu.PerThread.Id) Error!void {
     try sb0.genPendingLazy(tid);
 
     // 1. Assign monotonic vaddrs to every body-bearing symbol (one with an
-    //    emitted node), within the text region starting at base_vaddr.
+    //    emitted node), within the text region starting at base_vaddr. The
+    //    entry symbol is placed FIRST so it sits at segment offset 0 (file
+    //    offset payloadOffset(1)); the SB0X loader and the SB0 ABI expect the
+    //    reset/entry vector at the start of the RX segment, and tooling reads
+    //    the entry bytes at that fixed offset.
     var cursor: u64 = sb0.base_vaddr;
     var total_code: usize = 0;
+    const entry_si = sb0.entry_sym.unwrap();
+    if (entry_si) |esi| {
+        const sym = esi.ptr(sb0);
+        if (sym.node != .none) {
+            cursor = sym.alignment.forward(cursor);
+            sym.value = cursor;
+            sym.defined = true;
+            cursor += sym.size;
+            total_code = @intCast(cursor - sb0.base_vaddr);
+        }
+    }
     for (sb0.syms.items, 0..) |*sym, i| {
         if (i == 0) continue; // null symbol
         if (sym.node == .none) continue; // extern/unresolved: no body to place
+        if (entry_si) |esi| if (@intFromEnum(esi) == i) continue; // already placed first
         cursor = sym.alignment.forward(cursor);
         sym.value = cursor;
         sym.defined = true;
