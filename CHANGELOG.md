@@ -4,6 +4,47 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.4.2] — 2026-08-29 — spork8 Co-existence & Full Array Multiplication
+
+Sig 0.4.2 reconciles the upstream `spork8` raw-backend feature with the native
+SB0 backend so both live in the same tree (the consolidated "Option 3"), and
+restores full `**` array-multiplication support that had been missing from the
+self-hosted `Sema`. All release artifacts remain produced by Sig itself; no
+upstream Zig is used in the release pipeline.
+
+### Added
+- Full `a ** b` array/tuple multiplication in the self-hosted `Sema`
+  (`src/Sema.sig`): the `array_mul` ZIR instruction is now analyzed end to end.
+  The comptime path folds to a constant (with a single-element splat fast path
+  and sentinel preservation), the tuple path repeats fields, and the runtime
+  path emits either a pointer-address-space allocation with element stores or a
+  flat aggregate-init. Previously the ZIR `array_mul` tag had no `Sema` handler,
+  so any use of `**` failed to compile.
+- `std.Target.isSb0()` predicate: true for the consolidated native SB0 identity
+  (`aarch64` + `sb0` OS + `sb0` ABI). Used by the SB0 target-contract tests and
+  the codegen probe.
+
+### Changed
+- Dual raw-backend co-existence (Option 3): the linker's `fromObjectFormat` maps
+  the `raw` object format to the native SB0 backend when `os.tag == .sb0` and to
+  the upstream `spork8` backend otherwise, so both raw backends ship together
+  without one clobbering the other. `.sb0` is re-established as a first-class
+  linker tag/type and `dev` feature (`sb0_linker`).
+- The SB0 ABI is now the default ABI for a bare `aarch64-sb0` triple
+  (`Target.Abi.default`), so `-target aarch64-sb0` resolves to the full SB0
+  contract without an explicit `-sb0` ABI suffix. An explicit ABI
+  (e.g. `aarch64-sb0-none`) still overrides the default.
+- SB0 targets now force-reserve `x18` during target resolution
+  (`std.sig.system.resolveTargetQuery`). The reservation is part of the SB0 ABI
+  contract and is mandatory even if the caller attempts to subtract the backend
+  feature.
+
+### Fixed
+- Sovereign-tree reconciliation after the upstream `spork8` merge, which had
+  reintroduced `std.zig` references and dropped `.sig`-mode handling: restored
+  `.Sig` (vs `.zig`) mode dispatch in `Sema.doImport` and re-sovereignized the
+  affected `Target`/`system` paths.
+
 ## [0.4.1] — 2026-08-29 — Self-Hosted SB0 Linking
 
 Sig gains a pure-Sig, self-hosted linker for the native SB0 target. Compiling

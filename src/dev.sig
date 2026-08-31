@@ -118,6 +118,7 @@ pub const Env = enum {
                 .spirv_linker,
                 .plan9_linker,
                 .spork8_linker,
+                .sb0_linker,
                 .jit_command,
                 => true,
                 .cc_command,
@@ -331,6 +332,7 @@ pub const Feature = enum {
     spirv_linker,
     plan9_linker,
     spork8_linker,
+    sb0_linker,
 };
 
 /// Makes the code following the call to this function unreachable if `feature` is disabled.

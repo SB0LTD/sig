@@ -17,7 +17,7 @@ const Value = @import("Value.sig");
 const MutableValue = @import("mutable_value.sig").MutableValue;
 const Type = @import("Type.sig");
 const Air = @import("Air.sig");
-const Zir = std.zig.Zir;
+const Zir = std.sig.Zir;
 const Zcu = @import("Zcu.sig");
 const Namespace = Zcu.Namespace;
 const CompileError = Zcu.CompileError;
@@ -417,18 +417,18 @@ pub const Block = struct {
         return block.comptime_reason != null;
     }
 
-    pub fn builtinCallArgSrc(block: *Block, builtin_call_node: std.zig.Ast.Node.Offset, arg_index: u32) LazySrcLoc {
+    pub fn builtinCallArgSrc(block: *Block, builtin_call_node: std.sig.Ast.Node.Offset, arg_index: u32) LazySrcLoc {
         return block.src(.{ .node_offset_builtin_call_arg = .{
             .builtin_call_node = builtin_call_node,
             .arg_index = arg_index,
         } });
     }
 
-    pub fn nodeOffset(block: Block, node_offset: std.zig.Ast.Node.Offset) LazySrcLoc {
+    pub fn nodeOffset(block: Block, node_offset: std.sig.Ast.Node.Offset) LazySrcLoc {
         return block.src(LazySrcLoc.Offset.nodeOffset(node_offset));
     }
 
-    fn tokenOffset(block: Block, tok_offset: std.zig.Ast.TokenOffset) LazySrcLoc {
+    fn tokenOffset(block: Block, tok_offset: std.sig.Ast.TokenOffset) LazySrcLoc {
         return block.src(.{ .token_offset = tok_offset });
     }
 
@@ -868,10 +868,10 @@ pub const Block = struct {
 };
 
 /// Represents the reason we are resolving a value or evaluating code at comptime.
-/// Most reasons are represented by a `std.zig.SimpleComptimeReason`, which provides a plain message.
+/// Most reasons are represented by a `std.sig.SimpleComptimeReason`, which provides a plain message.
 const ComptimeReason = union(enum) {
-    /// Evaluating at comptime for a reason in the `std.zig.SimpleComptimeReason` enum.
-    simple: std.zig.SimpleComptimeReason,
+    /// Evaluating at comptime for a reason in the `std.sig.SimpleComptimeReason` enum.
+    simple: std.sig.SimpleComptimeReason,
 
     /// Evaluating at comptime because of a comptime-only type. This field is separate so that
     /// the type in question can be included in the error message. AstGen could never emit this
@@ -1150,6 +1150,7 @@ fn analyzeBodyInner(
             .make_ptr_const               => try sema.zirMakePtrConst(block, inst),
             .anyframe_type                => try sema.zirAnyframeType(block, inst),
             .array_cat                    => try sema.zirArrayCat(block, inst),
+            .array_mul                    => try sema.zirArrayMul(block, inst),
             .array_type                   => try sema.zirArrayType(block, inst),
             .array_type_sentinel          => try sema.zirArrayTypeSentinel(block, inst),
             .reify_int                    => try sema.zirReifyInt(block, inst),
@@ -2171,7 +2172,7 @@ pub fn analyzeAsType(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    reason: std.zig.SimpleComptimeReason,
+    reason: std.sig.SimpleComptimeReason,
     air_inst: Air.Inst.Ref,
 ) !Type {
     const wanted_type: Type = .type;
@@ -2703,7 +2704,7 @@ pub fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Zcu.ErrorMsg
     assert(sema.err == null);
 
     if (build_options.enable_debug_extensions and comp.debug_compile_errors) {
-        var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+        var wip_errors: std.sig.ErrorBundle.Wip = undefined;
         wip_errors.init(gpa) catch @panic("out of memory");
         Compilation.addModuleErrorMsg(zcu, &wip_errors, err_msg.*, false) catch @panic("out of memory");
         std.debug.print("compile error during Sema:\n", .{});
@@ -5153,7 +5154,7 @@ fn zirTrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
 }
 
 fn zirBreakpoint(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
-    const src_node: std.zig.Ast.Node.Offset = @fromBackingInt(@intCast(@as(i32, @bitCast(extended.operand))));
+    const src_node: std.sig.Ast.Node.Offset = @fromBackingInt(@intCast(@as(i32, @bitCast(extended.operand))));
     const src = block.nodeOffset(src_node);
     if (block.isComptime())
         return sema.fail(block, src, "encountered @breakpoint at comptime", .{});
@@ -6441,7 +6442,7 @@ const CallArgsInfo = union(enum) {
     /// The list of resolved (but uncoerced) arguments is known ahead of time, but
     /// originated from a usage of the @call builtin at the given node offset.
     call_builtin: struct {
-        call_node_offset: std.zig.Ast.Node.Offset,
+        call_node_offset: std.sig.Ast.Node.Offset,
         args: []const Air.Inst.Ref,
     },
 
@@ -6459,7 +6460,7 @@ const CallArgsInfo = union(enum) {
         /// analyzing arguments.
         call_inst: Zir.Inst.Index,
         /// The node offset of `call_inst`.
-        call_node_offset: std.zig.Ast.Node.Offset,
+        call_node_offset: std.sig.Ast.Node.Offset,
         /// The number of arguments to this call, not including `bound_arg`.
         num_args: u32,
         /// The ZIR corresponding to all function arguments (other than `bound_arg`, if it
@@ -8463,7 +8464,7 @@ pub fn handleExternLibName(
         const comp = zcu.comp;
         const target = zcu.getTarget();
         log.debug("extern fn symbol expected in lib '{s}'", .{lib_name});
-        if (std.zig.target.isLibCLibName(target, lib_name)) {
+        if (std.sig.target.isLibCLibName(target, lib_name)) {
             if (!comp.config.link_libc) {
                 return sema.fail(
                     block,
@@ -8474,7 +8475,7 @@ pub fn handleExternLibName(
             }
             break :blk;
         }
-        if (std.zig.target.isLibCxxLibName(target, lib_name)) {
+        if (std.sig.target.isLibCxxLibName(target, lib_name)) {
             if (!comp.config.link_libcpp) return sema.fail(
                 block,
                 src_loc,
@@ -8954,7 +8955,7 @@ const Section = union(enum) {
 fn funcCommon(
     sema: *Sema,
     block: *Block,
-    src_node_offset: std.zig.Ast.Node.Offset,
+    src_node_offset: std.sig.Ast.Node.Offset,
     func_inst: Zir.Inst.Index,
     cc: std.lang.CallingConvention,
     /// this might be Type.generic_poison
@@ -12916,7 +12917,7 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const file = zcu.fileByIndex(file_index);
     try sema.declareDependency(.{ .source_file = file_index });
     switch (file.getMode()) {
-        .zig => {
+        .Sig => {
             try pt.ensureFilePopulated(file_index);
             const ty: Type = .fromInterned(zcu.fileRootType(file_index));
             try sema.addTypeReferenceEntry(operand_src, ty);
@@ -13386,7 +13387,7 @@ fn analyzeBitNot(
 fn analyzeTupleCat(
     sema: *Sema,
     block: *Block,
-    src_node: std.zig.Ast.Node.Offset,
+    src_node: std.sig.Ast.Node.Offset,
     lhs: Air.Inst.Ref,
     rhs: Air.Inst.Ref,
 ) CompileError!Air.Inst.Ref {
@@ -13782,6 +13783,174 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     return block.addAggregateInit(result_ty, element_refs);
 }
 
+fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const inst_data = sema.code.instructions.items(.data)[@backingInt(inst)].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.ArrayMul, inst_data.payload_index).data;
+    const uncoerced_lhs = sema.resolveInst(extra.lhs);
+    const uncoerced_lhs_ty = sema.typeOf(uncoerced_lhs);
+    const src: LazySrcLoc = block.nodeOffset(inst_data.src_node);
+    const lhs_src = block.src(.{ .node_offset_bin_lhs = inst_data.src_node });
+    const operator_src = block.src(.{ .node_offset_main_token = inst_data.src_node });
+    const rhs_src = block.src(.{ .node_offset_bin_rhs = inst_data.src_node });
+
+    const lhs, const lhs_ty = coerced_lhs: {
+        // If we have a result type, we might be able to do this more efficiently
+        // by coercing the LHS first. Specifically, if we want an array or vector
+        // and have a tuple, coerce the tuple immediately.
+        no_coerce: {
+            if (extra.res_ty == .none) break :no_coerce;
+            const res_ty = try sema.resolveTypeOrPoison(block, src, extra.res_ty) orelse break :no_coerce;
+            if (!uncoerced_lhs_ty.isTuple(zcu)) break :no_coerce;
+            const lhs_len = uncoerced_lhs_ty.structFieldCount(zcu);
+            const lhs_dest_ty = switch (res_ty.zigTypeTag(zcu)) {
+                else => break :no_coerce,
+                .array => try pt.arrayType(.{
+                    .child = res_ty.childType(zcu).toIntern(),
+                    .len = lhs_len,
+                    .sentinel = if (res_ty.sentinel(zcu)) |s| s.toIntern() else .none,
+                }),
+                .vector => try pt.vectorType(.{
+                    .child = res_ty.childType(zcu).toIntern(),
+                    .len = lhs_len,
+                }),
+            };
+            // Attempt to coerce to this type, but don't emit an error if it fails. Instead,
+            // just exit out of this path and let the usual error happen later, so that error
+            // messages are consistent.
+            const coerced = sema.coerceExtra(block, lhs_dest_ty, uncoerced_lhs, lhs_src, .{ .report_err = false }) catch |err| switch (err) {
+                error.NotCoercible => break :no_coerce,
+                else => |e| return e,
+            };
+            break :coerced_lhs .{ coerced, lhs_dest_ty };
+        }
+        break :coerced_lhs .{ uncoerced_lhs, uncoerced_lhs_ty };
+    };
+
+    if (lhs_ty.isTuple(zcu)) {
+        // In `**` rhs must be comptime-known, but lhs can be runtime-known
+        const factor = try sema.resolveInt(block, rhs_src, extra.rhs, .usize, .{ .simple = .array_mul_factor });
+        const factor_casted = try sema.usizeCast(block, rhs_src, factor);
+        return sema.analyzeTupleMul(block, inst_data.src_node, lhs, factor_casted);
+    }
+
+    // Analyze the lhs first, to catch the case that someone tried to do exponentiation
+    const lhs_info = try sema.getArrayCatInfo(block, lhs_src, lhs, lhs_ty) orelse {
+        const msg = msg: {
+            const msg = try sema.errMsg(lhs_src, "expected indexable; found '{f}'", .{lhs_ty.fmt(pt)});
+            errdefer msg.destroy(sema.gpa);
+            switch (lhs_ty.zigTypeTag(zcu)) {
+                .int, .float, .comptime_float, .comptime_int, .vector => {
+                    try sema.errNote(operator_src, msg, "this operator multiplies arrays; use std.math.pow for exponentiation", .{});
+                },
+                else => {},
+            }
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
+    };
+
+    // In `**` rhs must be comptime-known, but lhs can be runtime-known
+    const factor = try sema.resolveInt(block, rhs_src, extra.rhs, .usize, .{ .simple = .array_mul_factor });
+    const result_len_u64 = std.math.mul(u64, lhs_info.len, factor) catch
+        return sema.fail(block, rhs_src, "operation results in overflow", .{});
+    const result_len = try sema.usizeCast(block, src, result_len_u64);
+
+    const result_ty = try pt.arrayType(.{
+        .len = result_len,
+        .sentinel = if (lhs_info.sentinel) |s| s.toIntern() else .none,
+        .child = lhs_info.elem_type.toIntern(),
+    });
+
+    const ptr_addrspace = if (lhs_ty.zigTypeTag(zcu) == .pointer) lhs_ty.ptrAddressSpace(zcu) else null;
+    const lhs_len = try sema.usizeCast(block, lhs_src, lhs_info.len);
+
+    if (sema.resolveValue(lhs)) |lhs_val| ct: {
+        const lhs_sub_val = if (lhs_ty.isSinglePointer(zcu))
+            try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty) orelse break :ct
+        else if (lhs_ty.isSlice(zcu))
+            try sema.maybeDerefSliceAsArray(block, lhs_src, lhs_val) orelse break :ct
+        else
+            lhs_val;
+
+        const val = v: {
+            // Optimization for the common pattern of a single element repeated N times, such
+            // as zero-filling a byte array.
+            if (lhs_len == 1 and lhs_info.sentinel == null) {
+                const elem_val = try lhs_sub_val.elemValue(pt, 0);
+                break :v try pt.aggregateSplatValue(result_ty, elem_val);
+            }
+            const element_vals = try sema.arena.alloc(InternPool.Index, result_len);
+            var elem_i: usize = 0;
+            while (elem_i < result_len) {
+                var lhs_i: usize = 0;
+                while (lhs_i < lhs_len) : (lhs_i += 1) {
+                    const elem_val = try lhs_sub_val.elemValue(pt, lhs_i);
+                    element_vals[elem_i] = elem_val.toIntern();
+                    elem_i += 1;
+                }
+            }
+            break :v try pt.aggregateValue(result_ty, element_vals);
+        };
+        return sema.addConstantMaybeRef(val, ptr_addrspace != null);
+    }
+
+    try sema.requireRuntimeBlock(block, src, lhs_src);
+
+    // Grab all the LHS values ahead of time, rather than repeatedly emitting instructions
+    // to get the same elem values.
+    const lhs_vals = try sema.arena.alloc(Air.Inst.Ref, lhs_len);
+    for (lhs_vals, 0..) |*lhs_val, idx| {
+        const idx_ref = try pt.intRef(.usize, idx);
+        lhs_val.* = try sema.elemVal(block, lhs_src, lhs, idx_ref, src, false);
+    }
+
+    if (ptr_addrspace) |ptr_as| {
+        const constant_alloc_ty = try pt.ptrType(.{
+            .child = result_ty.toIntern(),
+            .flags = .{
+                .address_space = ptr_as,
+                .is_const = true,
+            },
+        });
+        const alloc_ty = try pt.ptrType(.{
+            .child = result_ty.toIntern(),
+            .flags = .{ .address_space = ptr_as },
+        });
+        const elem_ptr_ty = try pt.ptrType(.{
+            .child = lhs_info.elem_type.toIntern(),
+            .flags = .{ .address_space = ptr_as },
+        });
+
+        const mutable_alloc = try block.addTy(.alloc, alloc_ty);
+
+        var elem_i: usize = 0;
+        while (elem_i < result_len) {
+            for (lhs_vals) |lhs_val| {
+                const elem_index = try pt.intRef(.usize, elem_i);
+                const elem_ptr = try block.addPtrElemPtr(mutable_alloc, elem_index, elem_ptr_ty);
+                try sema.storePtr2(block, src, elem_ptr, src, lhs_val, lhs_src, .store);
+                elem_i += 1;
+            }
+        }
+        if (lhs_info.sentinel) |sent_val| {
+            const elem_index = try pt.intRef(.usize, result_len);
+            const elem_ptr = try block.addPtrElemPtr(mutable_alloc, elem_index, elem_ptr_ty);
+            const init = Air.internedToRef(sent_val.toIntern());
+            try sema.storePtr2(block, src, elem_ptr, src, init, lhs_src, .store);
+        }
+
+        return block.addTyOp(.ptr_cast, constant_alloc_ty, mutable_alloc);
+    }
+
+    const element_refs = try sema.arena.alloc(Air.Inst.Ref, result_len);
+    for (0..try sema.usizeCast(block, rhs_src, factor)) |i| {
+        @memcpy(element_refs[i * lhs_len ..][0..lhs_len], lhs_vals);
+    }
+    return block.addAggregateInit(result_ty, element_refs);
+}
+
 fn getArrayCatInfo(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air.Inst.Ref, peer_ty: Type) !?Type.ArrayInfo {
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -13840,7 +14009,7 @@ fn getArrayCatInfo(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air.Ins
 fn analyzeTupleMul(
     sema: *Sema,
     block: *Block,
-    src_node: std.zig.Ast.Node.Offset,
+    src_node: std.sig.Ast.Node.Offset,
     operand: Air.Inst.Ref,
     factor: usize,
 ) CompileError!Air.Inst.Ref {
@@ -15886,7 +16055,7 @@ fn zirClosureGet(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     const ip = &zcu.intern_pool;
     const captures = Type.fromInterned(zcu.namespacePtr(block.namespace).owner_type).getCaptures(zcu);
 
-    const src_node: std.zig.Ast.Node.Offset = @fromBackingInt(@intCast(@as(i32, @bitCast(extended.operand))));
+    const src_node: std.sig.Ast.Node.Offset = @fromBackingInt(@intCast(@as(i32, @bitCast(extended.operand))));
     const src = block.nodeOffset(src_node);
 
     const capture_ty = switch (captures.get(ip)[extended.small].unwrap()) {
@@ -15982,7 +16151,7 @@ fn zirFrameAddress(
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
-    const src_node: std.zig.Ast.Node.Offset = @fromBackingInt(@intCast(@as(i32, @bitCast(extended.operand))));
+    const src_node: std.sig.Ast.Node.Offset = @fromBackingInt(@intCast(@as(i32, @bitCast(extended.operand))));
     const src = block.nodeOffset(src_node);
     try sema.requireRuntimeBlock(block, src, null);
     return try block.addNoOp(.frame_addr);
@@ -19609,7 +19778,7 @@ fn zirFrame(
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
-    const src_node: std.zig.Ast.Node.Offset = @fromBackingInt(@intCast(@as(i32, @bitCast(extended.operand))));
+    const src_node: std.sig.Ast.Node.Offset = @fromBackingInt(@intCast(@as(i32, @bitCast(extended.operand))));
     const src = block.nodeOffset(src_node);
     return sema.failWithUseOfAsync(block, src);
 }
@@ -19858,7 +20027,7 @@ fn zirReifySliceArgTy(
 
     const src = block.nodeOffset(extra.node);
 
-    const comptime_reason: std.zig.SimpleComptimeReason, const in_scalar_ty: Type, const out_scalar_ty: Type = switch (info) {
+    const comptime_reason: std.sig.SimpleComptimeReason, const in_scalar_ty: Type, const out_scalar_ty: Type = switch (info) {
         // zig fmt: off
         .type_to_fn_param_attrs       => .{ .fn_param_attrs,     .type,           try sema.getStdLangType(src, .@"Type.Fn.ParamAttributes") },
         .string_to_struct_field_type  => .{ .struct_field_types, .slice_const_u8, .type },
@@ -21134,7 +21303,7 @@ fn zirCVaEnd(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) C
 }
 
 fn zirCVaStart(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
-    const src_node: std.zig.Ast.Node.Offset = @fromBackingInt(@intCast(@as(i32, @bitCast(extended.operand))));
+    const src_node: std.sig.Ast.Node.Offset = @fromBackingInt(@intCast(@as(i32, @bitCast(extended.operand))));
     const src = block.nodeOffset(src_node);
 
     const va_list_ty = try sema.getStdLangType(src, .VaList);
@@ -23405,7 +23574,7 @@ fn zirShuffle(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
 fn analyzeShuffle(
     sema: *Sema,
     block: *Block,
-    src_node: std.zig.Ast.Node.Offset,
+    src_node: std.sig.Ast.Node.Offset,
     elem_ty: Type,
     a_uncoerced: Air.Inst.Ref,
     b_uncoerced: Air.Inst.Ref,
@@ -25446,7 +25615,7 @@ fn zirStdLangValue(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
     const io = comp.io;
     const ip = &zcu.intern_pool;
 
-    const src_node: std.zig.Ast.Node.Offset = @fromBackingInt(@intCast(@as(i32, @bitCast(extended.operand))));
+    const src_node: std.sig.Ast.Node.Offset = @fromBackingInt(@intCast(@as(i32, @bitCast(extended.operand))));
     const src = block.nodeOffset(src_node);
     const value: Zir.Inst.StdLangValue = @fromBackingInt(@intCast(extended.small));
 
@@ -32563,7 +32732,7 @@ const PeerTypeCandidateSrc = union(enum) {
     /// index i in this slice
     override: []const ?LazySrcLoc,
     /// resolvePeerTypes originates from a @TypeOf(...) call
-    typeof_builtin_call_node_offset: std.zig.Ast.Node.Offset,
+    typeof_builtin_call_node_offset: std.sig.Ast.Node.Offset,
 
     pub fn resolve(
         self: PeerTypeCandidateSrc,

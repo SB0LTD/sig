@@ -18,7 +18,9 @@ pub const Os = struct {
     pub const Tag = enum {
         freestanding,
         other,
-
+        /// Native SB0. The only supported architecture is AArch64 and the
+        /// corresponding ABI is `.sb0`.
+        sb0,
         contiki,
         fuchsia,
         hermit,
@@ -157,7 +159,7 @@ pub const Os = struct {
             return switch (tag) {
                 .freestanding,
                 .other,
-
+                .sb0,
                 .managarm,
 
                 .haiku,
@@ -398,7 +400,7 @@ pub const Os = struct {
             return switch (tag) {
                 .freestanding,
                 .other,
-
+                .sb0,
                 .managarm,
 
                 .haiku,
@@ -453,7 +455,7 @@ pub const Os = struct {
                             .min = blk: {
                                 const default_min: std.SemanticVersion = .{ .major = 5, .minor = 10, .patch = 0 };
 
-                                for (std.zig.target.available_libcs) |libc| {
+                                for (std.sig.target.available_libcs) |libc| {
                                     if (libc.arch != arch or libc.os != tag or libc.abi != abi) continue;
 
                                     if (libc.os_ver) |min| {
@@ -489,7 +491,7 @@ pub const Os = struct {
                                 else => .{ .major = 2, .minor = 31, .patch = 0 },
                             };
 
-                            for (std.zig.target.available_libcs) |libc| {
+                            for (std.sig.target.available_libcs) |libc| {
                                 if (libc.os != tag or libc.arch != arch or libc.abi != abi) continue;
 
                                 if (libc.glibc_min) |min| {
@@ -520,7 +522,7 @@ pub const Os = struct {
                         .min = blk: {
                             const default_min: std.SemanticVersion = .{ .major = 14, .minor = 0, .patch = 0 };
 
-                            for (std.zig.target.available_libcs) |libc| {
+                            for (std.sig.target.available_libcs) |libc| {
                                 if (libc.arch != arch or libc.os != tag or libc.abi != abi) continue;
 
                                 if (libc.os_ver) |min| {
@@ -538,7 +540,7 @@ pub const Os = struct {
                         .min = blk: {
                             const default_min: std.SemanticVersion = .{ .major = 10, .minor = 1, .patch = 0 };
 
-                            for (std.zig.target.available_libcs) |libc| {
+                            for (std.sig.target.available_libcs) |libc| {
                                 if (libc.arch != arch or libc.os != tag or libc.abi != abi) continue;
 
                                 if (libc.os_ver) |min| {
@@ -556,7 +558,7 @@ pub const Os = struct {
                         .min = blk: {
                             const default_min: std.SemanticVersion = .{ .major = 7, .minor = 8, .patch = 0 };
 
-                            for (std.zig.target.available_libcs) |libc| {
+                            for (std.sig.target.available_libcs) |libc| {
                                 if (libc.arch != arch or libc.os != tag or libc.abi != abi) continue;
 
                                 if (libc.os_ver) |min| {
@@ -802,6 +804,8 @@ pub const z80 = @import("Target/generic.sig");
 
 pub const Abi = enum {
     none,
+    /// Consolidated native SB0 AArch64 ABI.
+    sb0,
     gnu,
     gnuabin32,
     gnuabi64,
@@ -834,6 +838,10 @@ pub const Abi = enum {
 
     pub fn default(arch: Cpu.Arch, os_tag: Os.Tag) Abi {
         return switch (os_tag) {
+            // The consolidated native SB0 target defaults to the sb0 ABI so that a
+            // bare `aarch64-sb0` triple resolves to the sb0 contract. An explicit
+            // ABI (e.g. `aarch64-sb0-none`) still overrides this default.
+            .sb0 => .sb0,
             .freestanding, .other => switch (arch) {
                 // Soft float is usually a sane default for freestanding.
                 .arm,
@@ -2198,22 +2206,22 @@ pub fn zigTriple(target: *const Target, allocator: Allocator) Allocator.Error![]
     return Query.fromTarget(target).zigTriple(allocator);
 }
 
-/// Deprecated; to be removed in 0.18.0. Use `std.zig.target.hurdTupleSimple` instead.
+/// Deprecated; to be removed in 0.18.0. Use `std.sig.target.hurdTupleSimple` instead.
 pub fn hurdTupleSimple(allocator: Allocator, arch: Cpu.Arch, abi: Abi) ![]u8 {
     return std.fmt.allocPrint(allocator, "{s}-{s}", .{ @tagName(arch), @tagName(abi) });
 }
 
-/// Deprecated; to be removed in 0.18.0. Use `std.zig.target.hurdTuple` instead.
+/// Deprecated; to be removed in 0.18.0. Use `std.sig.target.hurdTuple` instead.
 pub fn hurdTuple(target: *const Target, allocator: Allocator) ![]u8 {
     return hurdTupleSimple(allocator, target.cpu.arch, target.abi);
 }
 
-/// Deprecated; to be removed in 0.18.0. Use `std.zig.target.linuxTripleSimple` instead.
+/// Deprecated; to be removed in 0.18.0. Use `std.sig.target.linuxTripleSimple` instead.
 pub fn linuxTripleSimple(allocator: Allocator, arch: Cpu.Arch, os_tag: Os.Tag, abi: Abi) ![]u8 {
     return std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ @tagName(arch), @tagName(os_tag), @tagName(abi) });
 }
 
-/// Deprecated; to be removed in 0.18.0. Use `std.zig.target.linuxTriple` instead.
+/// Deprecated; to be removed in 0.18.0. Use `std.sig.target.linuxTriple` instead.
 pub fn linuxTriple(target: *const Target, allocator: Allocator) ![]u8 {
     return linuxTripleSimple(allocator, target.cpu.arch, target.os.tag, target.abi);
 }
@@ -2232,6 +2240,13 @@ pub fn dynamicLibSuffix(target: *const Target) [:0]const u8 {
 
 pub fn libPrefix(target: *const Target) [:0]const u8 {
     return target.os.tag.libPrefix(target.abi);
+}
+
+/// Returns whether this target is the consolidated native SB0 target: the
+/// AArch64 SB0 kernel/userspace ABI that emits raw SB0X images. The SB0 ABI
+/// reserves x18 and is served exclusively by the self-hosted backend.
+pub inline fn isSb0(target: *const Target) bool {
+    return target.os.tag == .sb0 and target.abi == .sb0 and target.cpu.arch == .aarch64;
 }
 
 pub inline fn isMinGW(target: *const Target) bool {
@@ -2314,6 +2329,7 @@ pub fn requiresLibC(target: *const Target) bool {
         .netbsd,
         .openbsd,
         .freestanding,
+        .sb0,
         .fuchsia,
         .managarm,
         .rtems,
@@ -2479,7 +2495,7 @@ pub const DynamicLinker = struct {
             => .arch_os_abi,
             .freestanding,
             .other,
-
+            .sb0,
             .contiki,
             .hermit,
             .managarm, // Needs to be double-checked.
@@ -2920,7 +2936,7 @@ pub const DynamicLinker = struct {
             // dynamic linker path.
             .freestanding,
             .other,
-
+            .sb0,
             .contiki,
             .hermit,
 
@@ -3229,6 +3245,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) ?u16 {
     return switch (target.os.tag) {
         .freestanding,
         .other,
+        .sb0,
         .ashetos,
         => switch (target.cpu.arch) {
             .msp430,

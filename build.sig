@@ -7,7 +7,7 @@ const sig_build = @import("sig_build");
 const std = @import("std");
 
 const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 17, .patch = 0 };
-const sig_version_string = "0.4.1";
+const sig_version_string = "0.4.2";
 
 fn importEntry(name: []const u8, path: []const u8) sig_build.Import_Entry {
     var entry: sig_build.Import_Entry = .{};

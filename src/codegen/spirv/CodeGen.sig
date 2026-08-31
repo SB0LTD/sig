@@ -1068,8 +1068,8 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
             try cg.sections.globals.emit(gpa, .OpExtInst, .{
                 .id_result_type = ptr_ty_id,
                 .id_result = result_id,
-                .set = try cg.importInstructionSet(.zig),
-                .instruction = .{ .inst = @backingInt(spec.Zig.InvocationGlobal) },
+                .set = try cg.importInstructionSet(.Sig),
+                .instruction = .{ .inst = @backingInt(spec.Sig.InvocationGlobal) },
                 .id_ref_4 = &.{initializer_id},
             });
         },
@@ -1290,8 +1290,8 @@ fn resolveUav(cg: *CodeGen, val: InternPool.Index) !Id {
         try cg.sections.globals.emit(gpa, .OpExtInst, .{
             .id_result_type = fn_decl_ptr_ty_id,
             .id_result = result_id,
-            .set = try cg.importInstructionSet(.zig),
-            .instruction = .{ .inst = @backingInt(spec.Zig.InvocationGlobal) },
+            .set = try cg.importInstructionSet(.Sig),
+            .instruction = .{ .inst = @backingInt(spec.Sig.InvocationGlobal) },
             .id_ref_4 = &.{initializer_id},
         });
     }
