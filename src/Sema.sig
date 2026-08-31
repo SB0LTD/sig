@@ -13,29 +13,29 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.sema);
 
 const Sema = @This();
-const Value = @import("Value.zig");
-const MutableValue = @import("mutable_value.zig").MutableValue;
-const Type = @import("Type.zig");
-const Air = @import("Air.zig");
+const Value = @import("Value.sig");
+const MutableValue = @import("mutable_value.sig").MutableValue;
+const Type = @import("Type.sig");
+const Air = @import("Air.sig");
 const Zir = std.zig.Zir;
-const Zcu = @import("Zcu.zig");
+const Zcu = @import("Zcu.sig");
 const Namespace = Zcu.Namespace;
 const CompileError = Zcu.CompileError;
 const SemaError = Zcu.SemaError;
 const LazySrcLoc = Zcu.LazySrcLoc;
-const RangeSet = @import("RangeSet.zig");
-const target_util = @import("target.zig");
-const crash_report = @import("crash_report.zig");
+const RangeSet = @import("RangeSet.sig");
+const target_util = @import("target.sig");
+const crash_report = @import("crash_report.sig");
 const build_options = @import("build_options");
-const Compilation = @import("Compilation.zig");
-const InternPool = @import("InternPool.zig");
+const Compilation = @import("Compilation.sig");
+const InternPool = @import("InternPool.sig");
 const Alignment = InternPool.Alignment;
 const AnalUnit = InternPool.AnalUnit;
 const ComptimeAllocIndex = InternPool.ComptimeAllocIndex;
 const Cache = std.Build.Cache;
-const LowerZon = @import("Sema/LowerZon.zig");
-const arith = @import("Sema/arith.zig");
-const Module = @import("Module.zig");
+const LowerZon = @import("Sema/LowerZon.sig");
+const arith = @import("Sema/arith.sig");
+const Module = @import("Module.sig");
 
 pt: Zcu.PerThread,
 /// Alias to `zcu.gpa`.
@@ -34634,7 +34634,7 @@ fn notePathToComptimeAllocPtr(
     var second_path_aw: std.Io.Writer.Allocating = .init(arena);
     defer second_path_aw.deinit();
     const inter_name = try std.fmt.allocPrint(arena, "v{d}", .{intermediate_value_count});
-    const deriv_start = @import("print_value.zig").printPtrDerivation(
+    const deriv_start = @import("print_value.sig").printPtrDerivation(
         derivation,
         &second_path_aw.writer,
         pt,
@@ -34863,15 +34863,15 @@ pub fn flushExports(sema: *Sema) !void {
     }
 }
 
-pub const castMemory = @import("Sema/reinterpret.zig").castMemory;
-pub const spliceMemory = @import("Sema/reinterpret.zig").spliceMemory;
+pub const castMemory = @import("Sema/reinterpret.sig").castMemory;
+pub const spliceMemory = @import("Sema/reinterpret.sig").spliceMemory;
 
-const loadComptimePtr = @import("Sema/comptime_ptr_access.zig").loadComptimePtr;
-const ComptimeLoadResult = @import("Sema/comptime_ptr_access.zig").ComptimeLoadResult;
-const storeComptimePtr = @import("Sema/comptime_ptr_access.zig").storeComptimePtr;
-const ComptimeStoreResult = @import("Sema/comptime_ptr_access.zig").ComptimeStoreResult;
+const loadComptimePtr = @import("Sema/comptime_ptr_access.sig").loadComptimePtr;
+const ComptimeLoadResult = @import("Sema/comptime_ptr_access.sig").ComptimeLoadResult;
+const storeComptimePtr = @import("Sema/comptime_ptr_access.sig").storeComptimePtr;
+const ComptimeStoreResult = @import("Sema/comptime_ptr_access.sig").ComptimeStoreResult;
 
-pub const type_resolution = @import("Sema/type_resolution.zig");
+pub const type_resolution = @import("Sema/type_resolution.sig");
 pub const ensureLayoutResolved = type_resolution.ensureLayoutResolved;
 pub const ensureStructDefaultsResolved = type_resolution.ensureStructDefaultsResolved;
 

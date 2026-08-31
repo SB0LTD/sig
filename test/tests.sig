@@ -6,17 +6,17 @@ const OptimizeMode = std.builtin.Optimize;
 const Step = std.Build.Step;
 
 // Cases
-const llvm_ir = @import("llvm_ir.zig");
-const libc = @import("libc.zig");
-const link = @import("link.zig");
+const llvm_ir = @import("llvm_ir.sig");
+const libc = @import("libc.sig");
+const link = @import("link.sig");
 
 // Implementations
-pub const ErrorTracesContext = @import("src/ErrorTrace.zig");
-pub const StackTracesContext = @import("src/StackTrace.zig");
-pub const DebuggerContext = @import("src/Debugger.zig");
-pub const LlvmIrContext = @import("src/LlvmIr.zig");
-pub const LibcContext = @import("src/Libc.zig");
-pub const LinkContext = @import("src/Link.zig");
+pub const ErrorTracesContext = @import("src/ErrorTrace.sig");
+pub const StackTracesContext = @import("src/StackTrace.sig");
+pub const DebuggerContext = @import("src/Debugger.sig");
+pub const LlvmIrContext = @import("src/LlvmIr.sig");
+pub const LibcContext = @import("src/Libc.sig");
+pub const LinkContext = @import("src/Link.sig");
 
 const ModuleTestTarget = struct {
     linkage: ?std.builtin.LinkMode = null,
@@ -3288,14 +3288,14 @@ pub fn addLinkTests(b: *std.Build, options: LinkTestOptions) *Step {
 pub fn addCases(
     b: *std.Build,
     parent_step: *Step,
-    case_test_options: @import("src/Cases.zig").CaseTestOptions,
-    build_options: @import("cases.zig").BuildOptions,
+    case_test_options: @import("src/Cases.sig").CaseTestOptions,
+    build_options: @import("cases.sig").BuildOptions,
 ) !void {
     const arena = b.allocator;
     const gpa = b.allocator;
     const io = b.graph.io;
 
-    var cases = @import("src/Cases.zig").init(gpa, arena, io);
+    var cases = @import("src/Cases.sig").init(gpa, arena, io);
 
     b.dependOnDirectory(b.path("test/cases"));
 
@@ -3303,7 +3303,7 @@ pub fn addCases(
     defer dir.close(io);
 
     cases.addFromDir(dir, "test/cases", b);
-    try @import("cases.zig").addCases(&cases, build_options, b);
+    try @import("cases.sig").addCases(&cases, build_options, b);
 
     cases.lowerToBuildSteps(
         b,

@@ -2777,7 +2777,7 @@ test "zig fmt: comments in statements" {
     try testCanonical(
         \\test "std" {
         \\    // statement comment
-        \\    _ = @import("foo/bar.zig");
+        \\    _ = @import("foo/bar.sig");
         \\
         \\    // middle
         \\    // middle2

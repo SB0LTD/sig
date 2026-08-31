@@ -278,7 +278,7 @@ const ArmCpuinfoImpl = struct {
         is_really_v6: bool = false,
     };
 
-    const cpu_models = @import("arm.zig").cpu_models;
+    const cpu_models = @import("arm.sig").cpu_models;
 
     fn addOne(self: *ArmCpuinfoImpl) void {
         if (self.have_fields == 4 and self.core_no < num_cores) {
@@ -610,7 +610,7 @@ pub fn detectNativeCpuAndFeatures(io: Io) ?Target.Cpu {
                 getAArch64CpuFeature("ID_AA64MMFR2_EL1"),
             };
 
-            break :b @import("arm.zig").aarch64.detectNativeCpuAndFeatures(current_arch, registers);
+            break :b @import("arm.sig").aarch64.detectNativeCpuAndFeatures(current_arch, registers);
         },
         .arm, .armeb, .thumb, .thumbeb => ArmCpuinfoParser.parse(current_arch, &file_reader.interface) catch null,
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => PowerpcCpuinfoParser.parse(current_arch, &file_reader.interface) catch null,

@@ -9,7 +9,7 @@ abi: Abi,
 ofmt: ObjectFormat,
 dynamic_linker: DynamicLinker = DynamicLinker.none,
 
-pub const Query = @import("Target/Query.zig");
+pub const Query = @import("Target/Query.sig");
 
 pub const Os = struct {
     tag: Tag,
@@ -764,41 +764,41 @@ pub const Os = struct {
     }
 };
 
-pub const aarch64 = @import("Target/aarch64.zig");
-pub const alpha = @import("Target/alpha.zig");
-pub const amdgcn = @import("Target/amdgcn.zig");
-pub const arc = @import("Target/arc.zig");
-pub const arm = @import("Target/arm.zig");
-pub const avr = @import("Target/avr.zig");
-pub const bpf = @import("Target/bpf.zig");
-pub const csky = @import("Target/csky.zig");
-pub const hexagon = @import("Target/hexagon.zig");
-pub const hppa = @import("Target/hppa.zig");
-pub const kalimba = @import("Target/generic.zig");
-pub const kvx = @import("Target/kvx.zig");
-pub const lanai = @import("Target/lanai.zig");
-pub const loongarch = @import("Target/loongarch.zig");
-pub const m68k = @import("Target/m68k.zig");
-pub const m88k = @import("Target/generic.zig");
-pub const microblaze = @import("Target/generic.zig");
-pub const mips = @import("Target/mips.zig");
-pub const msp430 = @import("Target/msp430.zig");
-pub const nvptx = @import("Target/nvptx.zig");
-pub const or1k = @import("Target/generic.zig");
-pub const powerpc = @import("Target/powerpc.zig");
-pub const propeller = @import("Target/propeller.zig");
-pub const riscv = @import("Target/riscv.zig");
-pub const s390x = @import("Target/s390x.zig");
-pub const sh = @import("Target/generic.zig");
-pub const sparc = @import("Target/sparc.zig");
-pub const spirv = @import("Target/spirv.zig");
-pub const spork8 = @import("Target/generic.zig");
-pub const ve = @import("Target/ve.zig");
-pub const wasm = @import("Target/wasm.zig");
-pub const x86 = @import("Target/x86.zig");
-pub const xcore = @import("Target/xcore.zig");
-pub const xtensa = @import("Target/xtensa.zig");
-pub const z80 = @import("Target/generic.zig");
+pub const aarch64 = @import("Target/aarch64.sig");
+pub const alpha = @import("Target/alpha.sig");
+pub const amdgcn = @import("Target/amdgcn.sig");
+pub const arc = @import("Target/arc.sig");
+pub const arm = @import("Target/arm.sig");
+pub const avr = @import("Target/avr.sig");
+pub const bpf = @import("Target/bpf.sig");
+pub const csky = @import("Target/csky.sig");
+pub const hexagon = @import("Target/hexagon.sig");
+pub const hppa = @import("Target/hppa.sig");
+pub const kalimba = @import("Target/generic.sig");
+pub const kvx = @import("Target/kvx.sig");
+pub const lanai = @import("Target/lanai.sig");
+pub const loongarch = @import("Target/loongarch.sig");
+pub const m68k = @import("Target/m68k.sig");
+pub const m88k = @import("Target/generic.sig");
+pub const microblaze = @import("Target/generic.sig");
+pub const mips = @import("Target/mips.sig");
+pub const msp430 = @import("Target/msp430.sig");
+pub const nvptx = @import("Target/nvptx.sig");
+pub const or1k = @import("Target/generic.sig");
+pub const powerpc = @import("Target/powerpc.sig");
+pub const propeller = @import("Target/propeller.sig");
+pub const riscv = @import("Target/riscv.sig");
+pub const s390x = @import("Target/s390x.sig");
+pub const sh = @import("Target/generic.sig");
+pub const sparc = @import("Target/sparc.sig");
+pub const spirv = @import("Target/spirv.sig");
+pub const spork8 = @import("Target/generic.sig");
+pub const ve = @import("Target/ve.sig");
+pub const wasm = @import("Target/wasm.sig");
+pub const x86 = @import("Target/x86.sig");
+pub const xcore = @import("Target/xcore.sig");
+pub const xtensa = @import("Target/xtensa.sig");
+pub const z80 = @import("Target/generic.sig");
 
 pub const Abi = enum {
     none,
@@ -3835,7 +3835,7 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
 }
 
 const Target = @This();
-const std = @import("std.zig");
+const std = @import("std.sig");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;

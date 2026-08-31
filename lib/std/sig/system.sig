@@ -1,7 +1,7 @@
 const builtin = @import("builtin");
 const native_endian = builtin.cpu.arch.endian();
 
-const std = @import("../std.zig");
+const std = @import("../std.sig");
 const mem = std.mem;
 const elf = std.elf;
 const fs = std.fs;
@@ -10,11 +10,11 @@ const Target = std.Target;
 const posix = std.posix;
 const Io = std.Io;
 
-pub const NativePaths = @import("system/NativePaths.zig");
+pub const NativePaths = @import("system/NativePaths.sig");
 
-pub const windows = @import("system/windows.zig");
-pub const darwin = @import("system/darwin.zig");
-pub const linux = @import("system/linux.zig");
+pub const windows = @import("system/windows.sig");
+pub const darwin = @import("system/darwin.sig");
+pub const linux = @import("system/linux.sig");
 
 pub const Executor = union(enum) {
     native,
@@ -537,8 +537,8 @@ fn detectNativeCpuAndFeatures(io: Io, cpu_arch: Target.Cpu.Arch, os: Target.Os, 
     // although it is a runtime value, is guaranteed to be one of the architectures in the set
     // of the respective switch prong.
     switch (builtin.cpu.arch) {
-        .loongarch32, .loongarch64 => return @import("system/loongarch.zig").detectNativeCpuAndFeatures(cpu_arch, os, query),
-        .x86_64, .x86 => return @import("system/x86.zig").detectNativeCpuAndFeatures(cpu_arch, os, query),
+        .loongarch32, .loongarch64 => return @import("system/loongarch.sig").detectNativeCpuAndFeatures(cpu_arch, os, query),
+        .x86_64, .x86 => return @import("system/x86.sig").detectNativeCpuAndFeatures(cpu_arch, os, query),
         else => {},
     }
 

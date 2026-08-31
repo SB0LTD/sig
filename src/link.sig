@@ -11,27 +11,27 @@ const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
 const Path = std.Build.Cache.Path;
 const Directory = std.Build.Cache.Directory;
-const Compilation = @import("Compilation.zig");
+const Compilation = @import("Compilation.sig");
 const LibCInstallation = std.zig.LibCInstallation;
 
-const trace = @import("tracy.zig").trace;
-const wasi_libc = @import("libs/wasi_libc.zig");
+const trace = @import("tracy.sig").trace;
+const wasi_libc = @import("libs/wasi_libc.sig");
 
-const Zcu = @import("Zcu.zig");
-const InternPool = @import("InternPool.zig");
-const Type = @import("Type.zig");
-const Value = @import("Value.zig");
-const dev = @import("dev.zig");
-const target_util = @import("target.zig");
-const codegen = @import("codegen.zig");
-const crash_report = @import("crash_report.zig");
+const Zcu = @import("Zcu.sig");
+const InternPool = @import("InternPool.sig");
+const Type = @import("Type.sig");
+const Value = @import("Value.sig");
+const dev = @import("dev.sig");
+const target_util = @import("target.sig");
+const codegen = @import("codegen.sig");
+const crash_report = @import("crash_report.sig");
 
-pub const LdScript = @import("link/LdScript.zig");
-pub const Queue = @import("link/Queue.zig");
-pub const ConstPool = @import("link/ConstPool.zig");
+pub const LdScript = @import("link/LdScript.sig");
+pub const Queue = @import("link/Queue.sig");
+pub const ConstPool = @import("link/ConstPool.sig");
 
-pub const aarch64 = @import("link/aarch64.zig");
-pub const loongarch = @import("link/loongarch.zig");
+pub const aarch64 = @import("link/aarch64.sig");
+pub const loongarch = @import("link/loongarch.sig");
 
 pub const Error = Allocator.Error || Io.Cancelable || error{
     /// An error message has already been stored in persistent state on `Compilation` or `Zcu`, for
@@ -1381,16 +1381,16 @@ pub const File = struct {
         return base.comp.zcu.?.codegenFail(nav_index, format, args);
     }
 
-    pub const Lld = @import("link/Lld.zig");
-    pub const C = @import("link/C.zig");
-    pub const Coff2 = @import("link/Coff.zig");
-    pub const Spork8 = @import("link/Spork8.zig");
-    pub const Elf = @import("link/Elf.zig");
-    pub const Elf2 = @import("link/Elf2.zig");
-    pub const MachO = @import("link/MachO.zig");
-    pub const SpirV = @import("link/SpirV.zig");
-    pub const Wasm = @import("link/Wasm.zig");
-    pub const Dwarf = @import("link/Dwarf.zig");
+    pub const Lld = @import("link/Lld.sig");
+    pub const C = @import("link/C.sig");
+    pub const Coff2 = @import("link/Coff.sig");
+    pub const Spork8 = @import("link/Spork8.sig");
+    pub const Elf = @import("link/Elf.sig");
+    pub const Elf2 = @import("link/Elf2.sig");
+    pub const MachO = @import("link/MachO.sig");
+    pub const SpirV = @import("link/SpirV.sig");
+    pub const Wasm = @import("link/Wasm.sig");
+    pub const Dwarf = @import("link/Dwarf.sig");
 };
 
 pub const PrelinkTask = union(enum) {

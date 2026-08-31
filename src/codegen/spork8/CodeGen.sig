@@ -4,13 +4,13 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
 const CodeGen = @This();
-const link = @import("../../link.zig");
+const link = @import("../../link.sig");
 const Spork8 = link.File.Spork8;
-const Zcu = @import("../../Zcu.zig");
-const InternPool = @import("../../InternPool.zig");
-const Air = @import("../../Air.zig");
+const Zcu = @import("../../Zcu.sig");
+const InternPool = @import("../../InternPool.sig");
+const Air = @import("../../Air.sig");
 const Liveness = Air.Liveness;
-const Mir = @import("Mir.zig");
+const Mir = @import("Mir.sig");
 
 air: Air,
 liveness: Liveness,

@@ -1,5 +1,5 @@
 const Mir = @This();
-const InternPool = @import("../../InternPool.zig");
+const InternPool = @import("../../InternPool.sig");
 
 const builtin = @import("builtin");
 const std = @import("std");

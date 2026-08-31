@@ -1,4 +1,4 @@
-const std = @import("std.zig");
+const std = @import("std.sig");
 const Io = std.Io;
 const Writer = std.Io.Writer;
 const math = std.math;
@@ -16,13 +16,13 @@ const native_os = builtin.os.tag;
 
 const root = @import("root");
 
-pub const Dwarf = @import("debug/Dwarf.zig");
-pub const Pdb = @import("debug/Pdb.zig");
-pub const ElfFile = @import("debug/ElfFile.zig");
-pub const MachOFile = @import("debug/MachOFile.zig");
-pub const Info = @import("debug/Info.zig");
-pub const Coverage = @import("debug/Coverage.zig");
-pub const cpu_context = @import("debug/cpu_context.zig");
+pub const Dwarf = @import("debug/Dwarf.sig");
+pub const Pdb = @import("debug/Pdb.sig");
+pub const ElfFile = @import("debug/ElfFile.sig");
+pub const MachOFile = @import("debug/MachOFile.sig");
+pub const Info = @import("debug/Info.sig");
+pub const Coverage = @import("debug/Coverage.sig");
+pub const cpu_context = @import("debug/cpu_context.sig");
 
 /// This type abstracts the target-specific implementation of accessing this process' own debug
 /// information behind a generic interface which supports looking up source locations associated
@@ -69,12 +69,12 @@ else
 /// Returns the default `SelfInfo` for the given `os` and `arch`.
 pub fn TargetInfo(os: std.Target.Os.Tag, arch: std.Target.Cpu.Arch) type {
     return switch (std.Target.ObjectFormat.default(os, arch)) {
-        .coff => if (os == .windows) @import("debug/SelfInfo/Windows.zig") else void,
+        .coff => if (os == .windows) @import("debug/SelfInfo/Windows.sig") else void,
         .elf => switch (os) {
             .freestanding, .other => void,
-            else => @import("debug/SelfInfo/Elf.zig"),
+            else => @import("debug/SelfInfo/Elf.sig"),
         },
-        .macho => @import("debug/SelfInfo/MachO.zig"),
+        .macho => @import("debug/SelfInfo/MachO.sig"),
         .plan9, .spirv, .wasm, .raw, .hex => void,
         .c => unreachable,
     };
@@ -94,8 +94,8 @@ pub const SelfInfoError = error{
     Unexpected,
 };
 
-pub const simple_panic = @import("debug/simple_panic.zig");
-pub const no_panic = @import("debug/no_panic.zig");
+pub const simple_panic = @import("debug/simple_panic.sig");
+pub const no_panic = @import("debug/no_panic.sig");
 
 /// A fully-featured panic handler namespace which lowers all panics to calls to `panicFn`.
 /// Safety panics will use formatted printing to provide a meaningful error message.
