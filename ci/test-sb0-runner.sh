@@ -30,26 +30,38 @@ compile_runner() {
   local source="$1"
   local output="$2"
   local cache="$3"
+  echo "sb0-runner: compiling $(basename "$source") -> $(basename "$output")..."
   # SB0 uses the self-hosted backend + native SB0 linker (no LLVM, no LLD).
   # SB0 images are freestanding and supply their own runtime, so no hosted
-  # compiler-rt library is linked.
-  "$SIG" build-exe "$source" \
-  -target aarch64-sb0 \
-  -mcpu=baseline \
-  -ofmt=raw \
-  -fno-llvm \
-  -fno-compiler-rt \
-  -OReleaseFast \
-  -fno-stack-check \
-  -fno-stack-protector \
-  -fno-unwind-tables \
-  -fstrip \
-  -ffunction-sections \
-  --script "$ROOT/test/sb0_runner.ld" \
-  --Sig-lib-dir "$ROOT/lib" \
-  --cache-dir "$cache" \
-  --global-cache-dir "$TMP/global-cache" \
-  -femit-bin="$output"
+  # compiler-rt library is linked. A hard timeout converts any pathological
+  # hang into a clean, diagnosable failure instead of letting the CI runner be
+  # killed by its watchdog.
+  local rc=0
+  timeout --signal=KILL 300 "$SIG" build-exe "$source" \
+    -target aarch64-sb0 \
+    -mcpu=baseline \
+    -ofmt=raw \
+    -fno-llvm \
+    -fno-compiler-rt \
+    -OReleaseFast \
+    -fno-stack-check \
+    -fno-stack-protector \
+    -fno-unwind-tables \
+    -fstrip \
+    -ffunction-sections \
+    --script "$ROOT/test/sb0_runner.ld" \
+    --Sig-lib-dir "$ROOT/lib" \
+    --cache-dir "$cache" \
+    --global-cache-dir "$TMP/global-cache" \
+    -femit-bin="$output" || rc=$?
+  if [ "$rc" -eq 137 ]; then
+    echo "sb0-runner: TIMEOUT compiling $(basename "$source") after 300s (self-hosted SB0 backend hung)" >&2
+    exit 1
+  elif [ "$rc" -ne 0 ]; then
+    echo "sb0-runner: compile of $(basename "$source") failed with exit $rc" >&2
+    exit "$rc"
+  fi
+  echo "sb0-runner: compiled $(basename "$output") OK"
 }
 
 compile_runner \
