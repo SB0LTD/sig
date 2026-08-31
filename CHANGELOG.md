@@ -48,6 +48,15 @@ complete SB0X image directly.
   epilogue/`ret`. Previously every function, naked or not, received a standard
   `stp x29, x30, [sp, #-16]!; mov x29, sp` prologue, which buried a naked entry
   point's instructions and broke bare-metal SB0 reset/entry code.
+- Wide-immediate `mov <reg>, #<imm>` in the self-hosted AArch64 inline assembler:
+  any immediate expressible as a single `movz`/`movn` (a 16-bit part shifted by
+  0/16/32/48) now assembles, e.g. `mov x9, #0x09000000` → `movz x9, #0x900,
+  lsl #16`. Character-literal immediates (`#'S'`, `#'\n'`) are accepted too.
+  Previously `mov` only encoded a bare 16-bit value.
+- `STRB`/`LDRB` (store/load byte) immediate-addressing patterns in the
+  self-hosted AArch64 assembler (`instructions.zon`): base, unsigned-offset, and
+  (for STRB) pre/post-indexed forms, needed by bare-metal MMIO code such as the
+  SB0 runner probe's PL011 UART writes.
 
 ### Changed
 - `Config.resolve` routes every SB0 target to the self-hosted backend

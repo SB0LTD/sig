@@ -115,6 +115,75 @@ fn parseLabelRef(tok: []const u8) ?struct { label: u8, forward: bool } {
     };
 }
 
+/// Parse an unsigned integer immediate token supporting `0x` hex, `0b` binary,
+/// `0o` octal, decimal, and single-quoted character literals (`'S'`, `'\n'`).
+/// Returns null on malformed input.
+fn parseImmU64(tok: []const u8) ?u64 {
+    if (tok.len == 0) return null;
+    if (tok[0] == '\'') {
+        // Character literal: 'c' or an escape like '\n', '\t', '\r', '\0',
+        // '\\', '\''.
+        if (tok.len == 3 and tok[2] == '\'') return tok[1];
+        if (tok.len == 4 and tok[1] == '\\' and tok[3] == '\'') return switch (tok[2]) {
+            'n' => '\n',
+            't' => '\t',
+            'r' => '\r',
+            '0' => 0,
+            '\\' => '\\',
+            '\'' => '\'',
+            else => null,
+        };
+        return null;
+    }
+    return std.fmt.parseInt(u64, tok, 0) catch return null;
+}
+
+/// Encode `mov <reg>, #<imm>` as a single move-wide instruction when the
+/// immediate fits one `movz` (a 16-bit part shifted by 0/16/32/48) or one
+/// `movn` (the same for the bitwise complement). Returns null if the immediate
+/// needs a multi-instruction sequence, leaving that case to the caller.
+fn encodeMovWide(reg: aarch64.encoding.Register, imm: u64) ?Instruction {
+    const sf = reg.format.general;
+    const bits: u7 = switch (sf) {
+        .word => 32,
+        .doubleword => 64,
+    };
+    // Immediates must be representable in the destination width.
+    if (bits < 64) {
+        const mask: u64 = (@as(u64, 1) << @intCast(bits)) - 1;
+        if (imm & ~mask != 0) return null;
+    }
+
+    const Hw = aarch64.encoding.Instruction.DataProcessingImmediate.MoveWideImmediate.Hw;
+    const shifts = [_]struct { hw: Hw, amt: u6 }{
+        .{ .hw = .@"0", .amt = 0 },
+        .{ .hw = .@"16", .amt = 16 },
+        .{ .hw = .@"32", .amt = 32 },
+        .{ .hw = .@"48", .amt = 48 },
+    };
+
+    // Single movz: imm == part << amt, with all other bits zero.
+    for (shifts) |s| {
+        if (s.amt >= bits) break;
+        const part = (imm >> s.amt) & 0xffff;
+        if (part << s.amt == imm) {
+            return Instruction.movz(reg, @intCast(part), .{ .lsl = s.hw });
+        }
+    }
+
+    // Single movn: imm == ~(part << amt) within the destination width.
+    const inv: u64 = if (bits < 64) (~imm) & ((@as(u64, 1) << @intCast(bits)) - 1) else ~imm;
+    for (shifts) |s| {
+        if (s.amt >= bits) break;
+        const part = (inv >> s.amt) & 0xffff;
+        if (part << s.amt == inv) {
+            return Instruction.movn(reg, @intCast(part), .{ .lsl = s.hw });
+        }
+    }
+
+    return null;
+}
+
 /// Read the next whitespace/comma/newline-delimited token from `as.source`
 /// without the pattern-matcher's placeholder machinery. Advances `as.source`.
 /// Returns an empty slice at end-of-line or end-of-source.
@@ -134,6 +203,29 @@ fn rawToken(as: *Assemble, buf: []u8) []const u8 {
         if (n < buf.len) buf[n] = '#';
         n += 1;
         as.source = as.source[1..];
+    }
+    // A single-quoted character literal (`'S'`, `'\n'`) is one token: consume
+    // through the closing quote so char immediates survive tokenization.
+    if (as.source[0] == '\'') {
+        if (n < buf.len) buf[n] = '\'';
+        n += 1;
+        as.source = as.source[1..];
+        while (as.source[0] != 0 and as.source[0] != '\'') {
+            if (as.source[0] == '\\' and as.source[1] != 0) {
+                if (n < buf.len) buf[n] = as.source[0];
+                n += 1;
+                as.source = as.source[1..];
+            }
+            if (n < buf.len) buf[n] = as.source[0];
+            n += 1;
+            as.source = as.source[1..];
+        }
+        if (as.source[0] == '\'') {
+            if (n < buf.len) buf[n] = '\'';
+            n += 1;
+            as.source = as.source[1..];
+        }
+        return buf[0..@min(n, buf.len)];
     }
     while (isIdentByte(as.source[0]) or as.source[0] == '-' or as.source[0] == '+') {
         if (n < buf.len) buf[n] = as.source[0];
@@ -165,6 +257,29 @@ pub fn nextLine(as: *Assemble) !Line {
     // Otherwise we restore `as.source` and fall through to `nextInstruction`.
     var mn_buf: [16]u8 = undefined;
     const mnemonic = as.rawToken(&mn_buf);
+
+    // `mov <reg>, #<imm>` with a wide immediate. The pattern assembler only
+    // encodes the 16-bit `movz`-shift-0 form; here we accept any immediate that
+    // fits a single `movz`/`movn` with a 16-bit part shifted by 0/16/32/48
+    // (e.g. `mov x9, #0x09000000` == `movz x9, #0x0900, lsl #16`). Anything that
+    // does not fit a single move-wide (needing a movz+movk sequence) is left to
+    // the pattern assembler, which reports it precisely.
+    if (eqlIgnoreCase(mnemonic, "mov")) {
+        var rbuf: [16]u8 = undefined;
+        const rtok = as.rawToken(&rbuf);
+        var ibuf: [24]u8 = undefined;
+        const itok = as.rawToken(&ibuf);
+        if (aarch64.encoding.Register.parse(rtok)) |reg| {
+            if (reg.format == .general and itok.len > 0 and itok[0] == '#') {
+                if (parseImmU64(itok[1..])) |imm| {
+                    if (encodeMovWide(reg, imm)) |inst| {
+                        return .{ .instruction = inst };
+                    }
+                }
+            }
+        }
+        as.source = line_start;
+    }
 
     const BranchShape = enum { none, b, bl, b_cond, reg_label, reg_bit_label };
     var shape: BranchShape = .none;
@@ -3761,6 +3876,64 @@ test "nextLine delegates non-label branches and ordinary instructions" {
     try std.testing.expectFmt("wfe", "{f}", .{(try as.nextLine()).instruction});
     try std.testing.expectFmt("ret", "{f}", .{(try as.nextLine()).instruction});
     try std.testing.expectEqual(Line.end, try as.nextLine());
+}
+
+fn instWord(inst: Instruction) u32 {
+    return @bitCast(inst);
+}
+
+test "nextLine expands mov reg,#imm to a single movz/movn" {
+    const R = aarch64.encoding.Register;
+    const Hw = aarch64.encoding.Instruction.DataProcessingImmediate.MoveWideImmediate.Hw;
+    var as: Assemble = .{
+        .source =
+        \\mov x9, #0x09000000
+        \\mov w10, #'S'
+        \\mov w11, #10
+        \\mov w12, #'\n'
+        ,
+        .operands = .empty,
+    };
+    // 0x09000000 == 0x0900 << 16 -> movz x9, #0x900, lsl #16
+    try std.testing.expectEqual(
+        instWord(Instruction.movz(R.parse("x9").?, 0x0900, .{ .lsl = Hw.@"16" })),
+        instWord((try as.nextLine()).instruction),
+    );
+    // 'S' == 0x53 -> movz w10, #0x53
+    try std.testing.expectEqual(
+        instWord(Instruction.movz(R.parse("w10").?, 0x53, .{ .lsl = Hw.@"0" })),
+        instWord((try as.nextLine()).instruction),
+    );
+    // decimal 10 -> movz w11, #10
+    try std.testing.expectEqual(
+        instWord(Instruction.movz(R.parse("w11").?, 10, .{ .lsl = Hw.@"0" })),
+        instWord((try as.nextLine()).instruction),
+    );
+    // '\n' == 0x0a -> movz w12, #10
+    try std.testing.expectEqual(
+        instWord(Instruction.movz(R.parse("w12").?, 10, .{ .lsl = Hw.@"0" })),
+        instWord((try as.nextLine()).instruction),
+    );
+    try std.testing.expectEqual(Line.end, try as.nextLine());
+}
+
+test "encodeMovWide picks the right single move-wide" {
+    const R = aarch64.encoding.Register;
+    const Hw = aarch64.encoding.Instruction.DataProcessingImmediate.MoveWideImmediate.Hw;
+    // 0x0900 << 16 -> movz lsl #16
+    try std.testing.expectEqual(
+        instWord(Instruction.movz(R.parse("x9").?, 0x0900, .{ .lsl = Hw.@"16" })),
+        instWord(encodeMovWide(R.parse("x9").?, 0x09000000).?),
+    );
+    // 0x1 << 48 -> movz lsl #48
+    try std.testing.expectEqual(
+        instWord(Instruction.movz(R.parse("x1").?, 0x1, .{ .lsl = Hw.@"48" })),
+        instWord(encodeMovWide(R.parse("x1").?, @as(u64, 1) << 48).?),
+    );
+    // two nonzero 16-bit parts need movz+movk -> not a single move-wide.
+    try std.testing.expect(encodeMovWide(R.parse("x2").?, 0x1234_5678) == null);
+    // value out of destination width -> not encodable in one move-wide here.
+    try std.testing.expect(encodeMovWide(R.parse("w3").?, 0x1_0000_0000) == null);
 }
 
 test "nextLine handles the wfe/b self-loop probe shape" {

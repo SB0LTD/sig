@@ -2031,6 +2031,60 @@
         },
         .encode = .{ .str, .Xt, .{ .unsigned_offset = .{ .base = .Xn, .offset = .pimm } } },
     },
+    // C6.2.322 STRB (immediate)
+    .{
+        .pattern = "STRB <Wt>, [<Xn|SP>]",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .general = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+        },
+        .encode = .{ .strb, .Wt, .{ .base = .Xn } },
+    },
+    .{
+        .pattern = "STRB <Wt>, [<Xn|SP>, #<pimm>]",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .general = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .pimm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 12 } } },
+        },
+        .encode = .{ .strb, .Wt, .{ .unsigned_offset = .{ .base = .Xn, .offset = .pimm } } },
+    },
+    .{
+        .pattern = "STRB <Wt>, [<Xn|SP>], #<simm>",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .general = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .simm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 } } },
+        },
+        .encode = .{ .strb, .Wt, .{ .post_index = .{ .base = .Xn, .index = .simm } } },
+    },
+    .{
+        .pattern = "STRB <Wt>, [<Xn|SP>, #<simm>]!",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .general = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .simm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 } } },
+        },
+        .encode = .{ .strb, .Wt, .{ .pre_index = .{ .base = .Xn, .index = .simm } } },
+    },
+    // C6.2.166 LDRB (immediate)
+    .{
+        .pattern = "LDRB <Wt>, [<Xn|SP>]",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .general = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+        },
+        .encode = .{ .ldrb, .Wt, .{ .base = .Xn } },
+    },
+    .{
+        .pattern = "LDRB <Wt>, [<Xn|SP>, #<pimm>]",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .general = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .pimm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 12 } } },
+        },
+        .encode = .{ .ldrb, .Wt, .{ .unsigned_offset = .{ .base = .Xn, .offset = .pimm } } },
+    },
     // C6.2.356 SUB (extended register)
     .{
         .pattern = "SUB <Wd|WSP>, <Wn|WSP>, <Wm>",
