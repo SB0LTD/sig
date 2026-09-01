@@ -1086,6 +1086,9 @@ pub const ObjectFormat = enum {
             .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => .macho,
             .plan9 => .plan9,
             .uefi, .windows => .coff,
+            // The consolidated native SB0 target emits raw SB0X images, so a bare
+            // `aarch64-sb0` triple defaults to the raw object format.
+            .sb0 => .raw,
             else => switch (arch) {
                 .spirv32, .spirv64 => .spirv,
                 .wasm32, .wasm64 => .wasm,
