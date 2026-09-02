@@ -4,6 +4,51 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.5.0] — 2026-08-29 — Self-Hosted AArch64 Compiles the Whole Compiler for SB0; SB0K Kernel Images
+
+Sig 0.5.0 completes the self-hosted AArch64 back end far enough to compile the
+entire compiler for the native `aarch64-sb0` target with no LLVM, no LLD, and no
+foreign object container, and teaches the self-hosted SB0 linker to emit a
+bootable `SB0K` kernel image in addition to the `SB0X` userspace image. All
+release artifacts remain produced by Sig itself.
+
+### Added
+- Complete code generation for non-payload optionals (e.g. `?Token`, a 12-byte
+  struct payload plus a one-byte has-value flag) in the self-hosted AArch64
+  back end (`src/codegen/aarch64/Select.sig`). Optionals whose payload fits one
+  general register keep a clean `[payload][flag]` register decomposition
+  matching the ABI; larger ones are treated as memory-resident and copied via
+  `memcpy`, so `optional_payload`, `wrap_optional`, `is_null`, the error-union
+  unwraps, `store`/`load`/`ret`, and equality comparison all handle aggregate
+  optional payloads. New `copyFromField`/`copyIntoField` helpers centralize the
+  register-vs-`memcpy` field-copy decision. With these in place the whole
+  compiler (`compiler/sb0_native_runner.sig`, which imports all of `main.sig`)
+  compiles cleanly for `aarch64-sb0`.
+- `SB0K` bootable kernel-image emission in the self-hosted SB0 linker
+  (`src/link/Sb0.sig`). The SB0 artifact kind is selected by the presence of a
+  linker script: an `aarch64-sb0` link with a linker script (e.g.
+  `test/sb0_runner.ld`) emits a fixed-layout `SB0K` image — a 64-byte kernel
+  header immediately followed by the reset/entry code at offset 64, with
+  `entry_offset`/`total_image_bytes` recorded and no segment table — while a
+  link without one emits an `SB0X` userspace image as before. For a fixed-layout
+  `SB0K` image the linker anchors the relocation base at
+  `preferred_physical_base + header size` so absolute relocations resolve to
+  correct load-time addresses.
+- Inline-assembly support for `b`/`bl <symbol>` branches to named symbols
+  (assembled as relocated branches), and the `CurrentEL` AArch64 system register
+  for `mrs`.
+- Freestanding `memcpy`/`memset` in the SB0 native runner so a self-contained
+  SB0 image links with no external runtime.
+
+### Changed
+- The self-hosted SB0 `CallAbiIterator` passes non-payload optionals whose
+  payload does not fit a single general register indirectly (by reference),
+  keeping only single-register optionals in registers.
+- `ci/test-sb0-runner.sh` bounds the native SB0K runner at 64 MiB instead of
+  64 KiB: the runner embeds the whole self-hosted compiler and is a
+  multi-megabyte kernel image, not a tiny shell. All `SB0K` header-field
+  assertions are retained.
+
 ## [0.4.2] — 2026-08-29 — spork8 Co-existence & Full Array Multiplication
 
 Sig 0.4.2 reconciles the upstream `spork8` raw-backend feature with the native
