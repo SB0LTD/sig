@@ -958,6 +958,8 @@ pub const Register = struct {
         pub const csselr_el1: System = .{ .op0 = 0b11, .op1 = 0b010, .CRn = 0b0000, .CRm = 0b0000, .op2 = 0b000 };
         /// D19.2.34 CTR_EL0, Cache Type Register
         pub const ctr_el0: System = .{ .op0 = 0b11, .op1 = 0b011, .CRn = 0b0000, .CRm = 0b0000, .op2 = 0b001 };
+        /// D19.2 CurrentEL, Current Exception Level (read-only, `S3_0_C4_C2_2`)
+        pub const currentel: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0100, .CRm = 0b0010, .op2 = 0b010 };
         /// D19.2.35 DACR32_EL2, Domain Access Control Register
         pub const dacr32_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0011, .CRm = 0b0000, .op2 = 0b000 };
         /// D19.2.36 DCZID_EL0, Data Cache Zero ID Register

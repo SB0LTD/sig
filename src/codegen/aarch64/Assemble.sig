@@ -69,6 +69,15 @@ pub const LabelBranch = struct {
     pub const Kind = enum { b, bl, b_cond, cbz, cbnz, tbz, tbnz };
 };
 
+/// A direct branch (`b` / `bl`) whose target is a named symbol rather than a
+/// local label. The caller emits a relocation against the named symbol.
+pub const SymbolBranch = struct {
+    /// true for `bl` (branch-with-link), false for `b`.
+    link: bool,
+    /// The target symbol name (borrowed from the asm source buffer).
+    name: []const u8,
+};
+
 /// One logical assembler line.
 pub const Line = union(enum) {
     /// A fully-encoded, position-independent instruction.
@@ -77,6 +86,8 @@ pub const Line = union(enum) {
     label_def: u8,
     /// A branch to a local label, to be resolved by the caller.
     branch: LabelBranch,
+    /// A branch to a named symbol, to be relocated by the caller.
+    symbol_branch: SymbolBranch,
     /// End of source.
     end,
 };
@@ -344,7 +355,16 @@ pub fn nextLine(as: *Assemble) !Line {
             bit = parsed;
         }
 
-        var tbuf: [16]u8 = undefined;
+        // Capture the source position of the target token so a symbol name can
+        // be returned as a slice into the persistent asm source buffer. `rawToken`
+        // skips leading separators, so advance past them here first to make the
+        // captured pointer line up with the start of the token itself.
+        while (true) switch (as.source[0]) {
+            ' ', '\t', '\r', ',' => as.source = as.source[1..],
+            else => break,
+        };
+        const target_src = as.source;
+        var tbuf: [64]u8 = undefined;
         const target = as.rawToken(&tbuf);
         if (parseLabelRef(target)) |ref| {
             return .{ .branch = .{
@@ -356,8 +376,27 @@ pub fn nextLine(as: *Assemble) !Line {
                 .cond = cond,
             } };
         }
-        // Not a local-label branch (e.g. `b <symbol>` or numeric form the
-        // pattern assembler handles); restore and delegate.
+        // A plain `b <symbol>` / `bl <symbol>` whose target is a named symbol
+        // (an identifier, not a local-label reference or numeric displacement)
+        // is emitted as a relocated branch by the caller. Only `b`/`bl` support
+        // symbol targets; conditional and register-carrying branches do not.
+        if ((kind == .b or kind == .bl) and target.len > 0 and
+            (std.ascii.isAlphabetic(target[0]) or target[0] == '_' or target[0] == '.'))
+        {
+            const is_symbol = for (target) |c| {
+                if (!isIdentByte(c)) break false;
+            } else true;
+            if (is_symbol) {
+                // The identifier token is a contiguous run of `target.len` bytes at
+                // the start of `target_src`; return it as a source-backed slice.
+                return .{ .symbol_branch = .{
+                    .link = kind == .bl,
+                    .name = target_src[0..target.len],
+                } };
+            }
+        }
+        // Not a local-label branch (e.g. numeric form the pattern assembler
+        // handles); restore and delegate.
         as.source = line_start;
     } else {
         as.source = line_start;

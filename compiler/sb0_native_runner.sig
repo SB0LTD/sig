@@ -18,11 +18,11 @@ var output: [streaming.MAX_EXECUTABLE_IMAGE_BYTES]u8 = undefined;
 pub export fn _start() callconv(.naked) noreturn {
     asm volatile (
         \\  mrs x10, CurrentEL
-        \\  cmp x10, #0xc
+        \\  subs xzr, x10, #0xc
         \\  b.ne 1f
         \\  msr CPTR_EL3, xzr
         \\1:
-        \\  cmp x10, #0x8
+        \\  subs xzr, x10, #0x8
         \\  b.lo 2f
         \\  msr CPTR_EL2, xzr
         \\2:
@@ -97,4 +97,22 @@ inline fn writeUart(byte: u8) void {
     const flags: *const volatile u32 = @ptrFromInt(0x0900_0018);
     while ((flags.* & (1 << 5)) != 0) asm volatile ("yield");
     data.* = byte;
+}
+
+// Freestanding implementations of the C runtime routines the code generator
+// emits for aggregate copies and initialization. The SB0 runner links no libc
+// and is built with `-fno-compiler-rt`, so it must provide these itself. They
+// follow the C ABI (returning the destination pointer) that generated calls
+// expect.
+pub export fn memcpy(dst: [*]u8, src: [*]const u8, len: usize) callconv(.c) [*]u8 {
+    var index: usize = 0;
+    while (index < len) : (index += 1) dst[index] = src[index];
+    return dst;
+}
+
+pub export fn memset(dst: [*]u8, value: c_int, len: usize) callconv(.c) [*]u8 {
+    const byte: u8 = @truncate(@as(c_uint, @bitCast(value)));
+    var index: usize = 0;
+    while (index < len) : (index += 1) dst[index] = byte;
+    return dst;
 }
