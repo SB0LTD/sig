@@ -81,7 +81,11 @@ test "$(od -An -tu4 -j12 -N4 "$TMP/compiler-runner.sb0" | xargs)" = 1
 test "$(od -An -tu8 -j16 -N8 "$TMP/compiler-runner.sb0" | xargs)" = 64
 test "$(od -An -tu8 -j24 -N8 "$TMP/compiler-runner.sb0" | xargs)" = \
   "$(stat -c %s "$TMP/compiler-runner.sb0")"
-test "$(stat -c %s "$TMP/compiler-runner.sb0")" -le 65536
+# The native runner embeds the whole self-hosted compiler, so it is a large
+# (multi-megabyte) fixed-layout SB0K kernel image rather than a tiny shell. Bound
+# it generously to catch a runaway/degenerate image while allowing the real
+# compiler payload; it must still fit comfortably in the QEMU guest's memory.
+test "$(stat -c %s "$TMP/compiler-runner.sb0")" -le 67108864
 test "$(od -An -tu8 -j32 -N8 "$TMP/compiler-runner.sb0" | xargs)" = 0
 test "$(od -An -tu4 -j40 -N8 "$TMP/compiler-runner.sb0" | xargs)" = '0 0'
 

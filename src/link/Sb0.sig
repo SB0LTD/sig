@@ -74,6 +74,17 @@ entry_sym: SymIndex.Optional,
 /// Base virtual address of the text region. SB0X images are position-relative,
 /// but codegen requires a concrete base for absolute references.
 base_vaddr: u64,
+/// When true, emit a privileged SB0K kernel image (fixed 64-byte header
+/// immediately followed by the reset/entry code at offset 64) instead of an
+/// SB0X userspace image (header + segment descriptor + payload). The SB0
+/// artifact kind is selected by the presence of a linker script, which is how
+/// a bootable/kernel image (`test/sb0_runner.ld`, defining the `.sb0k` layout)
+/// is distinguished from a plain userspace image.
+kernel: bool,
+/// Preferred physical load base recorded in the SB0K header (0 = loader
+/// chooses). Taken from the requested image base, defaulting to the SB0 boot
+/// address when a kernel image is emitted without an explicit base.
+preferred_physical_base: u64,
 
 /// Stable identifier for a symbol; bitcast to/from `link.File.SymbolId`.
 pub const SymIndex = enum(u32) {
@@ -234,6 +245,11 @@ fn create(
         .relocs = .empty,
         .entry_sym = .none,
         .base_vaddr = 0,
+        // A linker script signals a bootable/kernel artifact (see field docs);
+        // its presence selects the SB0K container.
+        .kernel = options.linker_script != null,
+        .preferred_physical_base = options.image_base orelse
+            if (options.linker_script != null) Sb0Format.SB0K_DEFAULT_PHYSICAL_BASE else 0,
     };
 
     // Reserve the null symbol at index 0.
@@ -691,6 +707,17 @@ fn flushInner(sb0: *Sb0, arena: Allocator, tid: Zcu.PerThread.Id) Error!void {
     //    definitions already have their final in-image addresses.
     try sb0.genPendingLazy(tid);
 
+    // A fixed-layout SB0K kernel image is loaded at a known physical base with
+    // the reset code immediately after the 64-byte header, so its symbols have
+    // concrete run-time addresses: `preferred_physical_base + header + offset`.
+    // Anchoring `base_vaddr` there makes in-place absolute relocations (adrp /
+    // add_abs_lo12 / abs64) resolve to the correct load-time addresses. An SB0X
+    // userspace image is position-relative (loader-relocated), so it keeps
+    // `base_vaddr == 0`.
+    if (sb0.kernel) {
+        sb0.base_vaddr = sb0.preferred_physical_base + Sb0Format.SB0K_HEADER_SIZE;
+    }
+
     // 1. Assign monotonic vaddrs to every body-bearing symbol (one with an
     //    emitted node), within the text region starting at base_vaddr. The
     //    entry symbol is placed FIRST so it sits at segment offset 0 (file
@@ -825,42 +852,66 @@ fn nodeVAddr(sb0: *Sb0, ni: MappedFile.Node.Index) u64 {
     return sb0.base_vaddr + off;
 }
 
-/// Write the final SB0X container to the output file, replacing the incremental
-/// mapped-file content. The container is a header + one RX segment + payload.
+/// Write the final SB0 container to the output file, replacing the incremental
+/// mapped-file content.
+///
+/// Two container kinds share this bounded, self-hosted emitter (never a foreign
+/// intermediate), selected by `sb0.kernel`:
+///
+///   * SB0X (userspace): a 64-byte SB0X header, one 40-byte RX segment
+///     descriptor, then the payload. `entry_offset` is relative to the segment.
+///   * SB0K (kernel/bootable): a fixed 64-byte SB0K header immediately followed
+///     by the reset/entry code (which the linker placed first, so the entry is
+///     at image offset `SB0K_HEADER_SIZE`). There is no segment table; the whole
+///     file is the load image. `entry_offset`/`total_image_bytes` are absolute.
 fn writeImage(sb0: *Sb0, arena: Allocator, code: []const u8, entry_offset: u64) Error!void {
     const comp = sb0.base.comp;
     const io = comp.io;
     const diags = &comp.link_diags;
 
-    const total = Sb0Format.payloadOffset(1) + code.len;
-    const out = try arena.alloc(u8, total);
-    const written = Sb0Format.SB0X_HEADER_SIZE + Sb0Format.SB0X_SEGMENT_SIZE;
-    _ = written;
-
-    _ = Sb0Format.encodeHeader(out, .{
-        .entry_offset = entry_offset,
-        .segment_count = 1,
-        .image_size = Sb0Format.alignForward(@intCast(total), Sb0Format.SB0X_PAGE_SIZE),
-        .stack_size = sb0.base.stack_size,
-    });
-    const meta = Sb0Format.payloadOffset(1);
-    _ = Sb0Format.encodeSegment(out[Sb0Format.SB0X_HEADER_SIZE..], .{
-        .file_offset = @intCast(meta),
-        .vaddr_offset = 0,
-        .file_size = @intCast(code.len),
-        .mem_size = Sb0Format.alignForward(@intCast(code.len), Sb0Format.SB0X_PAGE_SIZE),
-        .flags = Sb0Format.SEG_RX,
-    });
-    if (code.len != 0) @memcpy(out[meta..][0..code.len], code);
+    const out = if (sb0.kernel) out: {
+        const header = Sb0Format.SB0K_HEADER_SIZE;
+        const total = header + code.len;
+        const out = try arena.alloc(u8, total);
+        // The reset/entry code sits immediately after the header. The entry
+        // symbol is placed first during flush, so its in-code offset is 0 and
+        // the absolute entry offset is exactly the header size.
+        _ = Sb0Format.encodeKernelHeader(out, .{
+            .entry_offset = header + entry_offset,
+            .total_image_bytes = @intCast(total),
+            .preferred_physical_base = sb0.preferred_physical_base,
+        });
+        if (code.len != 0) @memcpy(out[header..][0..code.len], code);
+        break :out out;
+    } else out: {
+        const total = Sb0Format.payloadOffset(1) + code.len;
+        const out = try arena.alloc(u8, total);
+        _ = Sb0Format.encodeHeader(out, .{
+            .entry_offset = entry_offset,
+            .segment_count = 1,
+            .image_size = Sb0Format.alignForward(@intCast(total), Sb0Format.SB0X_PAGE_SIZE),
+            .stack_size = sb0.base.stack_size,
+        });
+        const meta = Sb0Format.payloadOffset(1);
+        _ = Sb0Format.encodeSegment(out[Sb0Format.SB0X_HEADER_SIZE..], .{
+            .file_offset = @intCast(meta),
+            .vaddr_offset = 0,
+            .file_size = @intCast(code.len),
+            .mem_size = Sb0Format.alignForward(@intCast(code.len), Sb0Format.SB0X_PAGE_SIZE),
+            .flags = Sb0Format.SEG_RX,
+        });
+        if (code.len != 0) @memcpy(out[meta..][0..code.len], code);
+        break :out out;
+    };
 
     // The MappedFile keeps the output memory-mapped for incremental writes.
-    // Release the mapping before rewriting the file as the final flat SB0X
+    // Release the mapping before rewriting the file as the final flat SB0
     // container, otherwise resizing the still-mapped file fails (e.g. Windows
     // returns AccessDenied when truncating a mapped file).
     sb0.mf.unmap();
 
     const file = sb0.base.file.?;
-    file.setLength(io, total) catch |err|
+    file.setLength(io, out.len) catch |err|
         return diags.fail("failed to set SB0 image length: {t}", .{err});
     file.writePositionalAll(io, out, 0) catch |err|
         return diags.fail("failed to write SB0 image: {t}", .{err});

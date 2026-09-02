@@ -40,6 +40,10 @@ pub const SB0K_FORMAT_VERSION: u16 = 1;
 pub const SB0K_HEADER_SIZE: usize = 64;
 pub const SB0K_BOOT_ABI_VERSION: u16 = 1;
 pub const SB0K_FLAG_FIXED_LAYOUT: u32 = 1;
+/// Default preferred physical load base for a bootable SB0K image. Matches the
+/// fixed load address the SB0 boot flow / QEMU `virt` loader uses (and the
+/// origin in `test/sb0_runner.ld`) when no explicit image base is requested.
+pub const SB0K_DEFAULT_PHYSICAL_BASE: u64 = 0x4020_0000;
 
 // ── Little-endian byte writers ──
 
