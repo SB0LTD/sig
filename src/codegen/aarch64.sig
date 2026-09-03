@@ -160,7 +160,17 @@ pub fn generate(
         switch (ret_vi.value.parent(&isel)) {
             .unallocated, .stack_slot => {},
             .value, .constant => unreachable,
-            .address => |address_vi| try address_vi.liveIn(
+            // The indirect-result (sret) pointer arrives in its ABI register
+            // (x8) and must be spilled to its stack slot at entry, because the
+            // function body reads the return buffer address back from that slot
+            // (x8 is clobbered across the body). `liveIn` only wires up the
+            // live-in register move; it does NOT emit the spill store, so using
+            // it here left the slot uninitialized and every indirect return
+            // (e.g. a `?u32`) wrote to / read from garbage. `defLiveIn` performs
+            // the same live-in wiring AND stores the register into its stack
+            // slot when one has been allocated, which is exactly what the sret
+            // pointer needs.
+            .address => |address_vi| try address_vi.defLiveIn(
                 &isel,
                 address_vi.hint(&isel).?,
                 comptime &.initFill(.free),

@@ -9558,24 +9558,25 @@ pub const Value = struct {
                 try dst_field_vi.?.copy(isel, src_ty, src_vi);
                 return;
             }
-            try src_vi.defAddr(isel, src_ty, .{}) orelse return;
-
-            try call.prepareReturn(isel);
-            try call.finishReturn(isel);
-
-            try call.prepareCallee(isel);
-            try isel.global_relocs.append(isel.pt.zcu.gpa, .{
-                .name = "memcpy",
-                .reloc = .{ .label = @intCast(isel.instructions.items.len) },
-            });
-            try isel.emit(.bl(0));
-            try call.finishCallee(isel);
-
-            try call.prepareParams(isel);
-            try isel.movImmediate(.x2, src_size);
-            try call.paramAddress(isel, src_vi, .r1);
-            try call.paramFieldAddress(isel, dst_vi, dst_ty, field_offset, .r0);
-            try call.finishParams(isel);
+            // Write the multi-register source (e.g. a 12-byte `?Token` payload) into the
+            // destination field by storing the source's register parts directly to the
+            // destination field's address, mirroring the `.ret` indirect-return path
+            // (`matReg`ing a destination pointer then `src_vi.store` to it). The previous
+            // approach (`defAddr(src_vi)` + `memcpy` from `src_vi`'s address) relied on the
+            // source being materialized to a stack slot; a register-resident source
+            // aggregate left that slot uninitialized, so the `memcpy` copied garbage — the
+            // observed symptom was a corrupted `?Token` returned from a ring `pop` (its
+            // payload never written, only the has-value flag). `store` handles both a
+            // multi-part decomposition and a single oversized part (which it further
+            // splits), writing exactly the live source bytes with no scratch buffer.
+            //
+            // Reverse emission: emit the store first (runs last at run time), then the
+            // address computation (runs first), so `addr_ra` holds the field address
+            // before the store executes.
+            const addr_ra = try isel.allocIntReg();
+            defer isel.freeReg(addr_ra);
+            try src_vi.store(isel, src_ty, addr_ra, .{ .split = true });
+            try dst_vi.address(isel, field_offset, addr_ra);
         }
 
         /// Copy the `[field_offset, field_offset + dst size)` region of the aggregate
@@ -10994,16 +10995,61 @@ pub const Value = struct {
                         // integer path); the outer loop then narrows to the requested
                         // chunk. Anything else has no direct register form and falls back
                         // to a bulk copy.
-                        if (offset == 0 and size == ty_size) {
-                            const parts_len = std.math.divCeil(u64, size, 8) catch unreachable;
-                            if (parts_len > Value.max_parts) return error.PartBudgetExceeded;
-                            if (parts_len < 2) return error.PartBudgetExceeded;
-                            vi.setParts(isel, @intCast(parts_len));
-                            var part_offset: u64 = 0;
-                            while (part_offset < size) : (part_offset += 8) {
-                                _ = vi.addPart(isel, part_offset, @min(size - part_offset, 8));
+                        // A union payload is opaque bytes with no per-field register
+                        // classification. Serve register-sized field extractions by carving
+                        // the current region so the requested sub-region `[npo, npo+nps)`
+                        // becomes its own part, then reinterpret that part as an unsigned
+                        // integer leaf. This handles both the payload lane and the tag byte
+                        // of a small tagged union (e.g. an 8-byte `union(enum)` extracted as
+                        // a 4-byte payload at offset 0 and a 1-byte tag at offset 4), which
+                        // the ABI/return path materializes via `.only()`.
+                        //
+                        // If the requested region already covers this whole region and it
+                        // fits in a register, reinterpret directly as an integer leaf.
+                        if (next_part_offset == 0 and next_part_size == size and size <= 8) {
+                            continue :type_key .{ .int_type = .{
+                                .signedness = .unsigned,
+                                .bits = @intCast(size * 8),
+                            } };
+                        }
+                        // A request that spans more than one register has no direct
+                        // register form; address it in memory instead.
+                        if (next_part_size > 8) return error.PartBudgetExceeded;
+                        // Carve up to three parts around the requested region:
+                        // `[0, npo)`, `[npo, npo+nps)`, `[npo+nps, size)`, skipping empties.
+                        // Each part is at most one register wide except the carved head/tail
+                        // which are only used as anchors (never materialized as scalars when
+                        // wider than a register — the requested middle part is what callers
+                        // read). To keep parts register-addressable, split any head/tail
+                        // longer than 8 bytes into 8-byte lanes.
+                        const req_end2 = next_part_offset + next_part_size;
+                        var bounds: [Value.max_parts]u64 = undefined;
+                        var nb: usize = 0;
+                        const addBound = struct {
+                            fn f(arr: *[Value.max_parts]u64, n: *usize, v: u64) void {
+                                if (n.* > 0 and arr[n.* - 1] == v) return;
+                                arr[n.*] = v;
+                                n.* += 1;
                             }
-                        } else return error.PartBudgetExceeded;
+                        }.f;
+                        // Emit 8-byte lane boundaries within [0, npo), then npo, then
+                        // 8-byte lanes within [npo+nps, size), then size.
+                        {
+                            var b: u64 = 0;
+                            while (b < next_part_offset) : (b += 8) addBound(&bounds, &nb, b);
+                            addBound(&bounds, &nb, next_part_offset);
+                            addBound(&bounds, &nb, req_end2);
+                            var t: u64 = req_end2;
+                            while (t < size) : (t += 8) addBound(&bounds, &nb, t);
+                            addBound(&bounds, &nb, size);
+                        }
+                        const parts_len = nb - 1;
+                        if (parts_len < 2) return error.PartBudgetExceeded;
+                        if (parts_len > Value.max_parts) return error.PartBudgetExceeded;
+                        vi.setParts(isel, @intCast(parts_len));
+                        for (0..parts_len) |pi| {
+                            _ = vi.addPart(isel, bounds[pi], bounds[pi + 1] - bounds[pi]);
+                        }
                     },
                     .opaque_type, .func_type => continue :type_key .{ .simple_type = .anyopaque },
                     .enum_type => continue :type_key ip.indexToKey(ip.loadEnumType(ty.toIntern()).int_tag_type),

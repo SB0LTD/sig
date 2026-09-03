@@ -16,6 +16,25 @@ var source: [MAX_SOURCE_BYTES]u8 = undefined;
 var output: [streaming.MAX_EXECUTABLE_IMAGE_BYTES]u8 = undefined;
 
 pub export fn _start() callconv(.naked) noreturn {
+    // Boot setup.
+    //
+    // 1. Drop FP/SIMD traps (CPTR_EL3/EL2 as applicable, CPACR_EL1) so the
+    //    compiler's vector code runs.
+    //
+    // 2. Enable the MMU with a minimal identity map so RAM is Normal memory.
+    //    The AArch64 backend emits natural-width loads/stores (e.g. an 8-byte
+    //    STR to a 4-byte-aligned union field) and relies on the hardware
+    //    servicing unaligned accesses, exactly as it does under a hosted OS.
+    //    With the MMU off, all memory is Device-nGnRnE, which faults on any
+    //    unaligned access regardless of SCTLR_EL1.A. A single L1 page table
+    //    (4KB granule, 39-bit VA, 1GB blocks) placed at a fixed free RAM
+    //    address (0x40100000, below the image) maps GB0 [0,1GB) as Device
+    //    (covers the PL011 UART at 0x09000000) and GB1 [1GB,2GB) as Normal
+    //    (covers the image at 0x40200000, the request page at 0x41000000 and
+    //    the stack at 0x47f00000). The CPU boots with clean TLBs, so no TLBI is
+    //    needed before the first enable. The self-hosted SB0 assembler only
+    //    accepts register-form logical ops and move-immediates, so masks/bits
+    //    are materialized into registers rather than using immediate forms.
     asm volatile (
         \\  mrs x10, CurrentEL
         \\  subs xzr, x10, #0xc
@@ -28,6 +47,26 @@ pub export fn _start() callconv(.naked) noreturn {
         \\2:
         \\  mov x10, #0x300000
         \\  msr CPACR_EL1, x10
+        \\  isb
+        \\  movz x0, #0x4010, lsl #16
+        \\  movz x1, #0x0401
+        \\  str x1, [x0]
+        \\  movz x2, #0x0705
+        \\  movk x2, #0x4000, lsl #16
+        \\  str x2, [x0, #8]
+        \\  movz x3, #0xff00
+        \\  msr mair_el1, x3
+        \\  movz x4, #0x3519
+        \\  movk x4, #0x0080, lsl #16
+        \\  movk x4, #0x0002, lsl #32
+        \\  msr tcr_el1, x4
+        \\  msr ttbr0_el1, x0
+        \\  dsb sy
+        \\  isb
+        \\  mrs x5, sctlr_el1
+        \\  movz x6, #0x1
+        \\  orr x5, x5, x6
+        \\  msr sctlr_el1, x5
         \\  isb
         \\  movz x9, #0x47f0, lsl #16
         \\  mov sp, x9

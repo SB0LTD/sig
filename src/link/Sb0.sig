@@ -826,6 +826,96 @@ fn flushInner(sb0: *Sb0, arena: Allocator, tid: Zcu.PerThread.Id) Error!void {
         0;
 
     try sb0.writeImage(arena, image, entry_offset);
+
+    // Optional: emit a textual assembly listing (`-femit-asm`). The listing is
+    // rendered from the fully-relocated linearised image so it reflects the exact
+    // bytes that will execute, with one label per defined symbol.
+    if (comp.emit_asm) |raw| {
+        sb0.emitAsmListing(arena, tid, raw, image) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return diags.fail("failed to write asm listing: {t}", .{err}),
+        };
+    }
+}
+
+/// Render `-femit-asm` output: for each defined symbol, a label line followed by
+/// its instructions disassembled from the relocated image (4 bytes each).
+fn emitAsmListing(
+    sb0: *Sb0,
+    arena: Allocator,
+    tid: Zcu.PerThread.Id,
+    raw_path: []const u8,
+    image: []const u8,
+) !void {
+    const comp = sb0.base.comp;
+    const io = comp.io;
+    const gpa = comp.gpa;
+
+    // Resolve NAV symbol names for readable labels.
+    const zcu = comp.zcu.?;
+    const active = zcu.activate(tid);
+    defer active.deactivate();
+    const ip = &active.pt.zcu.intern_pool;
+
+    // Reverse map: symbol index -> NAV.
+    var sym_nav = std.AutoHashMap(u32, InternPool.Nav.Index).init(gpa);
+    defer sym_nav.deinit();
+    {
+        var it = sb0.navs.iterator();
+        while (it.next()) |entry| {
+            try sym_nav.put(@intFromEnum(entry.value_ptr.*), entry.key_ptr.*);
+        }
+    }
+
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    const w = &aw.writer;
+
+    try w.print("// aarch64-sb0 assembly listing (base_vaddr=0x{x})\n", .{sb0.base_vaddr});
+
+    // Emit symbols in address order for a readable listing.
+    const Entry = struct { si: usize, value: u64 };
+    var order = std.ArrayList(Entry).empty;
+    defer order.deinit(gpa);
+    for (sb0.syms.items, 0..) |*sym, i| {
+        if (i == 0 or sym.node == .none or !sym.defined) continue;
+        try order.append(gpa, .{ .si = i, .value = sym.value });
+    }
+    std.mem.sort(Entry, order.items, {}, struct {
+        fn lt(_: void, a: Entry, b: Entry) bool {
+            return a.value < b.value;
+        }
+    }.lt);
+
+    for (order.items) |e| {
+        const sym = &sb0.syms.items[e.si];
+        const off: usize = @intCast(sym.value - sb0.base_vaddr);
+        const n: usize = @intCast(sym.size);
+        if (off + n > image.len) continue;
+
+        // Label: extern name, else NAV fqn, else a synthesized local name.
+        if (sym.extern_name) |name| {
+            try w.print("\n{s}: // 0x{x}, {d} bytes\n", .{ name, sym.value, n });
+        } else if (sym_nav.get(@intCast(e.si))) |nav_index| {
+            try w.print("\n{f}: // 0x{x}, {d} bytes\n", .{ ip.getNav(nav_index).fqn.fmt(ip), sym.value, n });
+        } else {
+            try w.print("\nsym{d}: // 0x{x}, {d} bytes\n", .{ e.si, sym.value, n });
+        }
+
+        var p: usize = 0;
+        while (p + 4 <= n) : (p += 4) {
+            const chunk = image[off + p ..][0..4];
+            const inst = aarch64.encoding.Instruction.read(chunk);
+            const word = std.mem.readInt(u32, chunk, .little);
+            try w.print("    0x{x:0>8}:  {x:0>8}  {f}\n", .{ sym.value + p, word, inst });
+        }
+    }
+
+    const path = try comp.resolveEmitPathFlush(arena, .artifact, raw_path);
+    const text = aw.written();
+    const file = try path.root_dir.handle.createFile(io, path.sub_path, .{ .truncate = true });
+    defer file.close(io);
+    try file.writePositionalAll(io, text, 0);
 }
 
 fn applyReloc(sb0: *Sb0, image: []u8, reloc: Reloc, diags: anytype) Error!void {
