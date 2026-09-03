@@ -11507,6 +11507,40 @@ pub const Value = struct {
                                                 },
                                             };
                                         }
+                                        // A register-sized run of a byte array (e.g. a 4-byte
+                                        // `[_]u8{...}` loaded as one word) spans multiple
+                                        // elements. Materialize the requested `size` bytes as
+                                        // a little-endian integer built from the element bytes;
+                                        // without this the multi-element load falls through and
+                                        // the constant reads as zero. Handles all three array
+                                        // storage encodings.
+                                        if (elem_size == 1 and size >= 1 and size <= 8) {
+                                            const arr_len = array_type.lenIncludingSentinel();
+                                            var packed_value: u64 = 0;
+                                            var byte_index: u64 = 0;
+                                            while (byte_index < size) : (byte_index += 1) {
+                                                const elem_index: u64 = offset + byte_index;
+                                                // Bytes beyond the array length are trailing
+                                                // padding and read as zero.
+                                                if (elem_index >= arr_len) continue;
+                                                const elem_byte: u8 = switch (aggregate.storage) {
+                                                    .bytes => |bytes| bytes.toSlice(arr_len, ip)[@intCast(elem_index)],
+                                                    .elems => |elems| @intCast(ip.indexToKey(elems[@intCast(elem_index)]).int.storage.u64),
+                                                    .repeated_elem => |repeated_elem| @intCast(ip.indexToKey(repeated_elem).int.storage.u64),
+                                                };
+                                                packed_value |= @as(u64, elem_byte) << @intCast(8 * byte_index);
+                                            }
+                                            defer offset = 0;
+                                            continue :constant_key .{ .int = .{
+                                                .ty = switch (size) {
+                                                    1 => .u8_type,
+                                                    2 => .u16_type,
+                                                    3, 4 => .u32_type,
+                                                    else => .u64_type,
+                                                },
+                                                .storage = .{ .u64 = packed_value },
+                                            } };
+                                        }
                                     },
                                     .vector_type => {},
                                     .struct_type => {

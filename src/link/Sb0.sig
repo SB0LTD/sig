@@ -542,13 +542,47 @@ pub fn lowerUav(
     uav_val: InternPool.Index,
     uav_align: InternPool.Alignment,
 ) link.Error!link.File.SymbolId {
-    _ = pt;
     const si = try sb0.uavSymbolIndex(uav_val);
     if (uav_align != .none) {
         const a: Alignment = .fromIp(uav_align);
         if (a.compare(.gt, si.ptr(sb0).alignment)) si.ptr(sb0).alignment = a;
     }
+
+    // Emit the UAV's constant bytes into the image (parity with `updateNav`).
+    // Without a body the referenced rodata (string/array literals, other
+    // anonymous constants) would read as zero at run time. Only generate once.
+    if (si.ptr(sb0).node == .none) {
+        sb0.lowerUavBody(pt, uav_val, si) catch |err| switch (err) {
+            error.MappedFileIo => return sb0.base.comp.link_diags.fail(
+                "failed to write output file: {t}",
+                .{sb0.mf.io_err.?},
+            ),
+            else => |e| return e,
+        };
+    }
     return si.toTypeErased();
+}
+
+fn lowerUavBody(sb0: *Sb0, pt: Zcu.PerThread, uav_val: InternPool.Index, si: SymIndex) Error!void {
+    const ni = try sb0.ensureSymbolNode(si, si.ptr(sb0).alignment);
+    sb0.resetNodeRelocs(ni);
+    try ni.moved(sb0.base.comp.gpa, &sb0.mf);
+
+    var nw: MappedFile.Node.Writer = undefined;
+    ni.writer(&sb0.mf, sb0.base.comp.gpa, &nw);
+    defer nw.deinit();
+    codegen.generateSymbol(
+        &sb0.base,
+        pt,
+        .fromInterned(uav_val),
+        &nw.interface,
+        .{ .atom_index = @enumFromInt(@intFromEnum(ni)) },
+    ) catch |err| switch (err) {
+        error.WriteFailed => return nw.err.?,
+        else => |e| return e,
+    };
+    si.ptr(sb0).size = nw.interface.end;
+    si.ptr(sb0).defined = true;
 }
 
 /// Codegen-facing relocation hook (parity with `Elf2.addReloc`). The concrete
