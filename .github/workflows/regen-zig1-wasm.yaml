@@ -106,10 +106,15 @@ jobs:
           echo "Building zig1.wasm via build system..."
           # The native allocator-free build runner owns the exact wasm32-wasi
           # compiler command and validates the output magic before returning.
+          # build_wasm.sig's build() reads two distinct options:
+          #   -Dsig-version : the Sig release version (e.g. 0.5.0)
+          #   -DSig-version : the Sig language-compat semver (e.g. 0.17.0),
+          #                   parsed via std.SemanticVersion and split into
+          #                   zig_version_major/minor/patch for the wasm snapshot.
           "${SIG}" build \
             --build-file build_wasm.sig \
             -Dsig-version="$SIG_VER" \
-            -Dzig-version="$ZIG_VER" \
+            -DSig-version="$ZIG_VER" \
             update-zig1
 
           ls -la stage1/zig1.wasm

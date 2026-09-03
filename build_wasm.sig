@@ -114,15 +114,27 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
         []const u8,
         "Sig-version",
         "Sig compatibility version from build.sig",
-    ) orelse return error.BufferTooSmall;
+    ) orelse {
+        sig_build.printMsg(ctx.io_ctx, "wasm: missing required option -DSig-version (Sig language-compat semver, e.g. 0.17.0)", .{});
+        return error.BufferTooSmall;
+    };
     const sig_version = ctx.option(
         []const u8,
         "sig-version",
         "Sig version from build.sig",
-    ) orelse return error.BufferTooSmall;
-    const semver = std.SemanticVersion.parse(zig_version) catch
+    ) orelse {
+        sig_build.printMsg(ctx.io_ctx, "wasm: missing required option -Dsig-version (Sig release version, e.g. 0.5.0)", .{});
         return error.BufferTooSmall;
+    };
+    const semver = std.SemanticVersion.parse(zig_version) catch {
+        sig_build.printMsg(ctx.io_ctx, "wasm: -DSig-version={s} is not a valid semver", .{zig_version});
+        return error.BufferTooSmall;
+    };
     if (sig_version.len == 0 or sig_version.len > ctx.sig_version.len) {
+        sig_build.printMsg(ctx.io_ctx, "wasm: -Dsig-version length {d} out of range (max {d})", .{
+            sig_version.len,
+            ctx.sig_version.len,
+        });
         return error.BufferTooSmall;
     }
 
