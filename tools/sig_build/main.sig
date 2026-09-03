@@ -3192,6 +3192,71 @@ pub fn appendLlvmLinkerArgs(cmd: *Command_Buffer, build_ctx: *const Build_Contex
     }
 }
 
+// ── Dependency resolution (build.sig.zon) ────────────────────────────────────
+
+/// Maximum number of declared dependencies in a project's build.sig.zon.
+pub const MAX_DEPENDENCIES = 64;
+
+/// A single resolved dependency: the manifest name (e.g. "zpm") mapped to the
+/// absolute filesystem root where its fetched+extracted source now lives in the
+/// global cache (e.g. "<global_cache>/p/<hash>/<repo>-<ref>"). Populated by the
+/// build host from build.sig.zon before `build(ctx)` runs; consumed by build.sig
+/// via `ctx.dependency(name)`.
+pub const Resolved_Dependency = struct {
+    name: [NAME_BUF_SIZE]u8 = undefined,
+    name_len: usize = 0,
+    root: [PATH_BUF_SIZE]u8 = undefined,
+    root_len: usize = 0,
+};
+
+/// Fixed-capacity registry of resolved dependencies, keyed by manifest name.
+pub const Dependency_Registry = struct {
+    entries: [MAX_DEPENDENCIES]Resolved_Dependency = undefined,
+    count: usize = 0,
+
+    /// Record a resolved dependency (name → absolute extracted root path).
+    /// Overwrites an existing entry with the same name.
+    pub fn put(self: *Dependency_Registry, name: []const u8, root: []const u8) SigError!void {
+        if (name.len > NAME_BUF_SIZE or root.len > PATH_BUF_SIZE) return error.BufferTooSmall;
+        for (self.entries[0..self.count]) |*entry| {
+            if (entry.name_len == name.len and sig_mem.eql(u8, entry.name[0..entry.name_len], name)) {
+                @memcpy(entry.root[0..root.len], root);
+                entry.root_len = root.len;
+                return;
+            }
+        }
+        if (self.count >= MAX_DEPENDENCIES) return error.CapacityExceeded;
+        var entry = &self.entries[self.count];
+        @memcpy(entry.name[0..name.len], name);
+        entry.name_len = name.len;
+        @memcpy(entry.root[0..root.len], root);
+        entry.root_len = root.len;
+        self.count += 1;
+    }
+
+    pub fn findByName(self: *const Dependency_Registry, name: []const u8) ?usize {
+        for (self.entries[0..self.count], 0..) |entry, i| {
+            if (entry.name_len == name.len and sig_mem.eql(u8, entry.name[0..entry.name_len], name)) {
+                return i;
+            }
+        }
+        return null;
+    }
+};
+
+/// Handle returned by `Build_Context.dependency()`. Resolves module source
+/// paths inside a fetched dependency's extracted root.
+pub const Dependency = struct {
+    root: []const u8,
+
+    /// Build the absolute path to a source file inside this dependency.
+    /// `subpath` is relative to the dependency's root (e.g. "src/core/root.sig").
+    /// The returned slice is backed by the caller-provided `buf`.
+    pub fn modulePath(self: Dependency, subpath: []const u8, buf: *[PATH_BUF_SIZE]u8) SigError![]const u8 {
+        return sig_fs.joinPath(buf, &.{ self.root, subpath });
+    }
+};
+
 // ── Build_Context (replaces *std.Build) ──────────────────────────────────────
 
 /// The central struct passed to `build.sig`'s `build` function. All API
@@ -3200,6 +3265,10 @@ pub const Build_Context = struct {
     steps: Step_Registry = .{},
     modules: Module_Registry = .{},
     options: Option_Map = .{},
+    /// Dependencies declared in the project's build.sig.zon, resolved (fetched,
+    /// verified, extracted) into the global cache by the build host before
+    /// `build(ctx)` runs. Queried by build.sig via `ctx.dependency(name)`.
+    dependencies: Dependency_Registry = .{},
     build_root: [PATH_BUF_SIZE]u8 = undefined,
     build_root_len: usize = 0,
     cache_dir: [PATH_BUF_SIZE]u8 = undefined,
@@ -3361,6 +3430,17 @@ pub const Build_Context = struct {
     pub fn option(self: *Build_Context, comptime T: type, name: []const u8, desc: []const u8) ?T {
         _ = desc;
         return getOption(T, &self.options, name);
+    }
+
+    /// Look up a dependency declared in build.sig.zon by its manifest name.
+    /// Returns a `Dependency` handle whose `.modulePath(subpath, buf)` yields
+    /// the absolute path to a source file inside the fetched package, suitable
+    /// for `addModule`/`addImport`/`Import_Entry`. Returns null if the name is
+    /// not a declared+resolved dependency (e.g. offline with no cache).
+    pub fn getDependency(self: *const Build_Context, name: []const u8) ?Dependency {
+        const idx = self.dependencies.findByName(name) orelse return null;
+        const entry = &self.dependencies.entries[idx];
+        return .{ .root = entry.root[0..entry.root_len] };
     }
 
     // --- LLVM pipeline API methods ---
@@ -4058,6 +4138,369 @@ pub const Build_Context = struct {
         _ = try installFiles(io, source_dir, dest_path);
     }
 };
+
+// ── build.sig.zon dependency resolution ──────────────────────────────────────
+//
+// Reads a project's build.sig.zon and, for each declared dependency of the form
+// `.name = .{ .url = "...", .hash = "<sha256 hex>" }` (or `.name = .{ .path =
+// "..." }`), fetches+verifies+extracts the package into the global cache and
+// records the resolved absolute source root in ctx.dependencies. The project's
+// build.sig then references those modules via ctx.dependency(name).
+//
+// Fetching and extraction shell out to the system `curl` and `tar` because the
+// native Sig HTTP client has neither TLS nor DNS (GitHub archive URLs are HTTPS
+// + DNS). Verification (SHA-256) and manifest parsing are done natively.
+//
+// Best-effort: any failure (offline, missing curl/tar, hash mismatch) is logged
+// but never aborts the build — a project whose build.sig doesn't actually call
+// ctx.dependency() must still build; ctx.dependency() just returns null.
+
+const sig_zon = sig.zon;
+const Sha256 = std.crypto.hash.sha2.Sha256;
+
+/// A dependency declaration parsed from build.sig.zon.
+const DeclaredDep = struct {
+    name: []const u8,
+    url: []const u8,
+    hash: []const u8,
+    path: []const u8,
+};
+
+const DepBody = struct { url: []const u8 = "", hash: []const u8 = "", path: []const u8 = "" };
+
+/// Extract the identifier text of a ZON field_name token (strips the leading
+/// '.' and any `@"..."` quoting).
+fn zonFieldName(source: []const u8, token: sig_zon.Token) []const u8 {
+    var text = sig_zon.tokenText(source, token);
+    if (text.len > 0 and text[0] == '.') text = text[1..];
+    if (text.len >= 3 and text[0] == '@' and text[1] == '"') {
+        text = text[2..];
+        if (text.len > 0 and text[text.len - 1] == '"') text = text[0 .. text.len - 1];
+    }
+    return text;
+}
+
+/// Extract the inner text of a ZON string token (strips surrounding quotes).
+fn zonStringValue(source: []const u8, token: sig_zon.Token) []const u8 {
+    const text = sig_zon.tokenText(source, token);
+    if (text.len >= 2 and text[0] == '"' and text[text.len - 1] == '"') {
+        return text[1 .. text.len - 1];
+    }
+    return text;
+}
+
+/// Parse a single dependency body struct beginning at `open_idx` (struct_begin).
+fn parseDepBody(source: []const u8, toks: []sig_zon.Token, open_idx: usize) DepBody {
+    var body: DepBody = .{};
+    var depth: i32 = 0;
+    var j: usize = open_idx;
+    while (j < toks.len) : (j += 1) {
+        const t = toks[j];
+        switch (t.kind) {
+            .struct_begin => depth += 1,
+            .struct_end => {
+                depth -= 1;
+                if (depth == 0) break;
+            },
+            .field_name => {
+                if (depth == 1 and j + 1 < toks.len and toks[j + 1].kind == .string) {
+                    const key = zonFieldName(source, t);
+                    const val = zonStringValue(source, toks[j + 1]);
+                    if (sig_mem.eql(u8, key, "url")) {
+                        body.url = val;
+                    } else if (sig_mem.eql(u8, key, "hash")) {
+                        body.hash = val;
+                    } else if (sig_mem.eql(u8, key, "path")) {
+                        body.path = val;
+                    }
+                }
+            },
+            else => {},
+        }
+    }
+    return body;
+}
+
+/// Parse the `.dependencies` table from build.sig.zon into `out`. Returns the
+/// count. All returned slices borrow from `source`.
+fn parseDependencies(source: []const u8, tokens: []sig_zon.Token, out: []DeclaredDep) usize {
+    const toks = sig_zon.parseZon(source, tokens) catch return 0;
+
+    var i: usize = 0;
+    var deps_open_idx: ?usize = null;
+    while (i < toks.len) : (i += 1) {
+        if (toks[i].kind == .field_name) {
+            const nm = zonFieldName(source, toks[i]);
+            if (sig_mem.eql(u8, nm, "dependencies")) {
+                if (i + 1 < toks.len and toks[i + 1].kind == .struct_begin) {
+                    deps_open_idx = i + 1;
+                }
+                break;
+            }
+        }
+    }
+    const open = deps_open_idx orelse return 0;
+
+    var out_count: usize = 0;
+    var depth: i32 = 0;
+    var j: usize = open;
+    while (j < toks.len) : (j += 1) {
+        const t = toks[j];
+        switch (t.kind) {
+            .struct_begin => depth += 1,
+            .struct_end => {
+                depth -= 1;
+                if (depth == 0) break;
+            },
+            .field_name => {
+                if (depth == 1 and j + 1 < toks.len and toks[j + 1].kind == .struct_begin) {
+                    if (out_count >= out.len) break;
+                    const parsed = parseDepBody(source, toks, j + 1);
+                    out[out_count] = .{
+                        .name = zonFieldName(source, t),
+                        .url = parsed.url,
+                        .hash = parsed.hash,
+                        .path = parsed.path,
+                    };
+                    out_count += 1;
+                }
+            },
+            else => {},
+        }
+    }
+    return out_count;
+}
+
+/// Download `url` to `dest` via `curl -Ls --fail -o <dest> <url>`.
+fn fetchUrl(url: []const u8, dest: []const u8, io: sig_io.Io) bool {
+    var cmd: sig_process.Command_Buffer = .{};
+    cmd.appendArg("curl") catch return false;
+    cmd.appendArg("-Ls") catch return false;
+    cmd.appendArg("--fail") catch return false;
+    cmd.appendArg("-o") catch return false;
+    cmd.appendArg(dest) catch return false;
+    cmd.appendArg(url) catch return false;
+
+    var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
+    var stderr_len: usize = 0;
+    const exit_code = runCommand(&cmd, &stderr_buf, &stderr_len, io) catch return false;
+    return exit_code == 0;
+}
+
+/// Compute the SHA-256 of the file at `path` and compare (lowercase hex) to
+/// `expected`.
+fn verifyHash(path: []const u8, expected: []const u8, io: sig_io.Io) bool {
+    if (expected.len != Sha256.digest_length * 2) return false;
+    const cwd: sig_io.Dir = .cwd();
+    var file = cwd.openFile(io, path, .{}) catch return false;
+    defer file.close(io);
+
+    var hasher = Sha256.init(.{});
+    var chunk: [HASH_CHUNK_SIZE]u8 = undefined;
+    var reader = file.reader(io, &.{});
+    while (true) {
+        const n = reader.interface.readSliceShort(&chunk) catch return false;
+        if (n == 0) break;
+        hasher.update(chunk[0..n]);
+    }
+    var digest: [Sha256.digest_length]u8 = undefined;
+    hasher.final(&digest);
+
+    var hex: [Sha256.digest_length * 2]u8 = undefined;
+    const hex_digits = "0123456789abcdef";
+    for (digest, 0..) |b, k| {
+        hex[k * 2] = hex_digits[b >> 4];
+        hex[k * 2 + 1] = hex_digits[b & 0x0f];
+    }
+    return sig_mem.eql(u8, &hex, expected);
+}
+
+/// Extract `tarball` into `dest_dir` via `tar -xzf <tarball> -C <dest_dir>`.
+fn extractTarball(tarball: []const u8, dest_dir: []const u8, io: sig_io.Io) bool {
+    var cmd: sig_process.Command_Buffer = .{};
+    cmd.appendArg("tar") catch return false;
+    cmd.appendArg("-xzf") catch return false;
+    cmd.appendArg(tarball) catch return false;
+    cmd.appendArg("-C") catch return false;
+    cmd.appendArg(dest_dir) catch return false;
+
+    var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
+    var stderr_len: usize = 0;
+    const exit_code = runCommand(&cmd, &stderr_buf, &stderr_len, io) catch return false;
+    return exit_code == 0;
+}
+
+/// Find the single top-level directory inside an extracted package. GitHub
+/// archives extract to one directory (e.g. "zpm-<sha>/"). Returns its absolute
+/// path in `buf`, or null if there isn't exactly one directory.
+fn findExtractedRoot(pkgdir: []const u8, buf: *[PATH_BUF_SIZE]u8, io: sig_io.Io) ?[]const u8 {
+    var entries_buf: [256]sig_fs.DirEntry = undefined;
+    const entries = sig_fs.listDir(io, pkgdir, &entries_buf) catch return null;
+    var found: ?[]const u8 = null;
+    var count: usize = 0;
+    for (entries) |*entry| {
+        if (entry.kind != .directory) continue;
+        count += 1;
+        found = entry.name();
+    }
+    if (count != 1) return null;
+    const dir_name = found orelse return null;
+    return sig_fs.joinPath(buf, &.{ pkgdir, dir_name }) catch null;
+}
+
+/// Resolve one declared dependency, recording its extracted root in ctx.
+fn resolveOneDependency(ctx: *Build_Context, dep: DeclaredDep, io: sig_io.Io) void {
+    // Local path dependency: record the absolute root (resolved against
+    // build_root); no fetch needed.
+    if (dep.path.len > 0) {
+        var root_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const build_root = ctx.build_root[0..ctx.build_root_len];
+        const root = sig_fs.joinPath(&root_buf, &.{ build_root, dep.path }) catch return;
+        ctx.dependencies.put(dep.name, root) catch {};
+        return;
+    }
+
+    if (dep.url.len == 0 or dep.hash.len == 0) {
+        printMsg(io, "dep '{s}': skipped (needs .url + .hash, or .path)", .{dep.name});
+        return;
+    }
+
+    const gcache = ctx.global_cache_dir[0..ctx.global_cache_dir_len];
+    if (gcache.len == 0) {
+        printMsg(io, "dep '{s}': no global cache dir; cannot resolve", .{dep.name});
+        return;
+    }
+
+    var pkgdir_buf: [PATH_BUF_SIZE]u8 = undefined;
+    const pkgdir = sig_fs.joinPath(&pkgdir_buf, &.{ gcache, "p", dep.hash }) catch return;
+
+    const cwd: sig_io.Dir = .cwd();
+
+    var okmarker_buf: [PATH_BUF_SIZE]u8 = undefined;
+    const okmarker = sig_fs.joinPath(&okmarker_buf, &.{ pkgdir, ".ok" }) catch return;
+    const cache_hit = blk: {
+        var mf = cwd.openFile(io, okmarker, .{}) catch break :blk false;
+        mf.close(io);
+        break :blk true;
+    };
+
+    if (!cache_hit) {
+        cwd.createDirPath(io, pkgdir) catch {
+            printMsg(io, "dep '{s}': failed to create cache dir", .{dep.name});
+            return;
+        };
+
+        var tarball_buf: [PATH_BUF_SIZE]u8 = undefined;
+        const tarball = sig_fs.joinPath(&tarball_buf, &.{ pkgdir, "archive.tar.gz" }) catch return;
+        if (!fetchUrl(dep.url, tarball, io)) {
+            printMsg(io, "dep '{s}': fetch failed ({s})", .{ dep.name, dep.url });
+            return;
+        }
+        if (!verifyHash(tarball, dep.hash, io)) {
+            printMsg(io, "dep '{s}': hash mismatch — refusing to use", .{dep.name});
+            return;
+        }
+        if (!extractTarball(tarball, pkgdir, io)) {
+            printMsg(io, "dep '{s}': extraction failed", .{dep.name});
+            return;
+        }
+        var mf = cwd.createFile(io, okmarker, .{}) catch return;
+        mf.writeStreamingAll(io, "ok\n") catch {};
+        mf.close(io);
+    }
+
+    var root_buf: [PATH_BUF_SIZE]u8 = undefined;
+    const root = findExtractedRoot(pkgdir, &root_buf, io) orelse pkgdir;
+    ctx.dependencies.put(dep.name, root) catch {};
+    printMsg(io, "dep '{s}': resolved -> {s}", .{ dep.name, root });
+}
+
+/// Resolve every dependency declared in `<build_root>/build.sig.zon` and record
+/// results in `ctx.dependencies`. Best-effort; never aborts the build.
+pub fn resolveManifest(ctx: *Build_Context) void {
+    const io = ctx.io_ctx;
+    const build_root = ctx.build_root[0..ctx.build_root_len];
+
+    var zon_path_buf: [PATH_BUF_SIZE]u8 = undefined;
+    const zon_path = sig_fs.joinPath(&zon_path_buf, &.{ build_root, "build.sig.zon" }) catch return;
+
+    const cwd: sig_io.Dir = .cwd();
+    var file = cwd.openFile(io, zon_path, .{}) catch return;
+    defer file.close(io);
+
+    var source_buf: [65536]u8 = undefined;
+    var reader = file.reader(io, &.{});
+    const source_len = reader.interface.readSliceShort(&source_buf) catch return;
+    if (source_len == 0) return;
+    const source = source_buf[0..source_len];
+
+    var tokens: [4096]sig_zon.Token = undefined;
+    var deps: [MAX_DEPENDENCIES]DeclaredDep = undefined;
+    const dep_count = parseDependencies(source, &tokens, &deps);
+    if (dep_count == 0) return;
+
+    for (deps[0..dep_count]) |dep| {
+        resolveOneDependency(ctx, dep, io);
+    }
+}
+
+test "parseDependencies: url+hash and path deps" {
+    const src =
+        \\.{
+        \\    .name = .@"my-cli",
+        \\    .version = "0.1.0",
+        \\    .fingerprint = 0x0,
+        \\    .dependencies = .{
+        \\        .zpm = .{
+        \\            .url = "https://github.com/SB0LTD/zpm/archive/abc123.tar.gz",
+        \\            .hash = "deadbeef",
+        \\        },
+        \\        .local = .{ .path = "../vendor/thing" },
+        \\    },
+        \\    .paths = .{ "build.sig" },
+        \\}
+    ;
+    var tokens: [512]sig_zon.Token = undefined;
+    var deps: [MAX_DEPENDENCIES]DeclaredDep = undefined;
+    const n = parseDependencies(src, &tokens, &deps);
+    try std.testing.expectEqual(@as(usize, 2), n);
+
+    try std.testing.expect(sig_mem.eql(u8, deps[0].name, "zpm"));
+    try std.testing.expect(sig_mem.eql(u8, deps[0].url, "https://github.com/SB0LTD/zpm/archive/abc123.tar.gz"));
+    try std.testing.expect(sig_mem.eql(u8, deps[0].hash, "deadbeef"));
+    try std.testing.expect(deps[0].path.len == 0);
+
+    try std.testing.expect(sig_mem.eql(u8, deps[1].name, "local"));
+    try std.testing.expect(sig_mem.eql(u8, deps[1].path, "../vendor/thing"));
+    try std.testing.expect(deps[1].url.len == 0);
+}
+
+test "parseDependencies: empty dependencies table" {
+    const src =
+        \\.{
+        \\    .name = .@"x",
+        \\    .version = "0.1.0",
+        \\    .dependencies = .{},
+        \\    .paths = .{ "build.sig" },
+        \\}
+    ;
+    var tokens: [256]sig_zon.Token = undefined;
+    var deps: [MAX_DEPENDENCIES]DeclaredDep = undefined;
+    try std.testing.expectEqual(@as(usize, 0), parseDependencies(src, &tokens, &deps));
+}
+
+test "parseDependencies: no dependencies field" {
+    const src =
+        \\.{
+        \\    .name = .@"x",
+        \\    .version = "0.1.0",
+        \\    .paths = .{ "build.sig" },
+        \\}
+    ;
+    var tokens: [256]sig_zon.Token = undefined;
+    var deps: [MAX_DEPENDENCIES]DeclaredDep = undefined;
+    try std.testing.expectEqual(@as(usize, 0), parseDependencies(src, &tokens, &deps));
+}
 
 // ── Formatting helpers ─────────────────────────────────────────────────────
 

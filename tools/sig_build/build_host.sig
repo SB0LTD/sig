@@ -279,6 +279,14 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
+    // ── 3b. Resolve build.sig.zon dependencies ──────────────────────────
+    // Fetch + verify + extract any declared dependencies into the global cache
+    // and record their resolved source roots on the context, so build.sig can
+    // reference them via ctx.dependency(name). Best-effort: failures are logged
+    // but never abort the build (a project that doesn't use ctx.dependency()
+    // must still build).
+    sig_build.resolveManifest(&ctx);
+
     // ── 4. Call build.sig's build function ──────────────────────────────
     build_mod.build(&ctx) catch |err| {
         sig_build.fatal(io, "build.sig build() failed: {t}", .{err});
