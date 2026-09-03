@@ -565,7 +565,14 @@ jobs:
           archive=${root}.tar.zst
           mkdir -p "$root/bin" "$root/tools"
           cp stage3-out/bin/sig.exe "$root/bin/sig.exe"
-          ln "$root/bin/sig.exe" "$root/bin/Sig.exe"
+          # Do NOT ship a separate bin/Sig.exe alias entry in the Windows
+          # archive. Windows NTFS is case-insensitive, so a second entry named
+          # Sig.exe collides with sig.exe on extraction — Windows bsdtar aborts
+          # with "Can't create ... Sig.exe: No such file or directory" (under a
+          # \\?\ extended path), which can drop sig.exe too. The case-insensitive
+          # filesystem already resolves `Sig.exe` -> `sig.exe`, and consumers
+          # (the verify job, releases) that want an explicit alias copy it after
+          # extraction. Shipping one canonical entry is unambiguous and portable.
           cp -r lib "$root/lib"
           cp -r tools/sig_build "$root/tools/sig_build"
           tar -cf - "$root" | zstd -19 -T0 -o "$archive"
@@ -643,12 +650,13 @@ jobs:
           New-Item -ItemType Directory -Force .bootstrap-package | Out-Null
           & zstd -d $archive -o .bootstrap-package\bootstrap.tar
           if ($LASTEXITCODE -ne 0) { throw 'zstd extraction failed' }
-          # The archive carries both bin/sig.exe and its bin/Sig.exe alias as
-          # distinct entries. On case-insensitive NTFS they map to one physical
-          # file, so tar reports a benign "Can't create Sig.exe" collision for
-          # the second entry. Tolerate that specific case: the extraction is
-          # correct as long as bin/sig.exe lands. Any other failure still throws.
-          $tarOut = & tar -xf .bootstrap-package\bootstrap.tar -C .bootstrap-package 2>&1
+          # New Windows archives carry a single canonical bin/sig.exe entry.
+          # Older archives also carried a bin/Sig.exe alias; on case-insensitive
+          # NTFS that second entry collides with sig.exe and makes Windows bsdtar
+          # abort ("Can't create ... Sig.exe: No such file or directory") before
+          # sig.exe lands. Exclude the alias entry so extraction is robust for
+          # both archive shapes — we recreate Sig.exe explicitly below.
+          $tarOut = & tar --exclude='*/Sig.exe' -xf .bootstrap-package\bootstrap.tar -C .bootstrap-package 2>&1
           $sigPath = '.bootstrap-package\bootstrap-sig-x86_64-windows\bin\sig.exe'
           if (-not (Test-Path $sigPath)) {
             $tarOut | ForEach-Object { Write-Host $_ }
