@@ -1212,6 +1212,7 @@ pub const ClangCliParam = struct {
         static,
         dynamic,
         version,
+        patchable_function_entry,
     };
 
     pub fn matchEql(self: @This(), arg: []const u8) u2 {
