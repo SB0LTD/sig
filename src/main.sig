@@ -452,7 +452,28 @@ fn mainArgs(
         },
         .version => {
             dev.check(.version_command);
-            try Io.File.stdout().writeStreamingAll(io, build_options.version ++ "\n");
+            // When invoked through the capitalized `Sig` alias (the drop-in
+            // zig-compatible entry point), emit only the underlying toolchain
+            // version so tools that shell out to it as `zig` parse a bare
+            // semantic version. Invoked as `sig`, emit the full Sig identity.
+            //
+            // On Windows the alias file is `Sig.exe`, so strip a trailing
+            // `.exe` (any case) from the invoked basename before comparing.
+            var invoked_basename = fs.path.basename(args[0]);
+            if (invoked_basename.len >= 4) {
+                const suffix = invoked_basename[invoked_basename.len - 4 ..];
+                if (std.ascii.eqlIgnoreCase(suffix, ".exe")) {
+                    invoked_basename = invoked_basename[0 .. invoked_basename.len - 4];
+                }
+            }
+            const as_compat_alias = mem.eql(u8, invoked_basename, "Sig") or
+                mem.endsWith(u8, invoked_basename, "/Sig") or
+                mem.endsWith(u8, invoked_basename, "\\Sig");
+            if (as_compat_alias) {
+                try Io.File.stdout().writeStreamingAll(io, build_options.version ++ "\n");
+            } else {
+                try Io.File.stdout().writeStreamingAll(io, "sig " ++ build_options.sig_version ++ " (zig " ++ build_options.version ++ ")\n");
+            }
             return;
         },
         .env => {
@@ -2996,9 +3017,9 @@ fn buildOutputType(
                 } else if (mem.eql(u8, arg, "-V")) {
                     warn("ignoring request for supported emulations: unimplemented", .{});
                 } else if (mem.eql(u8, arg, "-v")) {
-                    try Io.File.stdout().writeStreamingAll(io, "zig ld " ++ build_options.version ++ "\n");
+                    try Io.File.stdout().writeStreamingAll(io, "Sig ld " ++ build_options.version ++ "\n");
                 } else if (mem.eql(u8, arg, "--version")) {
-                    try Io.File.stdout().writeStreamingAll(io, "zig ld " ++ build_options.version ++ "\n");
+                    try Io.File.stdout().writeStreamingAll(io, "Sig ld " ++ build_options.version ++ "\n");
                     process.exit(0);
                 } else {
                     fatal("unsupported linker arg: {s}", .{arg});
