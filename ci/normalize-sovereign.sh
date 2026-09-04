@@ -193,8 +193,16 @@ RESIDUAL_PATTERNS=(
 )
 
 residual=0
-residual_report="$ROOT/.build/sovereign-residual.txt"
-mkdir -p "$ROOT/.build"
+# Write the residual report OUTSIDE the working tree when possible, so a
+# subsequent `git add -A` (e.g. in sig-sync) never accidentally commits this
+# scratch artifact. Prefer the CI runner temp dir, then the system temp dir,
+# and only fall back to the repo's ignored-ish .build/ as a last resort.
+report_dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+if [ ! -d "$report_dir" ] || [ ! -w "$report_dir" ]; then
+  report_dir="$ROOT/.build"
+  mkdir -p "$report_dir"
+fi
+residual_report="$report_dir/sovereign-residual.txt"
 : > "$residual_report"
 
 # 4a. Identifier residuals are only an error inside the strict compiler tree

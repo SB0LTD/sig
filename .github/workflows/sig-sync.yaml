@@ -363,10 +363,13 @@ jobs:
               if [ "$NORM_RC" -eq 3 ]; then
                 # Deeper reversion the mechanical map can't resolve. Do NOT push a
                 # half-converted tree; surface it loudly for manual fix-forward.
-                echo "::error title=Sovereign reversion needs manual conversion::sig-sync auto-converted what it safely could, but residual upstream 'zig' identifiers remain (see .build/sovereign-residual.txt in the job artifacts / log above). Convert them by hand — never revert the sync." >&2
-                if [ -f .build/sovereign-residual.txt ]; then
-                  echo "----- residual sovereign identifiers -----"
-                  cat .build/sovereign-residual.txt
+                echo "::error title=Sovereign reversion needs manual conversion::sig-sync auto-converted what it safely could, but residual upstream 'zig' identifiers remain. Convert them by hand — never revert the sync." >&2
+                # normalize-sovereign.sh writes the report to $RUNNER_TEMP (never
+                # inside the repo, so `git add -A` above cannot commit it).
+                residual_report="${RUNNER_TEMP:-/tmp}/sovereign-residual.txt"
+                if [ -f "$residual_report" ]; then
+                  echo "----- residual sovereign identifiers ($residual_report) -----"
+                  cat "$residual_report"
                 fi
                 exit 3
               elif [ "$NORM_RC" -ne 0 ]; then
