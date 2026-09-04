@@ -663,18 +663,18 @@ jobs:
             throw 'tar extraction failed'
           }
           # Windows NTFS is case-insensitive: bin\sig.exe is already invocable
-          # as bin\Sig.exe (same physical file). Only materialize an explicit
-          # alias copy if the target does not already resolve to sig.exe —
-          # otherwise Copy-Item errors with "cannot overwrite the item with
-          # itself". Either way, both invocation names work below.
-          $SigPath = '.bootstrap-package\bootstrap-sig-x86_64-windows\bin\Sig.exe'
-          if (-not (Test-Path $SigPath)) {
-            Copy-Item $sigPath $SigPath -Force
-          }
+          # as bin\Sig.exe — they are the same physical file. The compat-alias
+          # behaviour keys off argv[0]'s basename (Sig.exe -> bare Zig version;
+          # sig.exe -> full Sig identity), so we must invoke through a path
+          # whose spelling is literally "Sig.exe". Resolve-Path would
+          # canonicalise it back to the on-disk "sig.exe" casing and defeat the
+          # alias, so build $Sig as an explicit Sig.exe-cased path string.
           $sig = Resolve-Path $sigPath
-          $Sig = Resolve-Path $SigPath
-          $packageRoot = Split-Path (Split-Path $sig -Parent) -Parent
+          $binDir = Split-Path $sig -Parent
+          $packageRoot = Split-Path $binDir -Parent
+          $Sig = Join-Path $binDir 'Sig.exe'
           $env:SIG_LIB_DIR = Join-Path $packageRoot 'lib'
+          # sig.exe and Sig.exe are the same physical file on NTFS.
           if ((Get-FileHash $sig).Hash -ne (Get-FileHash $Sig).Hash) { throw 'sig.exe and Sig.exe differ' }
           & $sig version | Tee-Object -Variable version
           if ($LASTEXITCODE -ne 0 -or ($version -join "`n") -notmatch "sig $([regex]::Escape($env:SIG_VERSION))") { throw 'Windows bootstrap version probe failed' }

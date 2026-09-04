@@ -456,7 +456,16 @@ fn mainArgs(
             // zig-compatible entry point), emit only the underlying toolchain
             // version so tools that shell out to it as `zig` parse a bare
             // semantic version. Invoked as `sig`, emit the full Sig identity.
-            const invoked_basename = fs.path.basename(args[0]);
+            //
+            // On Windows the alias file is `Sig.exe`, so strip a trailing
+            // `.exe` (any case) from the invoked basename before comparing.
+            var invoked_basename = fs.path.basename(args[0]);
+            if (invoked_basename.len >= 4) {
+                const suffix = invoked_basename[invoked_basename.len - 4 ..];
+                if (std.ascii.eqlIgnoreCase(suffix, ".exe")) {
+                    invoked_basename = invoked_basename[0 .. invoked_basename.len - 4];
+                }
+            }
             const as_compat_alias = mem.eql(u8, invoked_basename, "Sig") or
                 mem.endsWith(u8, invoked_basename, "/Sig") or
                 mem.endsWith(u8, invoked_basename, "\\Sig");
