@@ -662,11 +662,15 @@ jobs:
             $tarOut | ForEach-Object { Write-Host $_ }
             throw 'tar extraction failed'
           }
-          # Materialize the Sig.exe alias as a real copy so both invocation
-          # names exist on Windows (case-insensitive lookup would also resolve
-          # Sig.exe to sig.exe, but an explicit copy is unambiguous).
+          # Windows NTFS is case-insensitive: bin\sig.exe is already invocable
+          # as bin\Sig.exe (same physical file). Only materialize an explicit
+          # alias copy if the target does not already resolve to sig.exe —
+          # otherwise Copy-Item errors with "cannot overwrite the item with
+          # itself". Either way, both invocation names work below.
           $SigPath = '.bootstrap-package\bootstrap-sig-x86_64-windows\bin\Sig.exe'
-          Copy-Item $sigPath $SigPath -Force
+          if (-not (Test-Path $SigPath)) {
+            Copy-Item $sigPath $SigPath -Force
+          }
           $sig = Resolve-Path $sigPath
           $Sig = Resolve-Path $SigPath
           $packageRoot = Split-Path (Split-Path $sig -Parent) -Parent
