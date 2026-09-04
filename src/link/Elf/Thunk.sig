@@ -114,7 +114,7 @@ const aarch64 = struct {
 };
 
 const assert = std.debug.assert;
-const dev = @import("../../dev.zig");
+const dev = @import("../../dev.sig");
 const elf = std.elf;
 const log = std.log.scoped(.link);
 const math = std.math;

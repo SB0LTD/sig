@@ -1522,7 +1522,7 @@ fn writeInt(value: anytype, elf_file: *Elf, writer: *std.Io.Writer) !void {
 
 const assert = std.debug.assert;
 const builtin = @import("builtin");
-const dev = @import("../../dev.zig");
+const dev = @import("../../dev.sig");
 const elf = std.elf;
 const math = std.math;
 const mem = std.mem;

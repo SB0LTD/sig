@@ -3,22 +3,22 @@ const Io = std.Io;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const DW = std.dwarf;
-const Builder = std.zig.llvm.Builder;
+const Builder = std.sig.llvm.Builder;
 const builtin = @import("builtin");
 const build_options = @import("build_options");
 
-const Air = @import("../Air.zig");
-const codegen = @import("../codegen.zig");
-const Compilation = @import("../Compilation.zig");
-const InternPool = @import("../InternPool.zig");
-const link = @import("../link.zig");
-const Module = @import("../Module.zig");
-const target_util = @import("../target.zig");
-const Type = @import("../Type.zig");
-const Value = @import("../Value.zig");
-const Zcu = @import("../Zcu.zig");
-const aarch64_c_abi = @import("aarch64/abi.zig");
-const FuncGen = @import("llvm/FuncGen.zig");
+const Air = @import("../Air.sig");
+const codegen = @import("../codegen.sig");
+const Compilation = @import("../Compilation.sig");
+const InternPool = @import("../InternPool.sig");
+const link = @import("../link.sig");
+const Module = @import("../Module.sig");
+const target_util = @import("../target.sig");
+const Type = @import("../Type.sig");
+const Value = @import("../Value.sig");
+const Zcu = @import("../Zcu.sig");
+const aarch64_c_abi = @import("aarch64/abi.sig");
+const FuncGen = @import("llvm/FuncGen.sig");
 const isByRef = FuncGen.isByRef;
 const fnReturnStrat = FuncGen.fnReturnStrat;
 const iterateParamTypes = FuncGen.iterateParamTypes;
@@ -26,7 +26,7 @@ const ccAbiPromoteInt = FuncGen.ccAbiPromoteInt;
 
 const log = std.log.scoped(.codegen);
 const bindings = if (build_options.have_llvm)
-    @import("llvm/bindings.zig")
+    @import("llvm/bindings.sig")
 else
     @compileError("LLVM unavailable");
 
@@ -154,7 +154,7 @@ pub const Object = struct {
     /// Values for `@llvm.used`.
     used: std.ArrayList(Builder.Constant),
 
-    pub const Ptr = if (@import("../dev.zig").env.supports(.llvm_backend)) *Object else noreturn;
+    pub const Ptr = if (@import("../dev.sig").env.supports(.llvm_backend)) *Object else noreturn;
 
     const TypeMap = std.AutoHashMapUnmanaged(InternPool.Index, Builder.Type);
 
@@ -225,7 +225,7 @@ pub const Object = struct {
         obj.* = .{
             .gpa = gpa,
             .builder = builder,
-            .out_bin_basename = try std.zig.binNameAlloc(arena, .{
+            .out_bin_basename = try std.sig.binNameAlloc(arena, .{
                 .root_name = try std.fmt.allocPrint(arena, "{s}_zcu", .{comp.root_name}),
                 .cpu_arch = target.cpu.arch,
                 .os_tag = target.os.tag,
@@ -343,7 +343,7 @@ pub const Object = struct {
         time_report: ?*Compilation.TimeReport,
         sanitize_thread: bool,
         fuzz: bool,
-        lto: std.zig.LtoMode,
+        lto: std.sig.LtoMode,
     };
 
     pub fn emit(o: *Object, pt: Zcu.PerThread, options: EmitOptions) link.Error!void {
@@ -1402,7 +1402,7 @@ pub const Object = struct {
         const dirs = o.zcu.comp.dirs;
         const path = o.zcu.fileByIndex(file_index).path;
         const root_path: ?[]const u8 = switch (path.root) {
-            .zig_lib => dirs.zig_lib.path,
+            .sig_lib => dirs.sig_lib.path,
             .global_cache => dirs.global_cache.path,
             .local_cache => dirs.local_cache.path,
             .build_root => dirs.build_root.path,
@@ -2441,13 +2441,13 @@ pub const Object = struct {
             .memory_access, .in_memory => {},
         }
         const target = o.zcu.getTarget();
-        const abi_size = std.zig.target.intByteSize(target, bits);
+        const abi_size = std.sig.target.intByteSize(target, bits);
         const llvm_bit_width = @as(u20, 8) * abi_size;
         switch (repr) {
             .as_value => unreachable,
             .memory_access => {},
             .in_memory => {
-                const zig_align = std.zig.target.intAlignment(target, bits);
+                const zig_align = std.sig.target.intAlignment(target, bits);
                 const llvm_align = o.builder.data_layout.getIntegerSpec(llvm_bit_width).abi_align;
                 if (zig_align < llvm_align.toByteUnits().?) return o.builder.arrayType(abi_size, .i8);
             },
@@ -2475,7 +2475,7 @@ pub const Object = struct {
     }) Allocator.Error!SoftF80Layout {
         const zcu = o.zcu;
         const target = zcu.getTarget();
-        assert(std.zig.target.compilerRtFloatAbi(target, 80) == .soft);
+        assert(std.sig.target.compilerRtFloatAbi(target, 80) == .soft);
         // Current compiler rt soft abi, which is not yet affected by endianness for simplicity:
         //
         //     typedef struct { uint64_t mantissa; uint16_t exponent; } f80;
@@ -2544,7 +2544,7 @@ pub const Object = struct {
     }) Allocator.Error!SoftF128Layout {
         const zcu = o.zcu;
         const target = zcu.getTarget();
-        assert(std.zig.target.compilerRtFloatAbi(target, 128) == .soft);
+        assert(std.sig.target.compilerRtFloatAbi(target, 128) == .soft);
         // Current compiler rt soft abi:
         //
         //     #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
@@ -2641,19 +2641,19 @@ pub const Object = struct {
             .f80_type,
             .f128_type,
             => switch (t.floatBits(target)) {
-                16 => |bits| switch (std.zig.target.compilerRtFloatAbi(target, bits)) {
+                16 => |bits| switch (std.sig.target.compilerRtFloatAbi(target, bits)) {
                     .hard => .half,
                     .soft => .i16,
                 },
-                32 => |bits| switch (std.zig.target.compilerRtFloatAbi(target, bits)) {
+                32 => |bits| switch (std.sig.target.compilerRtFloatAbi(target, bits)) {
                     .hard => .float,
                     .soft => .i32,
                 },
-                64 => |bits| switch (std.zig.target.compilerRtFloatAbi(target, bits)) {
+                64 => |bits| switch (std.sig.target.compilerRtFloatAbi(target, bits)) {
                     .hard => .double,
                     .soft => .i64,
                 },
-                80 => |bits| switch (std.zig.target.compilerRtFloatAbi(target, bits)) {
+                80 => |bits| switch (std.sig.target.compilerRtFloatAbi(target, bits)) {
                     .hard => .x86_fp80,
                     .soft => {
                         var llvm_field_types_buf: [5]Builder.Type = undefined;
@@ -2666,7 +2666,7 @@ pub const Object = struct {
                         );
                     },
                 },
-                128 => |bits| switch (std.zig.target.compilerRtFloatAbi(target, bits)) {
+                128 => |bits| switch (std.sig.target.compilerRtFloatAbi(target, bits)) {
                     .hard => .fp128,
                     .soft => {
                         var llvm_field_types_buf: [5]Builder.Type = undefined;
@@ -2801,10 +2801,10 @@ pub const Object = struct {
                     const payload_type = try o.lowerType(.fromInterned(error_union_type.payload_type), repr);
 
                     const payload_align = Type.fromInterned(error_union_type.payload_type).abiAlignment(zcu);
-                    const error_align: InternPool.Alignment = .fromByteUnits(std.zig.target.intAlignment(target, zcu.errorSetBits()));
+                    const error_align: InternPool.Alignment = .fromByteUnits(std.sig.target.intAlignment(target, zcu.errorSetBits()));
 
                     const payload_size = Type.fromInterned(error_union_type.payload_type).abiSize(zcu);
-                    const error_size = std.zig.target.intByteSize(target, zcu.errorSetBits());
+                    const error_size = std.sig.target.intByteSize(target, zcu.errorSetBits());
 
                     var fields: [3]Builder.Type = undefined;
                     var fields_len: usize = 2;
@@ -3633,28 +3633,28 @@ pub const Object = struct {
     }
 
     pub fn f16Const(o: *Object, val: f16) Allocator.Error!Builder.Constant {
-        return switch (std.zig.target.compilerRtFloatAbi(o.zcu.getTarget(), 16)) {
+        return switch (std.sig.target.compilerRtFloatAbi(o.zcu.getTarget(), 16)) {
             .hard => o.builder.halfConst(val),
             .soft => o.builder.intConst(.i16, @as(u16, @bitCast(val))),
         };
     }
 
     pub fn f32Const(o: *Object, val: f32) Allocator.Error!Builder.Constant {
-        return switch (std.zig.target.compilerRtFloatAbi(o.zcu.getTarget(), 32)) {
+        return switch (std.sig.target.compilerRtFloatAbi(o.zcu.getTarget(), 32)) {
             .hard => o.builder.floatConst(val),
             .soft => o.builder.intConst(.i32, @as(u32, @bitCast(val))),
         };
     }
 
     pub fn f64Const(o: *Object, val: f64) Allocator.Error!Builder.Constant {
-        return switch (std.zig.target.compilerRtFloatAbi(o.zcu.getTarget(), 64)) {
+        return switch (std.sig.target.compilerRtFloatAbi(o.zcu.getTarget(), 64)) {
             .hard => o.builder.doubleConst(val),
             .soft => o.builder.intConst(.i64, @as(u64, @bitCast(val))),
         };
     }
 
     pub fn f80Const(o: *Object, val: f80) Allocator.Error!Builder.Constant {
-        switch (std.zig.target.compilerRtFloatAbi(o.zcu.getTarget(), 80)) {
+        switch (std.sig.target.compilerRtFloatAbi(o.zcu.getTarget(), 80)) {
             .hard => return o.builder.x86_fp80Const(val),
             .soft => {},
         }
@@ -3683,7 +3683,7 @@ pub const Object = struct {
     }
 
     pub fn f128Const(o: *Object, val: f128) Allocator.Error!Builder.Constant {
-        switch (std.zig.target.compilerRtFloatAbi(o.zcu.getTarget(), 128)) {
+        switch (std.sig.target.compilerRtFloatAbi(o.zcu.getTarget(), 128)) {
             .hard => return o.builder.fp128Const(val),
             .soft => {},
         }

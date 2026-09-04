@@ -209,12 +209,12 @@ fn dumpCrashContextSema(anal: *AnalyzeBody, stderr: *Io.Writer, crash_heap: []u8
 
 const std = @import("std");
 const Io = std.Io;
-const Zir = std.zig.Zir;
+const Zir = std.sig.Zir;
 
-const Sema = @import("Sema.zig");
-const Zcu = @import("Zcu.zig");
-const link = @import("link.zig");
-const InternPool = @import("InternPool.zig");
-const print_zir = @import("print_zir.zig");
+const Sema = @import("Sema.sig");
+const Zcu = @import("Zcu.sig");
+const link = @import("link.sig");
+const InternPool = @import("InternPool.sig");
+const print_zir = @import("print_zir.sig");
 
 const build_options = @import("build_options");

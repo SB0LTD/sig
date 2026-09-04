@@ -11,28 +11,28 @@ const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
 const Path = std.Build.Cache.Path;
 const Directory = std.Build.Cache.Directory;
-const Compilation = @import("Compilation.zig");
-const LibCInstallation = std.zig.LibCInstallation;
+const Compilation = @import("Compilation.sig");
+const LibCInstallation = std.sig.LibCInstallation;
 
-const trace = @import("tracy.zig").trace;
-const wasi_libc = @import("libs/wasi_libc.zig");
+const trace = @import("tracy.sig").trace;
+const wasi_libc = @import("libs/wasi_libc.sig");
 
-const Zcu = @import("Zcu.zig");
-const InternPool = @import("InternPool.zig");
-const Type = @import("Type.zig");
-const Value = @import("Value.zig");
-const dev = @import("dev.zig");
-const target_util = @import("target.zig");
-const codegen = @import("codegen.zig");
-const crash_report = @import("crash_report.zig");
+const Zcu = @import("Zcu.sig");
+const InternPool = @import("InternPool.sig");
+const Type = @import("Type.sig");
+const Value = @import("Value.sig");
+const dev = @import("dev.sig");
+const target_util = @import("target.sig");
+const codegen = @import("codegen.sig");
+const crash_report = @import("crash_report.sig");
 
-pub const ConstPool = @import("link/ConstPool.zig");
-pub const LdScript = @import("link/LdScript.zig");
-pub const MappedFile = @import("link/MappedFile.zig");
-pub const Queue = @import("link/Queue.zig");
+pub const ConstPool = @import("link/ConstPool.sig");
+pub const LdScript = @import("link/LdScript.sig");
+pub const MappedFile = @import("link/MappedFile.sig");
+pub const Queue = @import("link/Queue.sig");
 
-pub const aarch64 = @import("link/aarch64.zig");
-pub const loongarch = @import("link/loongarch.zig");
+pub const aarch64 = @import("link/aarch64.sig");
+pub const loongarch = @import("link/loongarch.sig");
 
 pub const Error = Allocator.Error || Io.Cancelable || error{
     /// An error message has already been stored in persistent state on `Compilation` or `Zcu`, for
@@ -91,9 +91,9 @@ pub const Diags = struct {
 
         fn string(
             msg: *const Msg,
-            bundle: *std.zig.ErrorBundle.Wip,
+            bundle: *std.sig.ErrorBundle.Wip,
             base: ?*File,
-        ) Allocator.Error!std.zig.ErrorBundle.String {
+        ) Allocator.Error!std.sig.ErrorBundle.String {
             return switch (msg.source_location) {
                 .none => try bundle.addString(msg.msg),
                 .wasm => |sl| {
@@ -379,7 +379,7 @@ pub const Diags = struct {
         diags.flags.alloc_failure_occurred = true;
     }
 
-    pub fn addMessagesToBundle(diags: *const Diags, bundle: *std.zig.ErrorBundle.Wip, base: ?*File) Allocator.Error!void {
+    pub fn addMessagesToBundle(diags: *const Diags, bundle: *std.sig.ErrorBundle.Wip, base: ?*File) Allocator.Error!void {
         for (diags.msgs.items) |link_err| {
             try bundle.addRootErrorMessage(.{
                 .msg = try link_err.string(bundle, base),
@@ -405,7 +405,7 @@ pub const File = struct {
     file: ?Io.File,
     gc_sections: bool,
     print_gc_sections: bool,
-    build_id: std.zig.BuildId,
+    build_id: std.sig.BuildId,
     allow_shlib_undefined: bool,
     stack_size: u64,
     post_prelink: bool = false,
@@ -438,7 +438,7 @@ pub const File = struct {
         tsaware: bool,
         nxcompat: bool,
         dynamicbase: bool,
-        compress_debug_sections: std.zig.CompressDebugSections,
+        compress_debug_sections: std.sig.CompressDebugSections,
         bind_global_refs_locally: bool,
         import_symbols: bool,
         import_table: bool,
@@ -449,7 +449,7 @@ pub const File = struct {
         object_host_name: ?[]const u8,
         export_symbol_names: []const []const u8,
         global_base: ?u64,
-        build_id: std.zig.BuildId,
+        build_id: std.sig.BuildId,
         hash_style: Lld.Elf.HashStyle,
         sort_section: ?Lld.Elf.SortSection,
         major_subsystem_version: ?u16,
@@ -459,7 +459,7 @@ pub const File = struct {
         allow_shlib_undefined: ?bool,
         allow_undefined_version: bool,
         enable_new_dtags: ?bool,
-        subsystem: ?std.zig.Subsystem,
+        subsystem: ?std.sig.Subsystem,
         linker_script: ?Path,
         version_script: ?Path,
         soname: ?[]const u8,
@@ -546,7 +546,7 @@ pub const File = struct {
             const lld: *Lld = try .createEmpty(arena, comp, emit, options);
             return &lld.base;
         }
-        switch (Tag.fromObjectFormat(comp.root_mod.resolved_target.result.ofmt, comp.config.use_new_linker)) {
+        switch (Tag.fromObjectFormat(&comp.root_mod.resolved_target.result, comp.config.use_new_linker)) {
             .plan9 => return error.UnsupportedObjectFormat,
             inline else => |tag| {
                 dev.check(tag.devFeature());
@@ -569,7 +569,7 @@ pub const File = struct {
             const lld: *Lld = try .createEmpty(arena, comp, emit, options);
             return &lld.base;
         }
-        switch (Tag.fromObjectFormat(comp.root_mod.resolved_target.result.ofmt, comp.config.use_new_linker)) {
+        switch (Tag.fromObjectFormat(&comp.root_mod.resolved_target.result, comp.config.use_new_linker)) {
             .plan9 => return error.UnsupportedObjectFormat,
             inline else => |tag| {
                 dev.check(tag.devFeature());
@@ -672,6 +672,7 @@ pub const File = struct {
             },
             .plan9 => unreachable,
             .spork8 => dev.check(.spork8_linker),
+            .sb0 => dev.check(.sb0_linker),
         }
     }
 
@@ -750,6 +751,7 @@ pub const File = struct {
             .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
             .plan9 => unreachable,
             .spork8 => dev.check(.spork8_linker),
+            .sb0 => dev.check(.sb0_linker),
         }
     }
 
@@ -1129,6 +1131,7 @@ pub const File = struct {
             .plan9,
             .lld,
             .spork8,
+            .sb0,
             => return .unimplemented,
             inline else => |tag| {
                 dev.check(tag.devFeature());
@@ -1308,6 +1311,7 @@ pub const File = struct {
         wasm,
         spirv,
         spork8,
+        sb0,
         plan9,
         lld,
 
@@ -1323,11 +1327,12 @@ pub const File = struct {
                 .lld => Lld,
                 .plan9 => comptime unreachable,
                 .spork8 => Spork8,
+                .sb0 => Sb0,
             };
         }
 
-        fn fromObjectFormat(ofmt: std.Target.ObjectFormat, use_new_linker: bool) Tag {
-            return switch (ofmt) {
+        fn fromObjectFormat(target: *const std.Target, use_new_linker: bool) Tag {
+            return switch (target.ofmt) {
                 .coff => .coff2,
                 .elf => if (use_new_linker) .elf2 else .elf,
                 .macho => .macho,
@@ -1336,10 +1341,15 @@ pub const File = struct {
                 .c => .c,
                 .spirv => .spirv,
                 .hex => @panic("TODO implement hex object format"),
-                // This may seem surprising at first, but with a little massaging, the spork8 linker
-                // could and probably should be generalized into a "raw linker" which is used to output
-                // bare machine code for any architecture for which a corresponding backend exists.
-                .raw => .spork8,
+                // Both `.sb0` and `.spork8` are raw bare-machine-code linkers.
+                // The native SB0 target (`aarch64-sb0`) uses the SB0 linker,
+                // which emits the SB0X/SB0K container with its bounded segment
+                // layout and reset-vector-first placement; every other raw
+                // target uses the general spork8 raw linker, which emits flat
+                // machine code for any architecture with a corresponding
+                // backend. The two share the `.raw` object format but differ in
+                // container contract, so we disambiguate on the SB0 OS tag here.
+                .raw => if (target.os.tag == .sb0) .sb0 else .spork8,
             };
         }
 
@@ -1416,17 +1426,18 @@ pub const File = struct {
         return base.comp.zcu.?.codegenFail(nav_index, format, args);
     }
 
-    pub const Lld = @import("link/Lld.zig");
-    pub const C = @import("link/C.zig");
-    pub const Coff2 = @import("link/Coff.zig");
-    pub const Spork8 = @import("link/Spork8.zig");
-    pub const Elf = @import("link/Elf.zig");
-    pub const Elf2 = @import("link/Elf2.zig");
-    pub const MachO = @import("link/MachO.zig");
-    pub const SpirV = @import("link/SpirV.zig");
-    pub const Wasm = @import("link/Wasm.zig");
-    pub const Dwarf = @import("link/Dwarf.zig");
-    pub const Dwarf2 = @import("link/Dwarf2.zig");
+    pub const Lld = @import("link/Lld.sig");
+    pub const C = @import("link/C.sig");
+    pub const Coff2 = @import("link/Coff.sig");
+    pub const Spork8 = @import("link/Spork8.sig");
+    pub const Sb0 = @import("link/Sb0.sig");
+    pub const Elf = @import("link/Elf.sig");
+    pub const Elf2 = @import("link/Elf2.sig");
+    pub const MachO = @import("link/MachO.sig");
+    pub const SpirV = @import("link/SpirV.sig");
+    pub const Wasm = @import("link/Wasm.sig");
+    pub const Dwarf = @import("link/Dwarf.sig");
+    pub const Dwarf2 = @import("link/Dwarf2.sig");
 };
 
 pub const PrelinkTask = union(enum) {
@@ -1956,7 +1967,7 @@ pub fn resolveInputs(
     /// Allocated with `gpa`.
     resolved_inputs: *std.ArrayList(Input),
     lib_directories: []const Cache.Directory,
-    color: std.zig.Color,
+    color: std.sig.Color,
 ) Allocator.Error!void {
     var checked_paths: std.ArrayList(u8) = .empty;
     defer checked_paths.deinit(gpa);
@@ -2215,7 +2226,7 @@ fn resolveLibInput(
     name_query: UnresolvedInput.NameQuery,
     target: *const std.Target,
     link_mode: std.lang.LinkMode,
-    color: std.zig.Color,
+    color: std.sig.Color,
 ) Allocator.Error!ResolveLibInputResult {
     try resolved_inputs.ensureUnusedCapacity(gpa, 1);
     try archive_dedup.ensureUnusedCapacity(gpa, 1);
@@ -2423,7 +2434,7 @@ fn resolvePathInput(
     archive_dedup: *ArchiveDedupMap,
     target: *const std.Target,
     pq: UnresolvedInput.PathQuery,
-    color: std.zig.Color,
+    color: std.sig.Color,
 ) Allocator.Error!?ResolveLibInputResult {
     switch (Compilation.classifyFileExt(pq.path.sub_path)) {
         .static_library => return try resolvePathInputLib(gpa, arena, io, unresolved_inputs, resolved_inputs, ld_script_bytes, archive_dedup, target, pq, .static, color),
@@ -2469,7 +2480,7 @@ fn resolvePathInputLib(
     target: *const std.Target,
     pq: UnresolvedInput.PathQuery,
     link_mode: std.lang.LinkMode,
-    color: std.zig.Color,
+    color: std.sig.Color,
 ) Allocator.Error!ResolveLibInputResult {
     try resolved_inputs.ensureUnusedCapacity(gpa, 1);
     try archive_dedup.ensureUnusedCapacity(gpa, 1);
@@ -2517,7 +2528,7 @@ fn resolvePathInputLib(
 
         const ld_script_result = LdScript.parse(gpa, &diags, test_path, ld_script_bytes.items);
         if (diags.hasErrors()) {
-            var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+            var wip_errors: std.sig.ErrorBundle.Wip = undefined;
             try wip_errors.init(gpa);
             defer wip_errors.deinit();
 

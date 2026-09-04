@@ -1734,7 +1734,7 @@ pub const Inst = struct {
             // Note that in safety builds, Zig is allowed to insert a secret field for safety checks.
             assert(@sizeOf(Data) == 8);
         }
-        const Mnemonic = @import("Encoding.zig").Mnemonic;
+        const Mnemonic = @import("Encoding.sig").Mnemonic;
         if (@typeInfo(Mnemonic).@"enum".field_names.len != 978 or
             @typeInfo(Fixes).@"enum".field_names.len != 231 or
             @typeInfo(Tag).@"enum".field_names.len != 251)
@@ -2121,15 +2121,15 @@ pub fn resolveMemoryExtra(mir: Mir, payload: u32) Memory {
 }
 
 const assert = std.debug.assert;
-const bits = @import("bits.zig");
+const bits = @import("bits.sig");
 const builtin = @import("builtin");
-const encoder = @import("encoder.zig");
+const encoder = @import("encoder.sig");
 const std = @import("std");
 
-const InternPool = @import("../../InternPool.zig");
+const InternPool = @import("../../InternPool.sig");
 const Mir = @This();
 const Register = bits.Register;
-const Emit = @import("Emit.zig");
-const codegen = @import("../../codegen.zig");
-const link = @import("../../link.zig");
-const Zcu = @import("../../Zcu.zig");
+const Emit = @import("Emit.sig");
+const codegen = @import("../../codegen.sig");
+const link = @import("../../link.sig");
+const Zcu = @import("../../Zcu.sig");

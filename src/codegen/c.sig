@@ -6,25 +6,25 @@ const log = std.log.scoped(.c);
 const Allocator = mem.Allocator;
 const Writer = std.Io.Writer;
 
-const codegen = @import("../codegen.zig");
-const link = @import("../link.zig");
-const Zcu = @import("../Zcu.zig");
-const Module = @import("../Module.zig");
-const Compilation = @import("../Compilation.zig");
-const Value = @import("../Value.zig");
-const Type = @import("../Type.zig");
+const codegen = @import("../codegen.sig");
+const link = @import("../link.sig");
+const Zcu = @import("../Zcu.sig");
+const Module = @import("../Module.sig");
+const Compilation = @import("../Compilation.sig");
+const Value = @import("../Value.sig");
+const Type = @import("../Type.sig");
 const C = link.File.C;
 const Decl = Zcu.Decl;
-const trace = @import("../tracy.zig").trace;
-const Air = @import("../Air.zig");
-const InternPool = @import("../InternPool.zig");
+const trace = @import("../tracy.sig").trace;
+const Air = @import("../Air.sig");
+const InternPool = @import("../InternPool.sig");
 const Alignment = InternPool.Alignment;
 
 const BigIntLimb = std.math.big.Limb;
 const BigInt = std.math.big.int;
 
 pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
-    return comptime switch (@import("../dev.zig").env.supports(.legalize)) {
+    return comptime switch (@import("../dev.sig").env.supports(.legalize)) {
         inline false, true => |supports_legalize| &.init(.{
             // we don't currently ask zig1 to use safe optimization modes
             .expand_bit_cast_safe = supports_legalize,
@@ -88,7 +88,7 @@ pub const Mir = struct {
 
 pub const Error = codegen.Error || Writer.Error;
 
-pub const CType = @import("c/type.zig").CType;
+pub const CType = @import("c/type.sig").CType;
 
 pub const CValue = union(enum) {
     none: void,
@@ -524,7 +524,7 @@ pub const Function = struct {
             indent_char => f.code.shrinkRetainingCapacity(written.len - indent_width),
             '\n' => try f.code.writer.splatByteAll(indent_char, f.indent_counter),
             else => {
-                std.debug.print("\"{f}\"\n", .{std.zig.fmtString(written[written.len -| 100..])});
+                std.debug.print("\"{f}\"\n", .{std.sig.fmtString(written[written.len -| 100..])});
                 unreachable;
             },
         }
@@ -2053,7 +2053,7 @@ pub fn genHeader(zcu: *Zcu, w: *Writer) !void {
         .msvc, .itanium => try w.writeAll("#define ZIG_TARGET_ABI_MSVC\n"),
         else => {},
     }
-    for ([_]u16{ 16, 32, 64, 80, 128 }) |bits| switch (std.zig.target.compilerRtFloatAbi(target, bits)) {
+    for ([_]u16{ 16, 32, 64, 80, 128 }) |bits| switch (std.sig.target.compilerRtFloatAbi(target, bits)) {
         .hard => {},
         .soft => try w.print("#define ZIG_TARGET_SOFT_COMPILER_RT_F{d}_ABI\n", .{bits}),
     };

@@ -777,7 +777,7 @@ pub fn addTests(db: *Debugger) void {
                 .path = "storage.zig",
                 .source =
                 \\comptime {
-                \\    _ = @import("externs.zig");
+                \\    _ = @import("externs.sig");
                 \\}
                 \\const global_const: u64 = 0x19e50dc8d6002077;
                 \\var global_var: u64 = 0xcc423cec08622e32;
@@ -1382,7 +1382,7 @@ pub fn addTests(db: *Debugger) void {
                 .path = "root0.zig",
                 .source =
                 \\const root0 = @This();
-                \\pub const root1 = @import("root1.zig");
+                \\pub const root1 = @import("root1.sig");
                 \\const mod0 = @import("module");
                 \\const mod1 = mod0.mod1;
                 \\pub fn r0pf(r0pa: u32) void {
@@ -1429,7 +1429,7 @@ pub fn addTests(db: *Debugger) void {
             .{
                 .path = "root1.zig",
                 .source =
-                \\const root0 = @import("root0.zig");
+                \\const root0 = @import("root0.sig");
                 \\const root1 = @This();
                 \\const mod0 = @import("module");
                 \\const mod1 = mod0.mod1;
@@ -1471,7 +1471,7 @@ pub fn addTests(db: *Debugger) void {
                 \\const root0 = @import("root");
                 \\const root1 = root0.root1;
                 \\const mod0 = @This();
-                \\pub const mod1 = @import("mod1.zig");
+                \\pub const mod1 = @import("mod1.sig");
                 \\pub fn m0pf(m0pa: u32) void {
                 \\    root0.r0cf(m0pa ^ 1);
                 \\    root0.r0cfi(m0pa ^ 2);
@@ -1508,7 +1508,7 @@ pub fn addTests(db: *Debugger) void {
                 .source =
                 \\const root0 = @import("root");
                 \\const root1 = root0.root1;
-                \\const mod0 = @import("mod0.zig");
+                \\const mod0 = @import("mod0.sig");
                 \\const mod1 = @This();
                 \\pub fn m1pf(m1pa: u32) void {
                 \\    root0.r0cf(m1pa ^ 1);

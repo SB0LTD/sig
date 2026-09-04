@@ -19,30 +19,30 @@ const refs_log = std.log.scoped(.zcu_refs);
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
-const Ast = std.zig.Ast;
+const Ast = std.sig.Ast;
 
-const Compilation = @import("Compilation.zig");
+const Compilation = @import("Compilation.sig");
 const Cache = std.Build.Cache;
-pub const Value = @import("Value.zig");
-pub const Type = @import("Type.zig");
-const Module = @import("Module.zig");
-const link = @import("link.zig");
-const Air = @import("Air.zig");
-const Zir = std.zig.Zir;
-const tracy = @import("tracy.zig");
-const AstGen = std.zig.AstGen;
-const Sema = @import("Sema.zig");
-const target_util = @import("target.zig");
+pub const Value = @import("Value.sig");
+pub const Type = @import("Type.sig");
+const Module = @import("Module.sig");
+const link = @import("link.sig");
+const Air = @import("Air.sig");
+const Zir = std.sig.Zir;
+const tracy = @import("tracy.sig");
+const AstGen = std.sig.AstGen;
+const Sema = @import("Sema.sig");
+const target_util = @import("target.sig");
 const build_options = @import("build_options");
-const InternPool = @import("InternPool.zig");
+const InternPool = @import("InternPool.sig");
 const Alignment = InternPool.Alignment;
 const AnalUnit = InternPool.AnalUnit;
-const BuiltinFn = std.zig.BuiltinFn;
-const codegen = @import("codegen.zig");
-const LlvmObject = @import("codegen/llvm.zig").Object;
-const dev = @import("dev.zig");
-const Zoir = std.zig.Zoir;
-const ZonGen = std.zig.ZonGen;
+const BuiltinFn = std.sig.BuiltinFn;
+const codegen = @import("codegen.sig");
+const LlvmObject = @import("codegen/llvm.sig").Object;
+const dev = @import("dev.sig");
+const Zoir = std.sig.Zoir;
+const ZonGen = std.sig.ZonGen;
 
 comptime {
     @setEvalBranchQuota(4000);
@@ -261,7 +261,7 @@ failed_imports: std.ArrayList(struct {
 failed_exports: std.array_hash_map.Auto(Export.Index, *ErrorMsg) = .empty,
 /// If analysis failed due to a cimport error, the corresponding Clang errors
 /// are stored here.
-cimport_errors: std.array_hash_map.Auto(AnalUnit, std.zig.ErrorBundle) = .empty,
+cimport_errors: std.array_hash_map.Auto(AnalUnit, std.sig.ErrorBundle) = .empty,
 
 /// Maximum amount of distinct error values, set by --error-limit
 error_limit: ErrorInt,
@@ -414,7 +414,7 @@ pub const IncrementalDebugState = struct {
     }
 };
 
-pub const PerThread = @import("Zcu/PerThread.zig");
+pub const PerThread = @import("Zcu/PerThread.sig");
 
 pub const ImportTableAdapter = struct {
     zcu: *const Zcu,
@@ -1062,8 +1062,8 @@ pub const File = struct {
     pub fn modeFromPath(path: []const u8) ?Ast.Mode {
         if (std.mem.endsWith(u8, path, ".zon")) {
             return .zon;
-        } else if (std.mem.endsWith(u8, path, ".zig")) {
-            return .zig;
+        } else if (std.mem.endsWith(u8, path, ".sig")) {
+            return .Sig;
         } else {
             return null;
         }
@@ -1204,8 +1204,8 @@ pub const File = struct {
     pub fn errorBundleWholeFileSrc(
         file: *File,
         zcu: *const Zcu,
-        eb: *std.zig.ErrorBundle.Wip,
-    ) Allocator.Error!std.zig.ErrorBundle.SourceLocationIndex {
+        eb: *std.sig.ErrorBundle.Wip,
+    ) Allocator.Error!std.sig.ErrorBundle.SourceLocationIndex {
         return eb.addSourceLocation(.{
             .src_path = try eb.printString("{f}", .{file.path.fmt(zcu.comp)}),
             .span_start = 0,
@@ -1221,12 +1221,12 @@ pub const File = struct {
         file: *File,
         tok: Ast.TokenIndex,
         zcu: *const Zcu,
-        eb: *std.zig.ErrorBundle.Wip,
-    ) Allocator.Error!std.zig.ErrorBundle.SourceLocationIndex {
+        eb: *std.sig.ErrorBundle.Wip,
+    ) Allocator.Error!std.sig.ErrorBundle.SourceLocationIndex {
         const tree = &file.tree.?;
         const start = tree.tokenStart(tok);
         const end = start + tree.tokenSlice(tok).len;
-        const loc = std.zig.findLineColumn(file.source.?, start);
+        const loc = std.sig.findLineColumn(file.source.?, start);
         return eb.addSourceLocation(.{
             .src_path = try eb.printString("{f}", .{file.path.fmt(zcu.comp)}),
             .span_start = start,
@@ -1315,7 +1315,7 @@ pub const AstGenSrc = union(enum) {
     root,
     import: struct {
         importing_file: Zcu.File.Index,
-        import_tok: std.zig.Ast.TokenIndex,
+        import_tok: std.sig.Ast.TokenIndex,
     },
 };
 
@@ -4579,7 +4579,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.lang.CallingConvention) union(enum) 
 
         .stage2_llvm => {
             dev.check(.llvm_backend);
-            break :ok @import("codegen/llvm.zig").toLlvmCallConv(cc, target) != null;
+            break :ok @import("codegen/llvm.sig").toLlvmCallConv(cc, target) != null;
         },
         .stage2_c => {
             dev.check(.c_backend);
@@ -4803,7 +4803,7 @@ pub fn codegenFailTypeMsg(zcu: *Zcu, ty_index: InternPool.Index, msg: *ErrorMsg)
 /// Asserts that `zcu.multi_module_err != null`.
 pub fn addFileInMultipleModulesError(
     zcu: *Zcu,
-    eb: *std.zig.ErrorBundle.Wip,
+    eb: *std.sig.ErrorBundle.Wip,
 ) Allocator.Error!void {
     const gpa = zcu.gpa;
 
@@ -4823,7 +4823,7 @@ pub fn addFileInMultipleModulesError(
         info.modules[1].fully_qualified_name,
     });
 
-    var notes: std.ArrayList(std.zig.ErrorBundle.MessageIndex) = .empty;
+    var notes: std.ArrayList(std.sig.ErrorBundle.MessageIndex) = .empty;
     defer notes.deinit(gpa);
 
     try notes.append(gpa, try eb.addErrorMessage(.{
@@ -4840,14 +4840,14 @@ pub fn addFileInMultipleModulesError(
         .notes_len = @intCast(notes.items.len),
     });
     const notes_start = try eb.reserveNotes(@intCast(notes.items.len));
-    const notes_slice: []std.zig.ErrorBundle.MessageIndex = @ptrCast(eb.extra.items[notes_start..]);
+    const notes_slice: []std.sig.ErrorBundle.MessageIndex = @ptrCast(eb.extra.items[notes_start..]);
     @memcpy(notes_slice, notes.items);
 }
 
 fn explainWhyFileIsInModule(
     zcu: *Zcu,
-    eb: *std.zig.ErrorBundle.Wip,
-    notes_out: *std.ArrayList(std.zig.ErrorBundle.MessageIndex),
+    eb: *std.sig.ErrorBundle.Wip,
+    notes_out: *std.ArrayList(std.sig.ErrorBundle.MessageIndex),
     file: File.Index,
     in_module: *Module,
     ref: File.Reference,
@@ -4917,7 +4917,7 @@ fn explainWhyFileIsInModule(
     }
 }
 
-pub fn addDependencyLoopErrors(zcu: *Zcu, eb: *std.zig.ErrorBundle.Wip) Allocator.Error!void {
+pub fn addDependencyLoopErrors(zcu: *Zcu, eb: *std.sig.ErrorBundle.Wip) Allocator.Error!void {
     const gpa = zcu.comp.gpa;
 
     const all_references = try zcu.resolveReferences();
@@ -4962,7 +4962,7 @@ pub fn addDependencyLoopErrors(zcu: *Zcu, eb: *std.zig.ErrorBundle.Wip) Allocato
         }
 
         // Collect a reference trace for the start of the loop.
-        var ref_trace: std.ArrayList(std.zig.ErrorBundle.ReferenceTrace) = .empty;
+        var ref_trace: std.ArrayList(std.sig.ErrorBundle.ReferenceTrace) = .empty;
         defer ref_trace.deinit(gpa);
         const frame_limit = zcu.comp.reference_trace orelse 0;
         try zcu.populateReferenceTrace(units.items[start_index], frame_limit, eb, &ref_trace);
@@ -4979,7 +4979,7 @@ pub fn addDependencyLoopErrors(zcu: *Zcu, eb: *std.zig.ErrorBundle.Wip) Allocato
         }
 
         // Collect all notes first so we don't leave an incomplete root error message on `error.AlreadyReported`.
-        const note_buf = try gpa.alloc(std.zig.ErrorBundle.MessageIndex, units.items.len + 1);
+        const note_buf = try gpa.alloc(std.sig.ErrorBundle.MessageIndex, units.items.len + 1);
         defer gpa.free(note_buf);
         note_buf[0] = addDependencyLoopErrorLine(zcu, eb, units.items[start_index], ref_trace.items) catch |err| switch (err) {
             error.AlreadyReported => return, // give up on the dep loop error
@@ -5008,16 +5008,16 @@ pub fn addDependencyLoopErrors(zcu: *Zcu, eb: *std.zig.ErrorBundle.Wip) Allocato
             .notes_len = @intCast(units.items.len + 1),
         });
         const notes_start = try eb.reserveNotes(@intCast(units.items.len + 1));
-        const notes: []std.zig.ErrorBundle.MessageIndex = @ptrCast(eb.extra.items[notes_start..]);
+        const notes: []std.sig.ErrorBundle.MessageIndex = @ptrCast(eb.extra.items[notes_start..]);
         @memcpy(notes, note_buf);
     }
 }
 fn addDependencyLoopErrorLine(
     zcu: *Zcu,
-    eb: *std.zig.ErrorBundle.Wip,
+    eb: *std.sig.ErrorBundle.Wip,
     source_unit: AnalUnit,
-    ref_trace: []const std.zig.ErrorBundle.ReferenceTrace,
-) (Allocator.Error || error{AlreadyReported})!std.zig.ErrorBundle.MessageIndex {
+    ref_trace: []const std.sig.ErrorBundle.ReferenceTrace,
+) (Allocator.Error || error{AlreadyReported})!std.sig.ErrorBundle.MessageIndex {
     const ip = &zcu.intern_pool;
     const comp = zcu.comp;
 
@@ -5028,7 +5028,7 @@ fn addDependencyLoopErrorLine(
 
     const dep_node = zcu.dependency_loop_nodes.get(source_unit).?;
 
-    const msg: std.zig.ErrorBundle.String = if (dep_node.unit == source_unit) switch (source_unit.unwrap()) {
+    const msg: std.sig.ErrorBundle.String = if (dep_node.unit == source_unit) switch (source_unit.unwrap()) {
         .@"comptime" => unreachable, // cannot be involved in a dependency loop
         .nav_ty, .nav_val => try eb.printString("{f} depends on itself here", .{fmt_source}),
         .memoized_state => unreachable, // memoized_state definitely does not *directly* depend on itself
@@ -5076,7 +5076,7 @@ fn addDependencyLoopErrorLine(
         try Compilation.unableToLoadZcuFile(zcu, eb, src_loc.file_scope, err);
         return error.AlreadyReported;
     };
-    const loc = std.zig.findLineColumn(source, span.main);
+    const loc = std.sig.findLineColumn(source, span.main);
     const eb_src = try eb.addSourceLocation(.{
         .src_path = try eb.printString("{f}", .{src_loc.file_scope.path.fmt(comp)}),
         .span_start = span.start,
@@ -5120,8 +5120,8 @@ pub fn populateReferenceTrace(
     zcu: *Zcu,
     root: AnalUnit,
     frame_limit: u32,
-    eb: *std.zig.ErrorBundle.Wip,
-    ref_trace: *std.ArrayList(std.zig.ErrorBundle.ReferenceTrace),
+    eb: *std.sig.ErrorBundle.Wip,
+    ref_trace: *std.ArrayList(std.sig.ErrorBundle.ReferenceTrace),
 ) Allocator.Error!void {
     const ip = &zcu.intern_pool;
     const gpa = zcu.comp.gpa;
@@ -5184,8 +5184,8 @@ pub fn populateReferenceTrace(
 }
 fn addReferenceTraceFrame(
     zcu: *Zcu,
-    eb: *std.zig.ErrorBundle.Wip,
-    ref_trace: *std.ArrayList(std.zig.ErrorBundle.ReferenceTrace),
+    eb: *std.sig.ErrorBundle.Wip,
+    ref_trace: *std.ArrayList(std.sig.ErrorBundle.ReferenceTrace),
     name: []const u8,
     lazy_src: Zcu.LazySrcLoc,
     inlined: bool,
@@ -5200,7 +5200,7 @@ fn addReferenceTraceFrame(
         try Compilation.unableToLoadZcuFile(zcu, eb, src.file_scope, err);
         return error.AlreadyReported;
     };
-    const loc = std.zig.findLineColumn(source, span.main);
+    const loc = std.sig.findLineColumn(source, span.main);
     try ref_trace.append(gpa, .{
         .decl_name = try eb.printString("{s}{s}", .{ name, if (inlined) " [inlined]" else "" }),
         .src_loc = try eb.addSourceLocation(.{

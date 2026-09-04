@@ -4,20 +4,20 @@ const std = @import("std");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const DW = std.dwarf;
-const Zir = std.zig.Zir;
+const Zir = std.sig.Zir;
 const assert = std.debug.assert;
 const log = std.log.scoped(.dwarf);
 const Writer = std.Io.Writer;
 
-const InternPool = @import("../InternPool.zig");
-const Module = @import("../Module.zig");
-const Type = @import("../Type.zig");
-const Value = @import("../Value.zig");
-const Zcu = @import("../Zcu.zig");
-const codegen = @import("../codegen.zig");
-const dev = @import("../dev.zig");
-const link = @import("../link.zig");
-const target_info = @import("../target.zig");
+const InternPool = @import("../InternPool.sig");
+const Module = @import("../Module.sig");
+const Type = @import("../Type.sig");
+const Value = @import("../Value.sig");
+const Zcu = @import("../Zcu.sig");
+const codegen = @import("../codegen.sig");
+const dev = @import("../dev.sig");
+const link = @import("../link.sig");
+const target_info = @import("../target.sig");
 
 gpa: Allocator,
 bin_file: *link.File,
@@ -123,7 +123,7 @@ const DebugFrame = struct {
         } + switch (target.cpu.arch) {
             .x86_64 => len: {
                 dev.checkAny(&.{ .llvm_backend, .x86_64_backend });
-                const Register = @import("../codegen/x86_64/bits.zig").Register;
+                const Register = @import("../codegen/x86_64/bits.sig").Register;
                 break :len uleb128Bytes(1) + sleb128Bytes(-8) + uleb128Bytes(Register.rip.dwarfNum()) +
                     1 + uleb128Bytes(Register.rsp.dwarfNum()) + sleb128Bytes(-1) +
                     1 + uleb128Bytes(1);
@@ -2207,7 +2207,7 @@ pub const WipNav = struct {
         },
         nav: *const InternPool.Nav,
         file: Zcu.File.Index,
-        decl: *const std.zig.Zir.Inst.Declaration.Unwrapped,
+        decl: *const std.sig.Zir.Inst.Declaration.Unwrapped,
     ) (UpdateError || Writer.Error)!void {
         const zcu = wip_nav.pt.zcu;
         const ip = &zcu.intern_pool;
@@ -2321,7 +2321,7 @@ pub fn init(lf: *link.File, format: DW.Format) Dwarf {
         .debug_aranges = .{ .section = Section.init },
         .debug_frame = .{
             .header = if (target.cpu.arch == .x86_64 and target.ofmt == .elf) header: {
-                const Register = @import("../codegen/x86_64/bits.zig").Register;
+                const Register = @import("../codegen/x86_64/bits.sig").Register;
                 break :header comptime .{
                     .format = .eh_frame,
                     .code_alignment_factor = 1,
@@ -4790,7 +4790,7 @@ fn flushWriterError(dwarf: *Dwarf, pt: Zcu.PerThread) (UpdateError || Writer.Err
             .eh_frame => switch (target.cpu.arch) {
                 .x86_64 => {
                     dev.checkAny(&.{ .llvm_backend, .x86_64_backend });
-                    const Register = @import("../codegen/x86_64/bits.zig").Register;
+                    const Register = @import("../codegen/x86_64/bits.sig").Register;
                     for (dwarf.debug_frame.section.units.items) |*unit| {
                         header_aw.clearRetainingCapacity();
                         try header_aw.ensureTotalCapacity(unit.header_len);
@@ -4855,7 +4855,7 @@ fn flushWriterError(dwarf: *Dwarf, pt: Zcu.PerThread) (UpdateError || Writer.Err
             hw.splatByteAll(0, dwarf.sectionOffsetBytes()) catch unreachable;
             const compile_unit_off: u32 = @intCast(hw.end);
             hw.writeUleb128(try dwarf.refAbbrevCode(.compile_unit)) catch unreachable;
-            hw.writeByte(DW.LANG.Zig) catch unreachable;
+            hw.writeByte(DW.LANG.Sig) catch unreachable;
             unit_ptr.cross_section_relocs.appendAssumeCapacity(.{
                 .source_off = @intCast(hw.end),
                 .target_sec = .debug_line_str,

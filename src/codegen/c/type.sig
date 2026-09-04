@@ -1,5 +1,5 @@
 pub const CType = union(enum) {
-    pub const render_defs = @import("type/render_defs.zig");
+    pub const render_defs = @import("type/render_defs.sig");
 
     // The first nodes are primitive types (or standard typedefs).
 
@@ -688,7 +688,7 @@ pub const CType = union(enum) {
     }
     fn classifyBitInt(signedness: std.lang.Signedness, bits: u16, zcu: *const Zcu) IntClass {
         const target = zcu.getTarget();
-        return switch (std.zig.target.intByteSize(target, bits)) {
+        return switch (std.sig.target.intByteSize(target, bits)) {
             0 => .void,
             1 => switch (signedness) {
                 .unsigned => .{ .small = .uint8_t },
@@ -720,7 +720,7 @@ pub const CType = union(enum) {
             },
             else => |n| {
                 @branchHint(.unlikely);
-                const limb_bytes = std.zig.target.intAlignment(target, bits);
+                const limb_bytes = std.sig.target.intAlignment(target, bits);
                 return .{ .big = .{
                     .limb_size = switch (limb_bytes) {
                         1 => .@"8",
@@ -1141,17 +1141,17 @@ pub const CType = union(enum) {
                     }
                 } else {
                     const name = ty.containerTypeName(ip).fqn.toSlice(ip);
-                    try w.print("{f}", .{@import("../c.zig").fmtIdentUnsolo(name)});
+                    try w.print("{f}", .{@import("../c.sig").fmtIdentUnsolo(name)});
                 },
                 .@"opaque" => if (ty.toIntern() == .anyopaque_type) {
                     try w.writeAll("anyopaque");
                 } else {
                     const name = ty.containerTypeName(ip).fqn.toSlice(ip);
-                    try w.print("{f}", .{@import("../c.zig").fmtIdentUnsolo(name)});
+                    try w.print("{f}", .{@import("../c.sig").fmtIdentUnsolo(name)});
                 },
                 .@"union", .@"enum" => {
                     const name = ty.containerTypeName(ip).fqn.toSlice(ip);
-                    try w.print("{f}", .{@import("../c.zig").fmtIdentUnsolo(name)});
+                    try w.print("{f}", .{@import("../c.sig").fmtIdentUnsolo(name)});
                 },
             }
         }
@@ -1213,10 +1213,10 @@ pub const CType = union(enum) {
     }
 };
 
-const Zcu = @import("../../Zcu.zig");
-const Type = @import("../../Type.zig");
-const Value = @import("../../Value.zig");
-const InternPool = @import("../../InternPool.zig");
+const Zcu = @import("../../Zcu.sig");
+const Type = @import("../../Type.sig");
+const Value = @import("../../Value.sig");
+const InternPool = @import("../../InternPool.sig");
 
 const std = @import("std");
 const assert = std.debug.assert;

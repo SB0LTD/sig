@@ -335,6 +335,45 @@ jobs:
 
             # ── Post-integration: version sync, manifest, README, push
             if [ "$INTEGRATED" = "true" ]; then
+              # ── Sovereign normalization ───────────────────────────────
+              # Upstream is Zig, so a cherry-pick can (re)introduce tracked
+              # *.zig source files, @import("*.zig") references, AND reverted
+              # sovereign identifiers (std.sig -> std.zig, Ast.Mode.Sig -> .zig,
+              # the native cmdBuild path, the .sb0 linker backend, EnvVar.SIG_*,
+              # Sig_test, DW.LANG.Sig, ...). A Sovereign release forbids all of
+              # these (ci/prove-sovereign-source.sh) and the compiler won't even
+              # build without the sovereign-only symbols.
+              #
+              # ci/normalize-sovereign.sh performs the mechanical, definition-
+              # driven conversion (file renames, @import rewrites, and the
+              # curated identifier NAME MAP scoped to the strict compiler tree)
+              # and then ALERTS — exits 3 — on any residual upstream `zig`
+              # identifier it cannot safely map, so a human converts the deeper
+              # reversions by hand instead of the bot silently shipping broken
+              # or non-sovereign source.
+              chmod +x ci/normalize-sovereign.sh
+              set +e
+              bash ci/normalize-sovereign.sh
+              NORM_RC=$?
+              set -e
+              git add -A
+              if ! git diff --cached --quiet 2>/dev/null; then
+                git commit -m "sig-sync: normalize upstream .zig source to sovereign .sig"
+              fi
+              if [ "$NORM_RC" -eq 3 ]; then
+                # Deeper reversion the mechanical map can't resolve. Do NOT push a
+                # half-converted tree; surface it loudly for manual fix-forward.
+                echo "::error title=Sovereign reversion needs manual conversion::sig-sync auto-converted what it safely could, but residual upstream 'zig' identifiers remain (see .build/sovereign-residual.txt in the job artifacts / log above). Convert them by hand — never revert the sync." >&2
+                if [ -f .build/sovereign-residual.txt ]; then
+                  echo "----- residual sovereign identifiers -----"
+                  cat .build/sovereign-residual.txt
+                fi
+                exit 3
+              elif [ "$NORM_RC" -ne 0 ]; then
+                echo "::error title=Sovereign normalizer failed::ci/normalize-sovereign.sh exited $NORM_RC" >&2
+                exit "$NORM_RC"
+              fi
+
               # Sync Sig compatibility version from CMakeLists.txt into both
               # Sig build frontends. build.sig remains the release authority,
               # and release preflight rejects any divergence between the two.

@@ -1,15 +1,15 @@
 const Object = @This();
 
-const trace = @import("../../tracy.zig").trace;
-const Archive = @import("Archive.zig");
-const Atom = @import("Atom.zig");
-const dev = @import("../../dev.zig");
-const Dwarf = @import("Dwarf.zig");
-const File = @import("file.zig").File;
-const MachO = @import("../MachO.zig");
-const Relocation = @import("Relocation.zig");
-const Symbol = @import("Symbol.zig");
-const UnwindInfo = @import("UnwindInfo.zig");
+const trace = @import("../../tracy.sig").trace;
+const Archive = @import("Archive.sig");
+const Atom = @import("Atom.sig");
+const dev = @import("../../dev.sig");
+const Dwarf = @import("Dwarf.sig");
+const File = @import("file.sig").File;
+const MachO = @import("../MachO.sig");
+const Relocation = @import("Relocation.sig");
+const Symbol = @import("Symbol.sig");
+const UnwindInfo = @import("UnwindInfo.sig");
 
 const std = @import("std");
 const Io = std.Io;
@@ -22,7 +22,7 @@ const math = std.math;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 
-const eh_frame = @import("eh_frame.zig");
+const eh_frame = @import("eh_frame.sig");
 const Cie = eh_frame.Cie;
 const Fde = eh_frame.Fde;
 

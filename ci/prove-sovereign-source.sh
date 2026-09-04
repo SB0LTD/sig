@@ -36,4 +36,11 @@ if git grep -En '(^|[[:space:]])zig(\.exe)?[[:space:]]' -- \
   exit 1
 fi
 
+# Strict-tree identifier check: no reverted upstream `zig` identifiers in the
+# compiler proper (src/, tools/, build.sig). Shares the NAME MAP / allowlist
+# with the sig-sync auto-converter so the release gate and the bot agree.
+if [ -x ci/normalize-sovereign.sh ] || [ -f ci/normalize-sovereign.sh ]; then
+  bash ci/normalize-sovereign.sh --check
+fi
+
 printf 'Sovereign source proof passed: %s tracked .sig files, zero tracked .zig files\n' "$sig_sources"

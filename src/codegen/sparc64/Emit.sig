@@ -4,15 +4,15 @@
 const std = @import("std");
 const Endian = std.lang.Endian;
 const assert = std.debug.assert;
-const codegen = @import("../../codegen.zig");
-const link = @import("../../link.zig");
-const Zcu = @import("../../Zcu.zig");
+const codegen = @import("../../codegen.sig");
+const link = @import("../../link.sig");
+const Zcu = @import("../../Zcu.sig");
 const ErrorMsg = Zcu.ErrorMsg;
 const log = std.log.scoped(.sparcv9_emit);
 
 const Emit = @This();
-const Mir = @import("Mir.zig");
-const bits = @import("bits.zig");
+const Mir = @import("Mir.sig");
+const bits = @import("bits.sig");
 const Instruction = bits.Instruction;
 const Register = bits.Register;
 

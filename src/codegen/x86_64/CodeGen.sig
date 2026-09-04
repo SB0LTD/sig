@@ -1,27 +1,27 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const codegen = @import("../../codegen.zig");
-const link = @import("../../link.zig");
+const codegen = @import("../../codegen.sig");
+const link = @import("../../link.sig");
 const log = std.log.scoped(.codegen);
 const tracking_log = std.log.scoped(.tracking);
 const verbose_tracking_log = std.log.scoped(.verbose_tracking);
 const wip_mir_log = std.log.scoped(.wip_mir);
 const Writer = std.Io.Writer;
 
-const Air = @import("../../Air.zig");
+const Air = @import("../../Air.sig");
 const Allocator = std.mem.Allocator;
-const Emit = @import("Emit.zig");
-const Lower = @import("Lower.zig");
-const Mir = @import("Mir.zig");
-const Zcu = @import("../../Zcu.zig");
-const Module = @import("../../Module.zig");
-const InternPool = @import("../../InternPool.zig");
-const Type = @import("../../Type.zig");
-const Value = @import("../../Value.zig");
+const Emit = @import("Emit.sig");
+const Lower = @import("Lower.sig");
+const Mir = @import("Mir.sig");
+const Zcu = @import("../../Zcu.sig");
+const Module = @import("../../Module.sig");
+const InternPool = @import("../../InternPool.sig");
+const Type = @import("../../Type.sig");
+const Value = @import("../../Value.sig");
 
-const abi = @import("abi.zig");
-const bits = @import("bits.zig");
-const encoder = @import("encoder.zig");
+const abi = @import("abi.sig");
+const bits = @import("bits.sig");
+const encoder = @import("encoder.sig");
 
 const Condition = bits.Condition;
 const Immediate = bits.Immediate;
@@ -2059,8 +2059,8 @@ fn asmMemoryRegisterImmediate(
 
 fn gen(
     self: *CodeGen,
-    zir: *const std.zig.Zir,
-    func_zir_inst: std.zig.Zir.Inst.Index,
+    zir: *const std.sig.Zir,
+    func_zir_inst: std.sig.Zir.Inst.Index,
     func: *const InternPool.Key.Func,
     air_arg_count: u32,
 ) InnerError!void {
@@ -2287,8 +2287,8 @@ fn gen(
 
 fn genMainBody(
     cg: *CodeGen,
-    zir: *const std.zig.Zir,
-    func_zir_inst: std.zig.Zir.Inst.Index,
+    zir: *const std.sig.Zir,
+    func_zir_inst: std.sig.Zir.Inst.Index,
     comptime_args: InternPool.Index.Slice,
     air_arg_count: u32,
 ) InnerError!void {

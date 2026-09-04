@@ -2,12 +2,12 @@ const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 
-const dev = @import("dev.zig");
-const Type = @import("Type.zig");
+const dev = @import("dev.sig");
+const Type = @import("Type.sig");
 const AddressSpace = std.lang.AddressSpace;
-const Alignment = @import("InternPool.zig").Alignment;
-const Compilation = @import("Compilation.zig");
-const Feature = @import("Zcu.zig").Feature;
+const Alignment = @import("InternPool.sig").Alignment;
+const Compilation = @import("Compilation.sig");
+const Feature = @import("Zcu.sig").Feature;
 
 pub const default_stack_protector_buffer_size = 4;
 
@@ -858,7 +858,7 @@ pub fn supportsTailCall(target: *const std.Target, backend: std.lang.CompilerBac
     switch (backend) {
         .stage2_llvm => {
             dev.check(.llvm_backend);
-            return @import("codegen/llvm.zig").supportsTailCall(target);
+            return @import("codegen/llvm.sig").supportsTailCall(target);
         },
         .stage2_c => return true,
         else => return false,

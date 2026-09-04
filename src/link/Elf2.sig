@@ -5,17 +5,17 @@ const Io = std.Io;
 const assert = std.debug.assert;
 const log = std.log.scoped(.link);
 
-const codegen = @import("../codegen.zig");
-const Compilation = @import("../Compilation.zig");
-const Dwarf = @import("Dwarf2.zig");
-const InternPool = @import("../InternPool.zig");
-const link = @import("../link.zig");
+const codegen = @import("../codegen.sig");
+const Compilation = @import("../Compilation.sig");
+const Dwarf = @import("Dwarf2.sig");
+const InternPool = @import("../InternPool.sig");
+const link = @import("../link.sig");
 const MappedFile = link.MappedFile;
-const target_util = @import("../target.zig");
-const tracy = @import("../tracy.zig");
-const Type = @import("../Type.zig");
-const Value = @import("../Value.zig");
-const Zcu = @import("../Zcu.zig");
+const target_util = @import("../target.sig");
+const tracy = @import("../tracy.sig");
+const Type = @import("../Type.sig");
+const Value = @import("../Value.sig");
+const Zcu = @import("../Zcu.sig");
 const Alignment = MappedFile.Alignment;
 
 base: link.File,
@@ -6207,7 +6207,7 @@ fn loadInputInner(elf: *Elf, input: link.Input) (Error || error{BadMagic})!void 
             };
         },
         .dso_exact => |dso_exact| {
-            log.debug("load dso_exact '{f}'", .{std.zig.fmtString(dso_exact.name)});
+            log.debug("load dso_exact '{f}'", .{std.sig.fmtString(dso_exact.name)});
             if (elf.shndx.dynamic != .UNDEF) {
                 try elf.needed.put(elf.base.comp.gpa, try elf.string(.dynstr, dso_exact.name), {});
             }
@@ -6287,7 +6287,7 @@ fn fmtMemberString(member: ?[]const u8) std.fmt.Alt(?[]const u8, memberStringEsc
     return .{ .data = member };
 }
 fn memberStringEscape(member: ?[]const u8, w: *Io.Writer) Io.Writer.Error!void {
-    try w.print("({f})", .{std.zig.fmtString(member orelse return)});
+    try w.print("({f})", .{std.sig.fmtString(member orelse return)});
 }
 fn loadObject(
     elf: *Elf,

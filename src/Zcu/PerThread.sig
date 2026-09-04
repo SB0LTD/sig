@@ -4,37 +4,37 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const Ast = std.zig.Ast;
-const AstGen = std.zig.AstGen;
+const Ast = std.sig.Ast;
+const AstGen = std.sig.AstGen;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Cache = std.Build.Cache;
 const log = std.log.scoped(.zcu);
 const mem = std.mem;
-const Zir = std.zig.Zir;
-const Zoir = std.zig.Zoir;
-const ZonGen = std.zig.ZonGen;
+const Zir = std.sig.Zir;
+const Zoir = std.sig.Zoir;
+const ZonGen = std.sig.ZonGen;
 const Io = std.Io;
 
-const Air = @import("../Air.zig");
-const Builtin = @import("../Builtin.zig");
+const Air = @import("../Air.sig");
+const Builtin = @import("../Builtin.sig");
 const build_options = @import("build_options");
 const builtin = @import("builtin");
-const dev = @import("../dev.zig");
-const InternPool = @import("../InternPool.zig");
+const dev = @import("../dev.sig");
+const InternPool = @import("../InternPool.sig");
 const AnalUnit = InternPool.AnalUnit;
-const Module = @import("../Module.zig");
-const Sema = @import("../Sema.zig");
-const target_util = @import("../target.zig");
-const tracy = @import("../tracy.zig");
+const Module = @import("../Module.sig");
+const Sema = @import("../Sema.sig");
+const target_util = @import("../target.sig");
+const tracy = @import("../tracy.sig");
 const trace = tracy.trace;
 const traceNamed = tracy.traceNamed;
-const Type = @import("../Type.zig");
-const Value = @import("../Value.zig");
-const Zcu = @import("../Zcu.zig");
-const Compilation = @import("../Compilation.zig");
-const codegen = @import("../codegen.zig");
-const crash_report = @import("../crash_report.zig");
+const Type = @import("../Type.sig");
+const Value = @import("../Value.sig");
+const Zcu = @import("../Zcu.sig");
+const Compilation = @import("../Compilation.sig");
+const codegen = @import("../codegen.sig");
+const crash_report = @import("../crash_report.sig");
 
 zcu: *Zcu,
 
@@ -382,7 +382,7 @@ fn workerUpdateFile(
     };
 
     switch (file.getMode()) {
-        .zig => {}, // continue to logic below
+        .Sig => {}, // continue to logic below
         .zon => return, // ZON can't import anything so we're done
     }
 
@@ -481,7 +481,7 @@ pub fn updateFile(
 
     const want_local_cache = switch (file.path.root) {
         .none, .local_cache, .build_root => true,
-        .global_cache, .zig_lib => false,
+        .global_cache, .sig_lib => false,
     };
 
     const hex_digest: Cache.HexDigest = d: {
@@ -650,7 +650,7 @@ pub fn updateFile(
 
         timer = comp.startTimer();
         switch (file.getMode()) {
-            .zig => {
+            .Sig => {
                 file.zir = try AstGen.generate(gpa, file.tree.?);
                 Zcu.saveZirCache(gpa, &cache_file_writer, stat, file.zir.?) catch |err| switch (err) {
                     error.OutOfMemory => |e| return e,
@@ -693,7 +693,7 @@ pub fn updateFile(
     // Mark file successes/failures as needed.
 
     switch (file.getMode()) {
-        .zig => {
+        .Sig => {
             if (file.zir.?.hasCompileErrors()) {
                 comp.mutex.lockUncancelable(io);
                 defer comp.mutex.unlock(io);
@@ -737,7 +737,7 @@ fn loadZirZoirCache(
     const io = zcu.comp.io;
 
     const Header = switch (mode) {
-        .zig => Zir.Header,
+        .Sig => Zir.Header,
         .zon => Zoir.Header,
     };
 
@@ -765,7 +765,7 @@ fn loadZirZoirCache(
     }
 
     switch (mode) {
-        .zig => file.zir = Zcu.loadZirCacheBody(gpa, header, cache_br) catch |err| switch (err) {
+        .Sig => file.zir = Zcu.loadZirCacheBody(gpa, header, cache_br) catch |err| switch (err) {
             error.ReadFailed => return cache_fr.err.?,
             error.EndOfStream => return .truncated,
             else => |e| return e,
@@ -819,7 +819,7 @@ fn updateZirRefs(pt: Zcu.PerThread) (Io.Cancelable || Allocator.Error)!void {
             continue;
         }
         switch (file.getMode()) {
-            .zig => {}, // logic below
+            .Sig => {}, // logic below
             .zon => {
                 if (file.zoir_invalidated) {
                     try zcu.markDependeeOutdated(.not_marked_po, .{ .source_file = file_index });
@@ -922,7 +922,7 @@ fn updateZirRefs(pt: Zcu.PerThread) (Io.Cancelable || Allocator.Error)!void {
 
             if (old_zir.getAssociatedSrcHash(old_inst)) |old_hash| hash_changed: {
                 if (new_zir.getAssociatedSrcHash(new_inst)) |new_hash| {
-                    if (std.zig.srcHashEql(old_hash, new_hash)) {
+                    if (std.sig.srcHashEql(old_hash, new_hash)) {
                         break :hash_changed;
                     }
                     log.debug("hash for (%{d} -> %{d}) changed: {x} -> {x}", .{
@@ -1039,7 +1039,7 @@ pub fn ensureFilePopulated(pt: Zcu.PerThread, file_index: Zcu.File.Index) (Alloc
     if (zcu.comp.time_report) |*tr| tr.stats.n_imported_files += 1;
 
     const file = zcu.fileByIndex(file_index);
-    assert(file.getMode() == .zig);
+    assert(file.getMode() == .Sig);
     const struct_decl = file.zir.?.getStructDecl(.main_struct_inst);
     const tracked_inst = try ip.trackZir(gpa, io, pt.tid, .{
         .file = file_index,
@@ -2634,7 +2634,7 @@ fn computeAliveFiles(pt: Zcu.PerThread) Allocator.Error!bool {
         try comp.appendFileSystemInput(file.path);
 
         switch (file.getMode()) {
-            .zig => {}, // continue to logic below
+            .Sig => {}, // continue to logic below
             .zon => continue, // ZON can't import anything
         }
 
@@ -3571,7 +3571,7 @@ fn lockAndClearFileCompileError(pt: Zcu.PerThread, file_index: Zcu.File.Index, f
         .retryable_failure => true,
         .astgen_failure => true,
         .success => switch (file.getMode()) {
-            .zig => has_error: {
+            .Sig => has_error: {
                 const zir = file.zir orelse break :has_error false;
                 break :has_error zir.hasCompileErrors();
             },
@@ -3814,7 +3814,7 @@ pub fn populateTestFunctions(pt: Zcu.PerThread) Allocator.Error!void {
         ip.resolveNav(io, test_fns_nav_index, new_resolved_test_fns);
     }
     // The linker thread is not running, so we actually need to dispatch this task directly.
-    @import("../link.zig").linkTestFunctionsNav(pt, test_fns_nav_index);
+    @import("../link.sig").linkTestFunctionsNav(pt, test_fns_nav_index);
 }
 
 /// Stores an error in `pt.zcu.failed_files` for this file, and sets the file

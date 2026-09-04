@@ -45,11 +45,11 @@ pub const Index = enum(u32) {
 };
 
 pub const User = union(enum) {
-    elf: *@import("Dwarf.zig"),
-    elf2: *@import("Elf2.zig"),
-    macho: *@import("Dwarf.zig"),
-    c: *@import("C.zig"),
-    llvm: @import("../codegen/llvm.zig").Object.Ptr,
+    elf: *@import("Dwarf.sig"),
+    elf2: *@import("Elf2.sig"),
+    macho: *@import("Dwarf.sig"),
+    c: *@import("C.sig"),
+    llvm: @import("../codegen/llvm.sig").Object.Ptr,
 
     fn devFeature(tag: @typeInfo(User).@"union".tag_type.?) dev.Feature {
         return switch (tag) {
@@ -309,8 +309,8 @@ fn registerTypeDeps(pool: *ConstPool, root: Index, ty: Type, zcu: *const Zcu) Al
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const dev = @import("../dev.zig");
-const InternPool = @import("../InternPool.zig");
-const link = @import("../link.zig");
-const Type = @import("../Type.zig");
-const Zcu = @import("../Zcu.zig");
+const dev = @import("../dev.sig");
+const InternPool = @import("../InternPool.sig");
+const link = @import("../link.sig");
+const Type = @import("../Type.sig");
+const Zcu = @import("../Zcu.sig");

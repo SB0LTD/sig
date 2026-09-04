@@ -6154,6 +6154,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                         var agg_part_it = agg_vi.field(agg_ty, @divExact(field_bit_offset, 8), @divExact(field_bit_size, 8));
                         while (agg_part_it.next(isel) catch |err| switch (err) {
                             error.OutOfMemory, error.AlreadyReported => |e| return e,
+                            error.Canceled => |e| return e,
                             error.PartBudgetExceeded => return isel.fail("aggregate too large for register decomposition", .{}),
                         }) |agg_part| {
                             var field_part_it = field_vi.value.field(ty_pl.ty, agg_part.offset, agg_part.vi.size(isel));
@@ -9645,6 +9646,7 @@ pub const Value = struct {
                             break :only;
                         } else |err| switch (err) {
                             error.OutOfMemory, error.AlreadyReported => |e| return e,
+                            error.Canceled => |e| return e,
                             // The region cannot be decomposed into register-sized parts
                             // within the fixed part budget (e.g. an unaligned byte array
                             // or an opaque union payload). Copy it wholesale via `memcpy`.
@@ -9963,6 +9965,7 @@ pub const Value = struct {
                     var subpart_it = root_vi.field(root_ty, opts.offset, part_size - 1);
                     _ = subpart_it.next(isel) catch |err| switch (err) {
                         error.OutOfMemory, error.AlreadyReported => |e| return e,
+                        error.Canceled => |e| return e,
                         error.PartBudgetExceeded => return isel.fail("load of aggregate too large for register decomposition", .{}),
                     };
                     part_it = vi.parts(isel);
@@ -10055,6 +10058,7 @@ pub const Value = struct {
                     var subpart_it = root_vi.field(root_ty, opts.offset, part_size - 1);
                     _ = subpart_it.next(isel) catch |err| switch (err) {
                         error.OutOfMemory, error.AlreadyReported => |e| return e,
+                        error.Canceled => |e| return e,
                         error.PartBudgetExceeded => return isel.fail("store of aggregate too large for register decomposition", .{}),
                     };
                     part_it = vi.parts(isel);
@@ -10270,6 +10274,7 @@ pub const Value = struct {
                     var subpart_it = root_vi.field(root_ty, opts.offset, part_size - 1);
                     _ = subpart_it.next(isel) catch |err| switch (err) {
                         error.OutOfMemory, error.AlreadyReported => |e| return e,
+                        error.Canceled => |e| return e,
                         error.PartBudgetExceeded => return isel.fail("aggregate too large for register decomposition", .{}),
                     };
                     part_it = def_vi.parts(isel);
@@ -11082,11 +11087,13 @@ pub const Value = struct {
         fn only(it: *FieldPartIterator, isel: *Select) !?Value.Index {
             const part = it.next(isel) catch |err| switch (err) {
                 error.OutOfMemory, error.AlreadyReported => |e| return e,
+                error.Canceled => |e| return e,
                 error.PartBudgetExceeded => return isel.fail("Value.FieldPartIterator.only({f})", .{isel.fmtType(it.ty)}),
             };
             assert(part.?.offset == 0);
             const second = it.next(isel) catch |err| switch (err) {
                 error.OutOfMemory, error.AlreadyReported => |e| return e,
+                error.Canceled => |e| return e,
                 error.PartBudgetExceeded => return isel.fail("Value.FieldPartIterator.only({f})", .{isel.fmtType(it.ty)}),
             };
             return if (second) |_| null else part.?.vi;

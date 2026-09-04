@@ -587,7 +587,7 @@ fn reportInvalidReloc(rec: anytype, elf_file: *Elf, rel: elf.Elf64_Rela) !void {
 
 const std = @import("std");
 const assert = std.debug.assert;
-const dev = @import("../../dev.zig");
+const dev = @import("../../dev.sig");
 const elf = std.elf;
 const math = std.math;
 const relocs_log = std.log.scoped(.link_relocs);

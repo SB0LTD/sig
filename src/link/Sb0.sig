@@ -213,7 +213,7 @@ fn create(
 
     // A single RX text region under the root. All symbol nodes are floating
     // children so the allocator packs them and reports moves for relocation.
-    const text_ni = try MappedFile.Node.Index.root.addFloatingChild(&mf, gpa, .{
+    const text_ni = try MappedFile.Node.Index.root.addFloatingChild(gpa, &mf, .{
         .size = 0,
         .alignment = .@"16",
         .bubbles_moved = true,
@@ -344,7 +344,7 @@ fn ensureSymbolNode(sb0: *Sb0, si: SymIndex, alignment: Alignment) Error!MappedF
     const gpa = sb0.base.comp.gpa;
     const sym = si.ptr(sb0);
     if (sym.node.unwrap()) |ni| return ni;
-    const ni = try sb0.text_ni.addFloatingChild(&sb0.mf, gpa, .{
+    const ni = try sb0.text_ni.addFloatingChild(gpa, &sb0.mf, .{
         .size = 0,
         .alignment = alignment,
         .bubbles_moved = true,
@@ -395,7 +395,7 @@ fn updateFuncInner(
 
     {
         var nw: MappedFile.Node.Writer = undefined;
-        ni.writer(&sb0.mf, sb0.base.comp.gpa, &nw);
+        ni.writer(sb0.base.comp.gpa, &sb0.mf, &nw);
         defer nw.deinit();
         codegen.emitFunction(
             &sb0.base,
@@ -450,7 +450,7 @@ fn updateNavInner(
     try ni.moved(sb0.base.comp.gpa, &sb0.mf);
 
     var nw: MappedFile.Node.Writer = undefined;
-    ni.writer(&sb0.mf, sb0.base.comp.gpa, &nw);
+    ni.writer(sb0.base.comp.gpa, &sb0.mf, &nw);
     defer nw.deinit();
     codegen.generateSymbol(
         &sb0.base,
@@ -569,7 +569,7 @@ fn lowerUavBody(sb0: *Sb0, pt: Zcu.PerThread, uav_val: InternPool.Index, si: Sym
     try ni.moved(sb0.base.comp.gpa, &sb0.mf);
 
     var nw: MappedFile.Node.Writer = undefined;
-    ni.writer(&sb0.mf, sb0.base.comp.gpa, &nw);
+    ni.writer(sb0.base.comp.gpa, &sb0.mf, &nw);
     defer nw.deinit();
     codegen.generateSymbol(
         &sb0.base,
@@ -692,7 +692,7 @@ fn genPendingLazy(sb0: *Sb0, tid: Zcu.PerThread.Id) Error!void {
         try ni.moved(gpa, &sb0.mf);
         var alignment: InternPool.Alignment = .none;
         var nw: MappedFile.Node.Writer = undefined;
-        ni.writer(&sb0.mf, gpa, &nw);
+        ni.writer(gpa, &sb0.mf, &nw);
         defer nw.deinit();
         codegen.generateLazySymbol(
             &sb0.base,
@@ -1048,10 +1048,11 @@ pub fn prelink(sb0: *Sb0, prog_node: std.Progress.Node) link.Error!void {
     _ = prog_node;
 }
 
-pub fn updateLineNumber(sb0: *Sb0, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) link.Error!void {
+pub fn updateLineNumber(sb0: *Sb0, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index, line: u32) link.Error!void {
     _ = sb0;
     _ = pt;
     _ = ti_id;
+    _ = line;
 }
 
 pub fn loadInput(sb0: *Sb0, input: link.File.Input) anyerror!void {

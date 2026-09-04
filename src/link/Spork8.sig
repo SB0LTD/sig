@@ -9,16 +9,16 @@ const assert = std.debug.assert;
 const Path = std.Build.Cache.Path;
 const log = std.log.scoped(.link);
 
-const Air = @import("../Air.zig");
-const InternPool = @import("../InternPool.zig");
-const Zcu = @import("../Zcu.zig");
-const CodeGen = @import("../codegen/spork8/CodeGen.zig");
-const codegen = @import("../codegen.zig");
-const Mir = @import("../codegen/spork8/Mir.zig");
-const link = @import("../link.zig");
-const Compilation = @import("../Compilation.zig");
-const Liveness = @import("../Air/Liveness.zig");
-const Value = @import("../Value.zig");
+const Air = @import("../Air.sig");
+const InternPool = @import("../InternPool.sig");
+const Zcu = @import("../Zcu.sig");
+const CodeGen = @import("../codegen/spork8/CodeGen.sig");
+const codegen = @import("../codegen.sig");
+const Mir = @import("../codegen/spork8/Mir.sig");
+const link = @import("../link.sig");
+const Compilation = @import("../Compilation.sig");
+const Liveness = @import("../Air/Liveness.sig");
+const Value = @import("../Value.sig");
 
 base: link.File,
 /// All MIR instructions for all Zcu functions.

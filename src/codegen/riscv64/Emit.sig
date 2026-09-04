@@ -208,15 +208,15 @@ fn fail(emit: *Emit, comptime format: []const u8, args: anytype) Error {
     };
 }
 
-const codegen = @import("../../codegen.zig");
-const link = @import("../../link.zig");
+const codegen = @import("../../codegen.sig");
+const link = @import("../../link.sig");
 const log = std.log.scoped(.emit);
 const mem = std.mem;
 const std = @import("std");
 
 const Emit = @This();
-const Lower = @import("Lower.zig");
-const Mir = @import("Mir.zig");
-const riscv_util = @import("../../link/riscv.zig");
-const Elf = @import("../../link/Elf.zig");
-const encoding = @import("encoding.zig");
+const Lower = @import("Lower.sig");
+const Mir = @import("Mir.sig");
+const riscv_util = @import("../../link/riscv.sig");
+const Elf = @import("../../link/Elf.sig");
+const encoding = @import("encoding.sig");

@@ -10,9 +10,9 @@
 //! precomputed and stored separately.
 
 const Wasm = @This();
-const Archive = @import("Wasm/Archive.zig");
-const Object = @import("Wasm/Object.zig");
-pub const Flush = @import("Wasm/Flush.zig");
+const Archive = @import("Wasm/Archive.sig");
+const Object = @import("Wasm/Object.sig");
+pub const Flush = @import("Wasm/Flush.sig");
 
 const builtin = @import("builtin");
 const native_endian = builtin.cpu.arch.endian();
@@ -30,18 +30,18 @@ const leb = std.leb;
 const log = std.log.scoped(.link);
 const mem = std.mem;
 
-const Mir = @import("../codegen/wasm/Mir.zig");
-const CodeGen = @import("../codegen/wasm/CodeGen.zig");
-const abi = @import("../codegen/wasm/abi.zig");
-const Compilation = @import("../Compilation.zig");
-const Dwarf = @import("Dwarf.zig");
-const InternPool = @import("../InternPool.zig");
-const Zcu = @import("../Zcu.zig");
-const codegen = @import("../codegen.zig");
-const link = @import("../link.zig");
-const trace = @import("../tracy.zig").trace;
-const wasi_libc = @import("../libs/wasi_libc.zig");
-const Value = @import("../Value.zig");
+const Mir = @import("../codegen/wasm/Mir.sig");
+const CodeGen = @import("../codegen/wasm/CodeGen.sig");
+const abi = @import("../codegen/wasm/abi.sig");
+const Compilation = @import("../Compilation.sig");
+const Dwarf = @import("Dwarf.sig");
+const InternPool = @import("../InternPool.sig");
+const Zcu = @import("../Zcu.sig");
+const codegen = @import("../codegen.sig");
+const link = @import("../link.sig");
+const trace = @import("../tracy.sig").trace;
+const wasi_libc = @import("../libs/wasi_libc.sig");
+const Value = @import("../Value.sig");
 
 base: link.File,
 /// Null-terminated strings, indexes have type String and string_table provides
@@ -626,9 +626,9 @@ pub const SourceLocation = enum(u32) {
     pub fn string(
         sl: SourceLocation,
         msg: []const u8,
-        bundle: *std.zig.ErrorBundle.Wip,
+        bundle: *std.sig.ErrorBundle.Wip,
         wasm: *const Wasm,
-    ) Allocator.Error!std.zig.ErrorBundle.String {
+    ) Allocator.Error!std.sig.ErrorBundle.String {
         return switch (sl.unpack(wasm)) {
             .none => try bundle.addString(msg),
             .zig_object_nofile => try bundle.printString("zig compilation unit: {s}", .{msg}),

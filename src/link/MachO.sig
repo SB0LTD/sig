@@ -1,6 +1,6 @@
-pub const Atom = @import("MachO/Atom.zig");
-pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
-pub const Relocation = @import("MachO/Relocation.zig");
+pub const Atom = @import("MachO/Atom.sig");
+pub const DebugSymbols = @import("MachO/DebugSymbols.sig");
+pub const Relocation = @import("MachO/Relocation.sig");
 
 base: link.File,
 
@@ -843,7 +843,7 @@ pub fn resolveLibSystem(
                 if (try accessLibPath(arena, io, &test_path, &checked_paths, dir, "System")) break :success;
             },
             .vendored => {
-                const dir = try comp.dirs.zig_lib.join(arena, &.{ "libc", "darwin" });
+                const dir = try comp.dirs.sig_lib.join(arena, &.{ "libc", "darwin" });
                 if (try accessLibPath(arena, io, &test_path, &checked_paths, dir, "System")) break :success;
             },
         };
@@ -4393,7 +4393,7 @@ fn inferSdkVersion(comp: *Compilation, sdk_layout: SdkLayout) ?std.SemanticVersi
 
     const sdk_dir = switch (sdk_layout) {
         .sdk => comp.sysroot.?,
-        .vendored => fs.path.join(arena, &.{ comp.dirs.zig_lib.path.?, "libc", "darwin" }) catch return null,
+        .vendored => fs.path.join(arena, &.{ comp.dirs.sig_lib.path.?, "libc", "darwin" }) catch return null,
     };
     if (readSdkVersionFromSettings(arena, io, sdk_dir)) |ver| {
         return parseSdkVersion(ver);
@@ -4495,7 +4495,7 @@ const SystemLib = struct {
     }
 };
 
-pub const SdkLayout = std.zig.LibCDirs.DarwinSdkLayout;
+pub const SdkLayout = std.sig.LibCDirs.DarwinSdkLayout;
 
 const UndefinedTreatment = enum {
     @"error",
@@ -5458,48 +5458,48 @@ const Md5 = std.crypto.hash.Md5;
 const Allocator = std.mem.Allocator;
 
 const aarch64 = codegen.aarch64.encoding;
-const bind = @import("MachO/dyld_info/bind.zig");
-const calcUuid = @import("MachO/uuid.zig").calcUuid;
-const codegen = @import("../codegen.zig");
-const dead_strip = @import("MachO/dead_strip.zig");
-const eh_frame = @import("MachO/eh_frame.zig");
-const fat = @import("MachO/fat.zig");
-const link = @import("../link.zig");
-const load_commands = @import("MachO/load_commands.zig");
-const relocatable = @import("MachO/relocatable.zig");
-const tapi = @import("tapi.zig");
-const target_util = @import("../target.zig");
-const trace = @import("../tracy.zig").trace;
-const synthetic = @import("MachO/synthetic.zig");
+const bind = @import("MachO/dyld_info/bind.sig");
+const calcUuid = @import("MachO/uuid.sig").calcUuid;
+const codegen = @import("../codegen.sig");
+const dead_strip = @import("MachO/dead_strip.sig");
+const eh_frame = @import("MachO/eh_frame.sig");
+const fat = @import("MachO/fat.sig");
+const link = @import("../link.sig");
+const load_commands = @import("MachO/load_commands.sig");
+const relocatable = @import("MachO/relocatable.sig");
+const tapi = @import("tapi.sig");
+const target_util = @import("../target.sig");
+const trace = @import("../tracy.sig").trace;
+const synthetic = @import("MachO/synthetic.sig");
 
 const Alignment = Atom.Alignment;
-const Archive = @import("MachO/Archive.zig");
+const Archive = @import("MachO/Archive.sig");
 const Bind = bind.Bind;
-const CodeSignature = @import("MachO/CodeSignature.zig");
-const Compilation = @import("../Compilation.zig");
+const CodeSignature = @import("MachO/CodeSignature.sig");
+const Compilation = @import("../Compilation.sig");
 const DataInCode = synthetic.DataInCode;
 const Directory = Cache.Directory;
-const Dylib = @import("MachO/Dylib.zig");
-const ExportTrie = @import("MachO/dyld_info/Trie.zig");
+const Dylib = @import("MachO/Dylib.sig");
+const ExportTrie = @import("MachO/dyld_info/Trie.sig");
 const Path = Cache.Path;
-const File = @import("MachO/file.zig").File;
+const File = @import("MachO/file.sig").File;
 const GotSection = synthetic.GotSection;
 const Indsymtab = synthetic.Indsymtab;
-const InternalObject = @import("MachO/InternalObject.zig");
+const InternalObject = @import("MachO/InternalObject.sig");
 const ObjcStubsSection = synthetic.ObjcStubsSection;
-const Object = @import("MachO/Object.zig");
+const Object = @import("MachO/Object.sig");
 const LazyBind = bind.LazyBind;
 const LaSymbolPtrSection = synthetic.LaSymbolPtrSection;
-const Zcu = @import("../Zcu.zig");
-const InternPool = @import("../InternPool.zig");
-const Rebase = @import("MachO/dyld_info/Rebase.zig");
-const StringTable = @import("StringTable.zig");
+const Zcu = @import("../Zcu.sig");
+const InternPool = @import("../InternPool.sig");
+const Rebase = @import("MachO/dyld_info/Rebase.sig");
+const StringTable = @import("StringTable.sig");
 const StubsSection = synthetic.StubsSection;
 const StubsHelperSection = synthetic.StubsHelperSection;
-const Symbol = @import("MachO/Symbol.zig");
-const Thunk = @import("MachO/Thunk.zig");
+const Symbol = @import("MachO/Symbol.sig");
+const Thunk = @import("MachO/Thunk.sig");
 const TlvPtrSection = synthetic.TlvPtrSection;
-const Value = @import("../Value.zig");
-const UnwindInfo = @import("MachO/UnwindInfo.zig");
+const Value = @import("../Value.sig");
+const UnwindInfo = @import("MachO/UnwindInfo.sig");
 const WeakBind = bind.WeakBind;
-const ZigObject = @import("MachO/ZigObject.zig");
+const ZigObject = @import("MachO/ZigObject.sig");

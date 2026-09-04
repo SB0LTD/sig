@@ -9,17 +9,17 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.link);
 const Crc32 = std.hash.crc.@"CRC-32/JAMCRC";
 
-const codegen = @import("../codegen.zig");
-const Compilation = @import("../Compilation.zig");
-const InternPool = @import("../InternPool.zig");
-const link = @import("../link.zig");
+const codegen = @import("../codegen.sig");
+const Compilation = @import("../Compilation.sig");
+const InternPool = @import("../InternPool.sig");
+const link = @import("../link.sig");
 const MappedFile = link.MappedFile;
-const target_util = @import("../target.zig");
-const Type = @import("../Type.zig");
-const Value = @import("../Value.zig");
-const Zcu = @import("../Zcu.zig");
-const ModuleDefinition = @import("../libs/mingw/def.zig").ModuleDefinition;
-const implib = @import("../libs/mingw/implib.zig");
+const target_util = @import("../target.sig");
+const Type = @import("../Type.sig");
+const Value = @import("../Value.sig");
+const Zcu = @import("../Zcu.sig");
+const ModuleDefinition = @import("../libs/mingw/def.sig").ModuleDefinition;
+const implib = @import("../libs/mingw/implib.sig");
 const Path = std.Build.Cache.Path;
 const Alignment = MappedFile.Alignment;
 
@@ -2777,7 +2777,7 @@ fn getOrPutGlobalSymbol(
     try coff.symbols.ensureUnusedCapacity(gpa, 1);
 
     const lib_name: String.Optional = if (opts.lib_name) |lib_name| lib_name: {
-        const is_libc = std.zig.target.isLibCLibName(&comp.root_mod.resolved_target.result, lib_name);
+        const is_libc = std.sig.target.isLibCLibName(&comp.root_mod.resolved_target.result, lib_name);
         if (is_libc) {
             // This is guaranteed by Sema.handleExternLibName
             if (!comp.config.link_libc) unreachable;
@@ -3874,7 +3874,7 @@ fn fmtMemberNameString(memberName: ?[]const u8) std.fmt.Alt(?[]const u8, memberN
 }
 
 fn memberNameStringEscape(memberName: ?[]const u8, w: *std.Io.Writer) std.Io.Writer.Error!void {
-    try w.print("({f})", .{std.zig.fmtString(memberName orelse return)});
+    try w.print("({f})", .{std.sig.fmtString(memberName orelse return)});
 }
 
 fn inputSectionHeaderNameSlice(
