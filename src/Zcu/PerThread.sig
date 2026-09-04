@@ -2379,7 +2379,7 @@ pub fn discoverImport(
     const io = comp.io;
     const gpa = comp.gpa;
 
-    if (!mem.endsWith(u8, import_string, ".zig") and !mem.endsWith(u8, import_string, ".zon")) {
+    if (Zcu.File.modeFromPath(import_string) == null) {
         return .module;
     }
 
@@ -2465,9 +2465,7 @@ pub fn doImport(
             };
         }
     }
-    if (!std.mem.endsWith(u8, import_string, ".zig") and
-        !std.mem.endsWith(u8, import_string, ".zon"))
-    {
+    if (Zcu.File.modeFromPath(import_string) == null) {
         return error.ModuleNotFound;
     }
     const path = try importer.path.upJoin(gpa, zcu.comp.dirs, import_string);
@@ -2767,7 +2765,7 @@ pub fn updateBuiltinModule(pt: Zcu.PerThread, opts: Builtin) Allocator.Error!voi
     const mod: *Module = try .createBuiltin(comp.arena, opts, comp.dirs);
     assert(std.mem.eql(u8, &mod.getBuiltinOptions(comp.config).hash(), gop.key_ptr)); // builtin is its own builtin
 
-    const path = try mod.root.join(gpa, comp.dirs, "builtin.zig");
+    const path = try mod.root.join(gpa, comp.dirs, "builtin.sig");
     errdefer path.deinit(gpa);
 
     const file_gop = try zcu.import_table.getOrPutAdapted(gpa, path, Zcu.ImportTableAdapter{ .zcu = zcu });
@@ -2791,7 +2789,7 @@ pub fn updateBuiltinModule(pt: Zcu.PerThread, opts: Builtin) Allocator.Error!voi
         .zir = null,
         .zoir = null,
         .mod = mod,
-        .sub_file_path = "builtin.zig",
+        .sub_file_path = "builtin.sig",
         .module_changed = false,
         .prev_zir = null,
         .zoir_invalidated = false,

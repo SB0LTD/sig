@@ -390,7 +390,7 @@ fn mainArgs(
             const use_server = cmd_args.len > 0 and std.mem.eql(u8, cmd_args[0], "--Sig-integration");
             return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
                 .cmd_name = "resinator",
-                .root_src_path = "resinator/main.zig",
+                .root_src_path = "resinator/main.sig",
                 .depend_on_aro = true,
                 .prepend_SIG_LIB_DIR_path = true,
                 .server = use_server,
@@ -403,13 +403,13 @@ fn mainArgs(
         .objcopy => {
             return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
                 .cmd_name = "objcopy",
-                .root_src_path = "objcopy.zig",
+                .root_src_path = "objcopy.sig",
             });
         },
         .objdump => {
             return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
                 .cmd_name = "objdump",
-                .root_src_path = "objdump.zig",
+                .root_src_path = "objdump.sig",
             });
         },
         .std => {
@@ -508,7 +508,7 @@ fn mainArgs(
         .reduce => {
             return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
                 .cmd_name = "reduce",
-                .root_src_path = "reduce.zig",
+                .root_src_path = "reduce.sig",
             });
         },
         .zen => {
@@ -3161,7 +3161,7 @@ fn buildOutputType(
         // Without this, there will be no main module created and no zig
         // compilation unit, and therefore also no builtin.zig contents
         // created.
-        root_src_file = "builtin.zig";
+        root_src_file = "builtin.sig";
     }
 
     implicit_root_mod: {
@@ -3316,7 +3316,7 @@ fn buildOutputType(
     // When you're testing std, the main module is std, and we need to avoid duplicating the module.
     const main_mod_is_std = main_mod.root.root == .sig_lib and
         mem.eql(u8, main_mod.root.sub_path, "std") and
-        mem.eql(u8, main_mod.root_src_path, "std.zig");
+        mem.eql(u8, main_mod.root_src_path, "std.sig");
 
     const std_mod = m: {
         if (main_mod_is_std) break :m main_mod;
@@ -3343,7 +3343,7 @@ fn buildOutputType(
             } else try Module.create(arena, .{
                 .paths = .{
                     .root = try .fromRoot(arena, dirs, .sig_lib, "compiler"),
-                    .root_src_path = "test_runner.zig",
+                    .root_src_path = "test_runner.sig",
                 },
                 .fully_qualified_name = "root",
                 .cc_argv = &.{},
@@ -5460,7 +5460,7 @@ fn jitCmdInner(
             const aro_mod = try Module.create(arena, .{
                 .paths = .{
                     .root = try .fromRoot(arena, dirs, .sig_lib, "compiler/aro"),
-                    .root_src_path = "aro.zig",
+                    .root_src_path = "aro.sig",
                 },
                 .fully_qualified_name = "aro",
                 .cc_argv = &.{},
