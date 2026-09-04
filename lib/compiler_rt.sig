@@ -338,14 +338,20 @@ pub const @"f80" = switch (std.sig.target.compilerRtFloatAbi(&builtin.target, 80
     .hard => hardFloatAbi(f80),
     .soft => struct {
         pub const Abi = extern struct { mantissa: u64, exponent: u16 };
-        const Repr = packed struct { mantissa: u64, exponent: u16 };
+        // Convert via a scalar u80 integer bitcast + shifts rather than a
+        // packed struct. A packed-struct @bitCast forces a >64-bit packed
+        // memory load, which some self-hosted backends (e.g. aarch64) cannot
+        // lower; scalar integer ops are lowered everywhere.
         pub inline fn toAbi(raw: f80) Abi {
-            const repr: Repr = @bitCast(raw);
-            return .{ .mantissa = repr.mantissa, .exponent = repr.exponent };
+            const bits: u80 = @bitCast(raw);
+            return .{
+                .mantissa = @truncate(bits),
+                .exponent = @truncate(bits >> 64),
+            };
         }
         pub inline fn fromAbi(abi: Abi) f80 {
-            const repr: Repr = .{ .mantissa = abi.mantissa, .exponent = abi.exponent };
-            return @bitCast(repr);
+            const bits: u80 = @as(u80, abi.mantissa) | (@as(u80, abi.exponent) << 64);
+            return @bitCast(bits);
         }
         pub const complex = complexAbi(f80, @This());
     },
@@ -357,14 +363,16 @@ pub const @"f128" = switch (std.sig.target.compilerRtFloatAbi(&builtin.target, 1
             .big => extern struct { hi: u64, lo: u64 },
             .little => extern struct { lo: u64, hi: u64 },
         };
-        const Repr = packed struct { lo: u64, hi: u64 };
+        // Scalar u128 bitcast + shifts instead of a packed struct, so no
+        // >64-bit packed memory load is emitted (unsupported by some
+        // self-hosted backends; see the f80 note above).
         pub inline fn toAbi(raw: f128) Abi {
-            const repr: Repr = @bitCast(raw);
-            return .{ .lo = repr.lo, .hi = repr.hi };
+            const bits: u128 = @bitCast(raw);
+            return .{ .lo = @truncate(bits), .hi = @truncate(bits >> 64) };
         }
         pub inline fn fromAbi(abi: Abi) f128 {
-            const repr: Repr = .{ .lo = abi.lo, .hi = abi.hi };
-            return @bitCast(repr);
+            const bits: u128 = @as(u128, abi.lo) | (@as(u128, abi.hi) << 64);
+            return @bitCast(bits);
         }
         pub const complex = complexAbi(f128, @This());
     },
