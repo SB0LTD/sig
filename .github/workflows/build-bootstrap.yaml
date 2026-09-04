@@ -662,36 +662,40 @@ jobs:
             $tarOut | ForEach-Object { Write-Host $_ }
             throw 'tar extraction failed'
           }
-          # Windows NTFS is case-insensitive: bin\sig.exe is already invocable
-          # as bin\Sig.exe — they are the same physical file. The compat-alias
-          # behaviour keys off argv[0]'s basename (Sig.exe -> bare Zig version;
-          # sig.exe -> full Sig identity), so we must invoke through a path
-          # whose spelling is literally "Sig.exe". Resolve-Path would
-          # canonicalise it back to the on-disk "sig.exe" casing and defeat the
-          # alias, so build $Sig as an explicit Sig.exe-cased path string.
-          $sig = Resolve-Path $sigPath
-          $binDir = Split-Path $sig -Parent
-          $packageRoot = Split-Path $binDir -Parent
-          $Sig = Join-Path $binDir 'Sig.exe'
+          # The compat-alias keys off argv[0]'s basename: `Sig.exe` prints the
+          # bare Zig-base version, `sig.exe` prints the full Sig identity. On
+          # case-insensitive NTFS we cannot keep two case-variant files in the
+          # same directory, and PowerShell's Resolve-Path / Join-Path normalise
+          # a `Sig.exe` string back to the on-disk `sig.exe` casing — so the
+          # capital name is unreliable in-place. Instead, materialise a REAL
+          # `Sig.exe` in a SEPARATE directory (no case collision), which keeps
+          # its capital-S on-disk name and therefore a capital-S argv[0].
+          # NOTE: PowerShell variable names are CASE-INSENSITIVE, so $sig and
+          # $Sig would be the same variable — never name the two paths that way.
+          $sigExe = (Resolve-Path $sigPath).Path
+          $packageRoot = Split-Path (Split-Path $sigExe -Parent) -Parent
           $env:SIG_LIB_DIR = Join-Path $packageRoot 'lib'
-          # sig.exe and Sig.exe are the same physical file on NTFS.
-          if ((Get-FileHash $sig).Hash -ne (Get-FileHash $Sig).Hash) { throw 'sig.exe and Sig.exe differ' }
-          & $sig version | Tee-Object -Variable version
+          $aliasDir = Join-Path $packageRoot 'alias'
+          New-Item -ItemType Directory -Force $aliasDir | Out-Null
+          $sigAlias = Join-Path $aliasDir 'Sig.exe'
+          Copy-Item $sigExe $sigAlias -Force
+          if ((Get-FileHash $sigExe).Hash -ne (Get-FileHash $sigAlias).Hash) { throw 'sig.exe and Sig.exe differ' }
+          & $sigExe version | Tee-Object -Variable version
           if ($LASTEXITCODE -ne 0 -or ($version -join "`n") -notmatch "sig $([regex]::Escape($env:SIG_VERSION))") { throw 'Windows bootstrap version probe failed' }
-          & $Sig version | Tee-Object -Variable zigVersion
+          & $sigAlias version | Tee-Object -Variable zigVersion
           $zigText = ($zigVersion -join "`n")
           $zigBase = [regex]::Escape($env:ZIG_VERSION)
           if ($LASTEXITCODE -ne 0 -or $zigText -notmatch "^${zigBase}(?:[-+].*)?$" -or $zigText -match 'sig') { throw 'Windows bootstrap Sig alias version probe failed' }
-          & .\ci\prove-native-build.ps1 -Sig $sig -SigLibDir $env:SIG_LIB_DIR
-          & $sig ast-check compiler\core\target.sig
+          & .\ci\prove-native-build.ps1 -Sig $sigExe -SigLibDir $env:SIG_LIB_DIR
+          & $sigExe ast-check compiler\core\target.sig
           if ($LASTEXITCODE -ne 0) { throw 'strict .sig parse failed' }
-          & $sig test compiler\test_all.sig `
+          & $sigExe test compiler\test_all.sig `
             --Sig-lib-dir lib `
             --cache-dir "$env:RUNNER_TEMP\sig-tests-local" `
             --global-cache-dir "$env:RUNNER_TEMP\sig-tests-global" `
             --stack 33554432
           if ($LASTEXITCODE -ne 0) { throw 'native compiler test graph failed' }
-          & $sig build-obj compiler\core\target.sig `
+          & $sigExe build-obj compiler\core\target.sig `
             -target aarch64-freestanding-none `
             -mcpu=baseline `
             -OReleaseFast `
