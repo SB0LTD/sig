@@ -17,7 +17,7 @@ pub const debug = if (enabled) struct {
 /// Printed in panic messages when suggesting a command to run, allowing copy-pasting the command.
 /// Set by `main` as soon as arguments are known. The value here is a default in case we somehow
 /// crash earlier than that.
-pub var sig_argv0: []const u8 = "sig";
+pub var zig_argv0: []const u8 = "zig";
 
 fn handleSegfaultImpl(addr: ?usize, name: []const u8, opt_ctx: ?std.debug.CpuContextPtr) noreturn {
     @branchHint(.cold);
@@ -175,7 +175,7 @@ fn dumpCrashContextSema(anal: *AnalyzeBody, stderr: *Io.Writer, crash_heap: []u8
         \\      {s} ast-check -t {f}
         \\
         \\
-    , .{ sig_argv0, file.path.fmt(comp) });
+    , .{ zig_argv0, file.path.fmt(comp) });
 
     var parent = anal.parent;
     while (parent) |curr| {
@@ -209,13 +209,12 @@ fn dumpCrashContextSema(anal: *AnalyzeBody, stderr: *Io.Writer, crash_heap: []u8
 
 const std = @import("std");
 const Io = std.Io;
-const Zir = std.sig.Zir;
+const Zir = std.zig.Zir;
 
-const Sema = @import("Sema.sig");
-const Zcu = @import("Zcu.sig");
-const link = @import("link.sig");
-const InternPool = @import("InternPool.sig");
-const dev = @import("dev.sig");
-const print_zir = @import("print_zir.sig");
+const Sema = @import("Sema.zig");
+const Zcu = @import("Zcu.zig");
+const link = @import("link.zig");
+const InternPool = @import("InternPool.zig");
+const print_zir = @import("print_zir.zig");
 
 const build_options = @import("build_options");

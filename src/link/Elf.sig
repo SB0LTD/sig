@@ -1,4 +1,4 @@
-pub const Atom = @import("Elf/Atom.sig");
+pub const Atom = @import("Elf/Atom.zig");
 
 base: link.File,
 zig_object: ?*ZigObject,
@@ -943,7 +943,7 @@ fn dumpArgvInit(self: *Elf, arena: Allocator) !void {
 
     const argv = &self.dump_argv_list;
 
-    try argv.append(gpa, "sig");
+    try argv.append(gpa, "zig");
 
     if (self.base.isStaticLib()) {
         try argv.append(gpa, "ar");
@@ -1677,9 +1677,7 @@ pub fn updateContainerType(
     ty: InternPool.Index,
     success: bool,
 ) link.Error!void {
-    return self.zigObjectPtr().?.updateContainerType(pt, ty, success) catch |err| switch (err) {
-        error.OutOfMemory => |e| return e,
-    };
+    try self.zigObjectPtr().?.updateContainerType(pt, ty, success);
 }
 
 pub fn updateExports(
@@ -1690,8 +1688,8 @@ pub fn updateExports(
     return self.zigObjectPtr().?.updateExports(self, pt, export_indices);
 }
 
-pub fn updateLineNumber(self: *Elf, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) link.Error!void {
-    return self.zigObjectPtr().?.updateLineNumber(pt, ti_id);
+pub fn updateLineNumber(self: *Elf, pt: Zcu.PerThread, inst: InternPool.TrackedInst.Index, line: u32) link.Error!void {
+    return self.zigObjectPtr().?.updateLineNumber(pt, inst, line);
 }
 
 fn checkDuplicates(self: *Elf) !void {
@@ -1720,7 +1718,7 @@ pub fn addCommentString(self: *Elf) !void {
     if (self.comment_merge_section_index != null) return;
     const msec_index = try self.getOrCreateMergeSection(".comment", elf.SHF_MERGE | elf.SHF_STRINGS, elf.SHT_PROGBITS);
     const msec = self.mergeSection(msec_index);
-    const res = try msec.insertZ(gpa, "Sig " ++ builtin.zig_version_string);
+    const res = try msec.insertZ(gpa, "zig " ++ builtin.zig_version_string);
     if (res.found_existing) return;
     const msub_index = try msec.addMergeSubsection(gpa);
     const msub = msec.mergeSubsection(msub_index);
@@ -4050,7 +4048,7 @@ fn requiresThunks(self: Elf) bool {
 /// The following three values are only observed at compile-time and used to emit a compile error
 /// to remind the programmer to update expected maximum numbers of different program header types
 /// so that we reserve enough space for the program header table up-front.
-/// Bump these numbers when adding or deleting a Sig specific pre-allocated segment, or adding
+/// Bump these numbers when adding or deleting a Zig specific pre-allocated segment, or adding
 /// more special-purpose program headers.
 const max_number_of_object_segments = 9;
 const max_number_of_special_phdrs = 5;
@@ -4411,44 +4409,43 @@ const Hash = std.hash.Wyhash;
 const Path = std.Build.Cache.Path;
 const Stat = std.Build.Cache.File.Stat;
 
-const codegen = @import("../codegen.sig");
-const dev = @import("../dev.sig");
-const eh_frame = @import("Elf/eh_frame.sig");
-const gc = @import("Elf/gc.sig");
-const musl = @import("../libs/musl.sig");
-const link = @import("../link.sig");
-const relocatable = @import("Elf/relocatable.sig");
-const relocation = @import("Elf/relocation.sig");
-const target_util = @import("../target.sig");
-const trace = @import("../tracy.sig").trace;
-const synthetic_sections = @import("Elf/synthetic_sections.sig");
+const codegen = @import("../codegen.zig");
+const eh_frame = @import("Elf/eh_frame.zig");
+const gc = @import("Elf/gc.zig");
+const musl = @import("../libs/musl.zig");
+const link = @import("../link.zig");
+const relocatable = @import("Elf/relocatable.zig");
+const relocation = @import("Elf/relocation.zig");
+const target_util = @import("../target.zig");
+const trace = @import("../tracy.zig").trace;
+const synthetic_sections = @import("Elf/synthetic_sections.zig");
 
-const Merge = @import("Elf/Merge.sig");
-const Archive = @import("Elf/Archive.sig");
-const AtomList = @import("Elf/AtomList.sig");
-const Compilation = @import("../Compilation.sig");
+const Merge = @import("Elf/Merge.zig");
+const Archive = @import("Elf/Archive.zig");
+const AtomList = @import("Elf/AtomList.zig");
+const Compilation = @import("../Compilation.zig");
 const GroupSection = synthetic_sections.GroupSection;
 const CopyRelSection = synthetic_sections.CopyRelSection;
-const Diags = @import("../link.sig").Diags;
+const Diags = @import("../link.zig").Diags;
 const DynamicSection = synthetic_sections.DynamicSection;
 const DynsymSection = synthetic_sections.DynsymSection;
-const Dwarf = @import("Dwarf.sig");
+const Dwarf = @import("Dwarf.zig");
 const Elf = @This();
-const File = @import("Elf/file.sig").File;
+const File = @import("Elf/file.zig").File;
 const GnuHashSection = synthetic_sections.GnuHashSection;
 const GotSection = synthetic_sections.GotSection;
 const GotPltSection = synthetic_sections.GotPltSection;
 const HashSection = synthetic_sections.HashSection;
-const LinkerDefined = @import("Elf/LinkerDefined.sig");
-const Zcu = @import("../Zcu.sig");
-const Object = @import("Elf/Object.sig");
-const InternPool = @import("../InternPool.sig");
+const LinkerDefined = @import("Elf/LinkerDefined.zig");
+const Zcu = @import("../Zcu.zig");
+const Object = @import("Elf/Object.zig");
+const InternPool = @import("../InternPool.zig");
 const PltSection = synthetic_sections.PltSection;
 const PltGotSection = synthetic_sections.PltGotSection;
-const SharedObject = @import("Elf/SharedObject.sig");
-const Symbol = @import("Elf/Symbol.sig");
-const StringTable = @import("StringTable.sig");
-const Thunk = @import("Elf/Thunk.sig");
-const Value = @import("../Value.sig");
+const SharedObject = @import("Elf/SharedObject.zig");
+const Symbol = @import("Elf/Symbol.zig");
+const StringTable = @import("StringTable.zig");
+const Thunk = @import("Elf/Thunk.zig");
+const Value = @import("../Value.zig");
 const VerneedSection = synthetic_sections.VerneedSection;
-const ZigObject = @import("Elf/ZigObject.sig");
+const ZigObject = @import("Elf/ZigObject.zig");

@@ -6,25 +6,25 @@ const log = std.log.scoped(.c);
 const Allocator = mem.Allocator;
 const Writer = std.Io.Writer;
 
-const dev = @import("../dev.sig");
-const link = @import("../link.sig");
-const Zcu = @import("../Zcu.sig");
-const Module = @import("../Module.sig");
-const Compilation = @import("../Compilation.sig");
-const Value = @import("../Value.sig");
-const Type = @import("../Type.sig");
+const codegen = @import("../codegen.zig");
+const link = @import("../link.zig");
+const Zcu = @import("../Zcu.zig");
+const Module = @import("../Module.zig");
+const Compilation = @import("../Compilation.zig");
+const Value = @import("../Value.zig");
+const Type = @import("../Type.zig");
 const C = link.File.C;
 const Decl = Zcu.Decl;
-const trace = @import("../tracy.sig").trace;
-const Air = @import("../Air.sig");
-const InternPool = @import("../InternPool.sig");
+const trace = @import("../tracy.zig").trace;
+const Air = @import("../Air.zig");
+const InternPool = @import("../InternPool.zig");
 const Alignment = InternPool.Alignment;
 
 const BigIntLimb = std.math.big.Limb;
 const BigInt = std.math.big.int;
 
 pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
-    return comptime switch (dev.env.supports(.legalize)) {
+    return comptime switch (@import("../dev.zig").env.supports(.legalize)) {
         inline false, true => |supports_legalize| &.init(.{
             // we don't currently ask zig1 to use safe optimization modes
             .expand_bit_cast_safe = supports_legalize,
@@ -86,9 +86,9 @@ pub const Mir = struct {
     }
 };
 
-pub const Error = Writer.Error || Allocator.Error || error{AlreadyReported};
+pub const Error = codegen.Error || Writer.Error;
 
-pub const CType = @import("c/type.sig").CType;
+pub const CType = @import("c/type.zig").CType;
 
 pub const CValue = union(enum) {
     none: void,
@@ -419,7 +419,7 @@ fn isReservedIdent(ident: []const u8) bool {
         return true;
     }
 
-    // Sig.h
+    // zig.h
     if (mem.startsWith(u8, ident, "zig_")) return true;
 
     return reserved_idents.has(ident);
@@ -524,7 +524,7 @@ pub const Function = struct {
             indent_char => f.code.shrinkRetainingCapacity(written.len - indent_width),
             '\n' => try f.code.writer.splatByteAll(indent_char, f.indent_counter),
             else => {
-                std.debug.print("\"{f}\"\n", .{std.sig.fmtString(written[written.len -| 100..])});
+                std.debug.print("\"{f}\"\n", .{std.zig.fmtString(written[written.len -| 100..])});
                 unreachable;
             },
         }
@@ -1831,7 +1831,7 @@ pub const DeclGen = struct {
         }
     }
 
-    /// Renders the C lowering of the given Sig type to `w`. This renders the type name---to render
+    /// Renders the C lowering of the given Zig type to `w`. This renders the type name---to render
     /// a declarator with this type, see instead `renderTypeAndName`.
     fn renderType(dg: *DeclGen, w: *Writer, ty: Type) (Writer.Error || Allocator.Error)!void {
         const zcu = dg.pt.zcu;
@@ -1839,7 +1839,7 @@ pub const DeclGen = struct {
         try w.print("{f}", .{cty.fmtTypeName(zcu)});
     }
 
-    /// Renders to `w` a C declarator whose type is the C lowering of the given Sig type.
+    /// Renders to `w` a C declarator whose type is the C lowering of the given Zig type.
     fn renderTypeAndName(
         dg: *DeclGen,
         w: *Writer,
@@ -2053,13 +2053,13 @@ pub fn genHeader(zcu: *Zcu, w: *Writer) !void {
         .msvc, .itanium => try w.writeAll("#define ZIG_TARGET_ABI_MSVC\n"),
         else => {},
     }
-    for ([_]u16{ 16, 32, 64, 80, 128 }) |bits| switch (std.sig.target.compilerRtFloatAbi(target, bits)) {
+    for ([_]u16{ 16, 32, 64, 80, 128 }) |bits| switch (std.zig.target.compilerRtFloatAbi(target, bits)) {
         .hard => {},
         .soft => try w.print("#define ZIG_TARGET_SOFT_COMPILER_RT_F{d}_ABI\n", .{bits}),
     };
     try w.print(
         \\#define ZIG_TARGET_MAX_INT_ALIGNMENT {d}
-        \\#include "Sig.h"
+        \\#include "zig.h"
         \\
         \\
     ,
@@ -2174,11 +2174,11 @@ pub fn genTagNameFn(
     }
 
     if (!zcu.comp.config.root_strip) try w.print("/* @tagName({f}) */\n", .{
-        loaded_enum.name.fmt(ip),
+        loaded_enum.fqn.fmt(ip),
     });
     try w.print("static {s} zig_tagName_{f}__{d}({s} tag) {{\n", .{
         slice_const_u8_sentinel_0_type_name,
-        fmtIdentUnsolo(loaded_enum.name.toSlice(ip)),
+        fmtIdentUnsolo(loaded_enum.fqn.toSlice(ip)),
         @backingInt(enum_ty.toIntern()),
         enum_type_name,
     });
@@ -2251,7 +2251,7 @@ pub fn generate(
     func_index: InternPool.Index,
     air: *const Air,
     liveness: *const ?Air.Liveness,
-) @import("../codegen.sig").Error!Mir {
+) codegen.Error!Mir {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
 
@@ -2738,7 +2738,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) Error!void {
             continue;
 
         const result_value = switch (air_tags[@backingInt(inst)]) {
-            // Sig fmt: off
+            // zig fmt: off
             .inferred_alloc, .inferred_alloc_comptime => unreachable,
 
             // Possible because `Air.Legalize.scalarize_bit_cast_vector_non_elementwise` is enabled.
@@ -3035,7 +3035,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) Error!void {
             .call_never_tail   => try airCall(f, inst, .never_tail),
             .call_never_inline => try airCall(f, inst, .never_inline),
 
-            // Sig fmt: on
+            // zig fmt: on
         };
         if (result_value == .new_local) {
             log.debug("map %{d} to t{d}", .{ inst, result_value.new_local });
@@ -5248,7 +5248,7 @@ fn airIsNull(
     const optional_ty = if (is_ptr) operand_ty.childType(zcu) else operand_ty;
 
     const pre: []const u8, const maybe_field: ?[]const u8, const post: []const u8 = switch (operator) {
-        // Sig fmt: off
+        // zig fmt: off
         .eq => switch (CType.classifyOptional(optional_ty, zcu)) {
             .npv_payload => unreachable, // opv optional
             .error_set   => .{ "", null,      " == 0" },
@@ -5265,7 +5265,7 @@ fn airIsNull(
             .opv_payload => .{ "!", "is_null", "" },
             .@"struct"   => .{ "!", "is_null", "" },
         },
-        // Sig fmt: on
+        // zig fmt: on
     };
 
     try w.writeAll(pre);
@@ -6666,7 +6666,7 @@ fn airTagName(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.writeCValue(w, local, .other);
     try f.need_tag_name_funcs.put(gpa, enum_ty.toIntern(), {});
     try w.print(" = zig_tagName_{f}__{d}(", .{
-        fmtIdentUnsolo(enum_ty.containerTypeName(ip).toSlice(ip)),
+        fmtIdentUnsolo(enum_ty.containerTypeName(ip).fqn.toSlice(ip)),
         @backingInt(enum_ty.toIntern()),
     });
     try f.writeCValue(w, operand, .other);
@@ -7747,7 +7747,7 @@ const FormatUnsignedIntLiteralSmall = struct {
 };
 fn minMaxMacroPrefix(int_cty: CType.Int) []const u8 {
     return switch (int_cty) {
-        // Sig fmt: off
+        // zig fmt: off
         .char => "CHAR",
 
         .@"unsigned short"     => "USHRT",
@@ -7778,12 +7778,12 @@ fn minMaxMacroPrefix(int_cty: CType.Int) []const u8 {
 
         .uintptr_t => "UINTPTR",
         .intptr_t  => "INTPTR",
-        // Sig fmt: on
+        // zig fmt: on
     };
 }
 fn intLiteralPrefix(cty: CType.Int, is_global: bool) []const u8 {
     return switch (cty) {
-        // Sig fmt: off
+        // zig fmt: off
         .char              => if (is_global) "" else "(char)",
 
         .@"unsigned short"     => if (is_global) "" else "(unsigned short)",
@@ -7814,12 +7814,12 @@ fn intLiteralPrefix(cty: CType.Int, is_global: bool) []const u8 {
 
         .uintptr_t => if (is_global) "" else "(uintptr_t)",
         .intptr_t  => if (is_global) "" else "(intptr_t)",
-        // Sig fmt: on
+        // zig fmt: on
     };
 }
 fn intLiteralSuffix(cty: CType.Int) []const u8 {
     return switch (cty) {
-        // Sig fmt: off
+        // zig fmt: off
         .char      => "",
 
         .@"unsigned short"     => "u",
@@ -7850,7 +7850,7 @@ fn intLiteralSuffix(cty: CType.Int) []const u8 {
 
         .uintptr_t => "ul",
         .intptr_t  => "",
-        // Sig fmt: on
+        // zig fmt: on
     };
 }
 

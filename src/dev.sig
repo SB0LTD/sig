@@ -228,7 +228,6 @@ pub const Env = enum {
                 else => Env.sema.supports(feature),
             },
             .@"x86_64-windows" => switch (feature) {
-                .build_command,
                 .stdio_listen,
                 .incremental,
                 .legalize,

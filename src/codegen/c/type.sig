@@ -1,5 +1,5 @@
 pub const CType = union(enum) {
-    pub const render_defs = @import("type/render_defs.sig");
+    pub const render_defs = @import("type/render_defs.zig");
 
     // The first nodes are primitive types (or standard typedefs).
 
@@ -223,7 +223,7 @@ pub const CType = union(enum) {
     /// after the identifier in a declarator with this type. In this case, if this node is wrapped
     /// in a pointer type, we will need to add parentheses due to operator precedence.
     ///
-    /// For instance, when lowering a Sig declaration `foo: *const fn (c_int) void`, it would be a
+    /// For instance, when lowering a Zig declaration `foo: *const fn (c_int) void`, it would be a
     /// bug to write the C declarator as `void *foo(int)`, because the `(int)` suffix declaring the
     /// function type has higher precedence than the `*` prefix declaring the pointer type. Instead,
     /// this type must be lowered as `void (*foo)(int)`.
@@ -302,7 +302,7 @@ pub const CType = union(enum) {
 
         pub fn bits(int: Int, target: *const std.Target) u16 {
             return switch (int) {
-                // Sig fmt: off
+                // zig fmt: off
                 .char => target.cTypeBitSize(.char).?,
 
                 .@"unsigned short"     => target.cTypeBitSize(.ushort).?,
@@ -324,7 +324,7 @@ pub const CType = union(enum) {
                 .uint48_t, .int48_t  => 48,
                 .uint64_t, .int64_t  => 64,
                 .zig_u128, .zig_i128 => 128,
-                // Sig fmt: on
+                // zig fmt: on
             };
         }
     };
@@ -663,7 +663,7 @@ pub const CType = union(enum) {
             else => unreachable,
         };
         switch (int_ty.toIntern()) {
-            // Sig fmt: off
+            // zig fmt: off
         .usize_type => return .{ .small = .uintptr_t },
         .isize_type => return .{ .small = .intptr_t },
 
@@ -678,7 +678,7 @@ pub const CType = union(enum) {
         .c_uint_type      => return .{ .small = .@"unsigned int" },
         .c_ulong_type     => return .{ .small = .@"unsigned long" },
         .c_ulonglong_type => return .{ .small = .@"unsigned long long" },
-        // Sig fmt: on
+        // zig fmt: on
 
             else => {
                 const int = ty.intInfo(zcu);
@@ -688,7 +688,7 @@ pub const CType = union(enum) {
     }
     fn classifyBitInt(signedness: std.lang.Signedness, bits: u16, zcu: *const Zcu) IntClass {
         const target = zcu.getTarget();
-        return switch (std.sig.target.intByteSize(target, bits)) {
+        return switch (std.zig.target.intByteSize(target, bits)) {
             0 => .void,
             1 => switch (signedness) {
                 .unsigned => .{ .small = .uint8_t },
@@ -720,7 +720,7 @@ pub const CType = union(enum) {
             },
             else => |n| {
                 @branchHint(.unlikely);
-                const limb_bytes = std.sig.target.intAlignment(target, bits);
+                const limb_bytes = std.zig.target.intAlignment(target, bits);
                 return .{ .big = .{
                     .limb_size = switch (limb_bytes) {
                         1 => .@"8",
@@ -739,11 +739,11 @@ pub const CType = union(enum) {
     /// Describes a set of types which must be declared or completed in the C source file before
     /// some string of rendered C code (such as a function), due to said C code using these types.
     pub const Dependencies = struct {
-        /// Key is any Sig type which corresponds to a C `struct`, `union`, or `typedef`. That C
+        /// Key is any Zig type which corresponds to a C `struct`, `union`, or `typedef`. That C
         /// type must be declared and complete.
         type: std.array_hash_map.Auto(InternPool.Index, void),
 
-        /// Key is a Sig type which is the *payload* of an error union. The C `struct` type
+        /// Key is a Zig type which is the *payload* of an error union. The C `struct` type
         /// corresponding to such an error union must be declared and complete.
         ///
         /// These are separate from `type` to avoid redundant types for every different error set
@@ -758,7 +758,7 @@ pub const CType = union(enum) {
         /// forward declaration is sufficient.
         errunion_type_fwd: std.array_hash_map.Auto(InternPool.Index, void),
 
-        /// Key is a Sig type; value is a bitmask of alignments. For every bit which is set, an
+        /// Key is a Zig type; value is a bitmask of alignments. For every bit which is set, an
         /// aligned typedef is required. For instance, if bit 3 is set, the C type 'aligned__8_foo'
         /// must be declared through `typedef` (but not necessarily completed yet).
         aligned_type_fwd: std.array_hash_map.Auto(InternPool.Index, u64),
@@ -1027,7 +1027,7 @@ pub const CType = union(enum) {
         }
     }
 
-    /// Renders Sig types using only bytes allowed in C identifiers in a somewhat-understandable
+    /// Renders Zig types using only bytes allowed in C identifiers in a somewhat-understandable
     /// way. The output is *not* guaranteed to be unique.
     fn fmtZigType(ty: Type, zcu: *const Zcu) FormatZigType {
         return .{ .ty = ty, .zcu = zcu };
@@ -1140,18 +1140,18 @@ pub const CType = union(enum) {
                         try w.print("_{f}", .{fmtZigType(field_ty, zcu)});
                     }
                 } else {
-                    const name = ty.containerTypeName(ip).toSlice(ip);
-                    try w.print("{f}", .{@import("../c.sig").fmtIdentUnsolo(name)});
+                    const name = ty.containerTypeName(ip).fqn.toSlice(ip);
+                    try w.print("{f}", .{@import("../c.zig").fmtIdentUnsolo(name)});
                 },
                 .@"opaque" => if (ty.toIntern() == .anyopaque_type) {
                     try w.writeAll("anyopaque");
                 } else {
-                    const name = ty.containerTypeName(ip).toSlice(ip);
-                    try w.print("{f}", .{@import("../c.sig").fmtIdentUnsolo(name)});
+                    const name = ty.containerTypeName(ip).fqn.toSlice(ip);
+                    try w.print("{f}", .{@import("../c.zig").fmtIdentUnsolo(name)});
                 },
                 .@"union", .@"enum" => {
-                    const name = ty.containerTypeName(ip).toSlice(ip);
-                    try w.print("{f}", .{@import("../c.sig").fmtIdentUnsolo(name)});
+                    const name = ty.containerTypeName(ip).fqn.toSlice(ip);
+                    try w.print("{f}", .{@import("../c.zig").fmtIdentUnsolo(name)});
                 },
             }
         }
@@ -1213,10 +1213,10 @@ pub const CType = union(enum) {
     }
 };
 
-const Zcu = @import("../../Zcu.sig");
-const Type = @import("../../Type.sig");
-const Value = @import("../../Value.sig");
-const InternPool = @import("../../InternPool.sig");
+const Zcu = @import("../../Zcu.zig");
+const Type = @import("../../Type.zig");
+const Value = @import("../../Value.zig");
+const InternPool = @import("../../InternPool.zig");
 
 const std = @import("std");
 const assert = std.debug.assert;

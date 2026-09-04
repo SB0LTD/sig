@@ -1,7 +1,7 @@
-//! ZigObject encapsulates the state of the incrementally compiled Sig module.
+//! ZigObject encapsulates the state of the incrementally compiled Zig module.
 //! It stores the associated input local and global symbols, allocated atoms,
 //! and any relocations that may have been emitted.
-//! Think about this as fake in-memory Object file for the Sig module.
+//! Think about this as fake in-memory Object file for the Zig module.
 
 data: std.ArrayList(u8) = .empty,
 /// Externally owned memory.
@@ -946,14 +946,11 @@ pub fn getNavVAddr(
                 .r_addend = reloc_info.addend,
             }, self);
         },
-        .debug_output => |debug_output| switch (debug_output) {
-            .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
-                .source_off = @intCast(reloc_info.offset),
-                .target_sym = @fromBackingInt(@intCast(this_sym_index)),
-                .target_off = reloc_info.addend,
-            }),
-            .none => unreachable,
-        },
+        .debug_output => |debug_output| try debug_output.dwarf.infoExternalReloc(.{
+            .source_off = @intCast(reloc_info.offset),
+            .target_sym = @fromBackingInt(@intCast(this_sym_index)),
+            .target_off = reloc_info.addend,
+        }),
     }
     return @intCast(vaddr);
 }
@@ -978,14 +975,11 @@ pub fn getUavVAddr(
                 .r_addend = reloc_info.addend,
             }, self);
         },
-        .debug_output => |debug_output| switch (debug_output) {
-            .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
-                .source_off = @intCast(reloc_info.offset),
-                .target_sym = @fromBackingInt(@intCast(sym_index)),
-                .target_off = reloc_info.addend,
-            }),
-            .none => unreachable,
-        },
+        .debug_output => |debug_output| try debug_output.dwarf.infoExternalReloc(.{
+            .source_off = @intCast(reloc_info.offset),
+            .target_sym = @fromBackingInt(@intCast(sym_index)),
+            .target_off = reloc_info.addend,
+        }),
     }
     return @intCast(vaddr);
 }
@@ -1952,11 +1946,11 @@ pub fn updateExports(
     }
 }
 
-pub fn updateLineNumber(self: *ZigObject, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) link.Error!void {
+pub fn updateLineNumber(self: *ZigObject, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index, line: u32) link.Error!void {
     if (self.dwarf) |*dwarf| {
         const comp = dwarf.bin_file.comp;
         const diags = &comp.link_diags;
-        dwarf.updateLineNumber(pt.zcu, ti_id) catch |err| switch (err) {
+        dwarf.updateLineNumber(pt.zcu, ti_id, line) catch |err| switch (err) {
             error.OutOfMemory, error.Canceled, error.AlreadyReported => |e| return e,
             else => |e| return diags.fail("failed to update dwarf line numbers: {s}", .{@errorName(e)}),
         };
@@ -2402,6 +2396,7 @@ const TlsTable = std.array_hash_map.Auto(Atom.Index, void);
 
 const x86_64 = struct {
     fn writeTrampolineCode(source_addr: i64, target_addr: i64, buf: *[max_trampoline_len]u8) ![]u8 {
+        dev.checkAny(&.{ .llvm_backend, .x86_64_backend });
         const disp = @as(i64, @intCast(target_addr)) - source_addr - 5;
         var bytes = [_]u8{
             0xe9, 0x00, 0x00, 0x00, 0x00, // jmp rel32
@@ -2416,28 +2411,29 @@ const x86_64 = struct {
 const assert = std.debug.assert;
 const build_options = @import("build_options");
 const builtin = @import("builtin");
-const codegen = @import("../../codegen.sig");
+const codegen = @import("../../codegen.zig");
+const dev = @import("../../dev.zig");
 const elf = std.elf;
-const link = @import("../../link.sig");
+const link = @import("../../link.zig");
 const log = std.log.scoped(.link);
 const mem = std.mem;
-const relocation = @import("relocation.sig");
-const target_util = @import("../../target.sig");
-const trace = @import("../../tracy.sig").trace;
+const relocation = @import("relocation.zig");
+const target_util = @import("../../target.zig");
+const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const Archive = @import("Archive.sig");
-const Atom = @import("Atom.sig");
-const Dwarf = @import("../Dwarf.sig");
-const Elf = @import("../Elf.sig");
-const File = @import("file.sig").File;
-const InternPool = @import("../../InternPool.sig");
-const Zcu = @import("../../Zcu.sig");
-const Object = @import("Object.sig");
-const Symbol = @import("Symbol.sig");
-const StringTable = @import("../StringTable.sig");
-const Type = @import("../../Type.sig");
-const Value = @import("../../Value.sig");
+const Archive = @import("Archive.zig");
+const Atom = @import("Atom.zig");
+const Dwarf = @import("../Dwarf.zig");
+const Elf = @import("../Elf.zig");
+const File = @import("file.zig").File;
+const InternPool = @import("../../InternPool.zig");
+const Zcu = @import("../../Zcu.zig");
+const Object = @import("Object.zig");
+const Symbol = @import("Symbol.zig");
+const StringTable = @import("../StringTable.zig");
+const Type = @import("../../Type.zig");
+const Value = @import("../../Value.zig");
 const AnalUnit = InternPool.AnalUnit;
 const ZigObject = @This();

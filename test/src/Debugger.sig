@@ -1,6 +1,7 @@
 b: *std.Build,
 options: Options,
 root_step: *std.Build.Step,
+test_matrix: []const TestTarget,
 
 pub const Options = struct {
     test_filters: []const []const u8,
@@ -12,22 +13,23 @@ pub const Options = struct {
     skip_libc: bool,
 };
 
-pub const Target = struct {
-    resolved: std.Build.ResolvedTarget,
+pub const TestTarget = struct {
+    target: std.Target.Query,
     optimize_mode: std.builtin.Optimize = .debug,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
     pic: ?bool = null,
-    test_name_suffix: []const u8,
+    linker: LinkerImpl,
 };
 
-pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
+pub const LinkerImpl = enum { default, old, new };
+
+pub fn addTests(db: *Debugger) void {
     db.addLldbTest(
         "basic",
-        target,
         &.{
             .{
-                .path = "basic.sig",
+                .path = "basic.zig",
                 .source =
                 \\const Basic = struct {
                 \\    void: void = {},
@@ -104,7 +106,7 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 ,
             },
         },
-        \\breakpoint set --file basic.sig --source-pattern-regexp '_ = basic;'
+        \\breakpoint set --file basic.zig --source-pattern-regexp '_ = basic;'
         \\process launch
         \\frame variable --show-all-children --show-types -- basic
         \\breakpoint delete --force 1
@@ -179,13 +181,13 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
+        .{},
     );
     db.addLldbTest(
         "identifiers",
-        target,
         &.{
             .{
-                .path = "identifiers.sig",
+                .path = "identifiers.zig",
                 .source =
                 \\const Struct = struct { @"zwölf": u32 };
                 \\fn testIdentifiers(@"fünf": u32, @"struct": Struct) void {
@@ -198,7 +200,7 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 ,
             },
         },
-        \\breakpoint set --file identifiers.sig --source-pattern-regexp '_ = @"struct";'
+        \\breakpoint set --file identifiers.zig --source-pattern-regexp '_ = @"struct";'
         \\process launch
         \\frame variable --show-all-children --show-types -- @\"fünf'"' '@"f\xC3\xBCnf"' '@"f\u{FC}nf"' '@"struct".@"zwölf"' '@"struct".@"zw\xC3\xB6lf"' '@"struct".@"zw\u{F6}lf"'
         \\breakpoint delete --force 1
@@ -214,13 +216,13 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
+        .{},
     );
     db.addLldbTest(
         "types",
-        target,
         &.{
             .{
-                .path = "types.sig",
+                .path = "types.zig",
                 .source =
                 \\fn testTypes(
                 \\    Anyopaque: type,
@@ -262,7 +264,7 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 ,
             },
         },
-        \\breakpoint set --file types.sig --source-pattern-regexp '_ = Undefined;'
+        \\breakpoint set --file types.zig --source-pattern-regexp '_ = Undefined;'
         \\process launch
         \\frame variable --show-all-children --show-types -- Anyopaque Bool Void Type ComptimeInt ComptimeFloat Noreturn Null Undefined EnumLiteral
         \\breakpoint delete --force 1
@@ -282,13 +284,13 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
+        .{},
     );
     db.addLldbTest(
         "pointers",
-        target,
         &.{
             .{
-                .path = "pointers.sig",
+                .path = "pointers.zig",
                 .source =
                 \\var array: [7]u32 = .{
                 \\    3010,
@@ -348,7 +350,7 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 ,
             },
         },
-        \\breakpoint set --file pointers.sig --source-pattern-regexp '_ = access;'
+        \\breakpoint set --file pointers.zig --source-pattern-regexp '_ = access;'
         \\process launch
         \\frame variable --show-all-children --show-types -- pointers access.single.* access.many[0] access.many[1] access.slice[0] access.slice[1] access.c.* access.c[0] access.c[1]
         \\breakpoint delete --force 1
@@ -419,13 +421,13 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
+        .{},
     );
     db.addLldbTest(
         "strings",
-        target,
         &.{
             .{
-                .path = "strings.sig",
+                .path = "strings.zig",
                 .source =
                 \\const Strings = struct {
                 \\    c_ptr: [*c]const u8 = "c_ptr\x07\x08\t",
@@ -443,7 +445,7 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 ,
             },
         },
-        \\breakpoint set --file strings.sig --source-pattern-regexp '_ = strings;'
+        \\breakpoint set --file strings.zig --source-pattern-regexp '_ = strings;'
         \\process launch
         \\frame variable --show-all-children --show-types -- strings.slice
         \\frame variable --show-all-children --show-types --format character -- strings.slice
@@ -495,13 +497,13 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
+        .{},
     );
     db.addLldbTest(
         "enums",
-        target,
         &.{
             .{
-                .path = "enums.sig",
+                .path = "enums.zig",
                 .source =
                 \\const Enums = struct {
                 \\    const Zero = enum(u4) { _ };
@@ -524,7 +526,7 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 ,
             },
         },
-        \\breakpoint set --file enums.sig --source-pattern-regexp '_ = enums;'
+        \\breakpoint set --file enums.zig --source-pattern-regexp '_ = enums;'
         \\process launch
         \\expression --show-types -- Enums
         \\frame variable --show-all-children --show-types -- enums
@@ -557,13 +559,13 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
+        .{ .skip_new_linker = true }, // passes, but prints errors
     );
     db.addLldbTest(
         "errors",
-        target,
         &.{
             .{
-                .path = "errors.sig",
+                .path = "errors.zig",
                 .source =
                 \\const Errors = struct {
                 \\    const Zero = error{};
@@ -588,7 +590,7 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 ,
             },
         },
-        \\breakpoint set --file errors.sig --source-pattern-regexp '_ = errors;'
+        \\breakpoint set --file errors.zig --source-pattern-regexp '_ = errors;'
         \\process launch
         \\expression --show-types -- Errors
         \\frame variable --show-all-children --show-types -- errors
@@ -627,13 +629,13 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
+        .{ .skip_new_linker = true },
     );
     db.addLldbTest(
         "optionals",
-        target,
         &.{
             .{
-                .path = "optionals.sig",
+                .path = "optionals.zig",
                 .source =
                 \\pub fn main() void {
                 \\    {
@@ -649,12 +651,12 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 ,
             },
         },
-        \\breakpoint set --file optionals.sig --source-pattern-regexp 'maybe_u32 = 123;'
+        \\breakpoint set --file optionals.zig --source-pattern-regexp 'maybe_u32 = 123;'
         \\process launch
         \\frame variable --show-all-children -- null_u32 maybe_u32 nonnull_u32 nonnull_u32.?
         \\breakpoint delete --force 1
         \\
-        \\breakpoint set --file optionals.sig --source-pattern-regexp 'nonnull_u32 = nonnull_u32;'
+        \\breakpoint set --file optionals.zig --source-pattern-regexp 'nonnull_u32 = nonnull_u32;'
         \\process continue
         \\frame variable --show-all-children --show-types -- null_u32 maybe_u32 maybe_u32.? nonnull_u32 nonnull_u32.?
         \\breakpoint delete --force 2
@@ -681,13 +683,13 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             \\(lldb) breakpoint delete --force 2
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
+        .{},
     );
     db.addLldbTest(
         "unions",
-        target,
         &.{
             .{
-                .path = "unions.sig",
+                .path = "unions.zig",
                 .source =
                 \\const Unions = struct {
                 \\    const Enum = enum { first, second, third };
@@ -721,7 +723,7 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 ,
             },
         },
-        \\breakpoint set --file unions.sig --source-pattern-regexp '_ = unions;'
+        \\breakpoint set --file unions.zig --source-pattern-regexp '_ = unions;'
         \\process launch
         \\expression --show-types -- Unions
         \\frame variable --show-all-children --show-types -- unions
@@ -766,16 +768,16 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
+        .{ .skip_new_linker = true }, // passes, but prints errors
     );
     db.addLldbTest(
         "storage",
-        target,
         &.{
             .{
-                .path = "storage.sig",
+                .path = "storage.zig",
                 .source =
                 \\comptime {
-                \\    _ = @import("externs.sig");
+                \\    _ = @import("externs.zig");
                 \\}
                 \\const global_const: u64 = 0x19e50dc8d6002077;
                 \\var global_var: u64 = 0xcc423cec08622e32;
@@ -819,7 +821,7 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 ,
             },
             .{
-                .path = "externs.sig",
+                .path = "externs.zig",
                 .source =
                 \\export const extern_const: u64 = 0x1b0c91ea0470b0b2;
                 \\export var extern_var: u64 = 0x19bc17b3f0b61ebc;
@@ -829,7 +831,7 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 ,
             },
         },
-        \\breakpoint set --file storage.sig --source-pattern-regexp 'local_var = local_var;'
+        \\breakpoint set --file storage.zig --source-pattern-regexp 'local_var = local_var;'
         \\process launch
         \\target variable --show-types --format hex -- global_const global_var global_threadlocal1 global_threadlocal2 extern_const extern_var extern_threadlocal1 extern_threadlocal2
         \\frame variable --show-all-children --show-types --format hex -- param1 param2 param3 param4 param5 param6 param7 param8 local_comptime_val 'local_comptime_ptr.@"0"' local_comptime_ptr[0] local_const local_var
@@ -866,13 +868,13 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
+        .{ .skip_new_linker = true },
     );
     db.addLldbTest(
         "if_blocks",
-        target,
         &.{
             .{
-                .path = "if_blocks.sig",
+                .path = "if_blocks.zig",
                 .source =
                 \\pub fn main() void {
                 \\    for (0..2) |i| {
@@ -889,7 +891,7 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 ,
             },
         },
-        \\breakpoint set --file if_blocks.sig --source-pattern-regexp '_ = &x;'
+        \\breakpoint set --file if_blocks.zig --source-pattern-regexp '_ = &x;'
         \\process launch
         \\frame variable --show-all-children
         \\process continue
@@ -908,13 +910,13 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
+        .{},
     );
     db.addLldbTest(
         "switch_blocks",
-        target,
         &.{
             .{
-                .path = "switch_blocks.sig",
+                .path = "switch_blocks.zig",
                 .source =
                 \\pub fn main() void {
                 \\    for (0..2) |i| {
@@ -934,7 +936,7 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 ,
             },
         },
-        \\breakpoint set --file switch_blocks.sig --source-pattern-regexp '_ = &x;'
+        \\breakpoint set --file switch_blocks.zig --source-pattern-regexp '_ = &x;'
         \\process launch
         \\frame variable --show-all-children
         \\process continue
@@ -953,13 +955,13 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
+        .{},
     );
     db.addLldbTest(
         "step_single_stmt_loops",
-        target,
         &.{
             .{
-                .path = "step_single_stmt_loops.sig",
+                .path = "step_single_stmt_loops.zig",
                 .source =
                 \\pub fn main() void {
                 \\    var x: u32 = 0;
@@ -1371,16 +1373,16 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             \\(lldb) frame variable --show-all-children x
             \\(u32) x = 12
         },
+        .{},
     );
     db.addLldbTest(
         "inline_call",
-        target,
         &.{
             .{
-                .path = "root0.sig",
+                .path = "root0.zig",
                 .source =
                 \\const root0 = @This();
-                \\pub const root1 = @import("root1.sig");
+                \\pub const root1 = @import("root1.zig");
                 \\const mod0 = @import("module");
                 \\const mod1 = mod0.mod1;
                 \\pub fn r0pf(r0pa: u32) void {
@@ -1425,9 +1427,9 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 ,
             },
             .{
-                .path = "root1.sig",
+                .path = "root1.zig",
                 .source =
-                \\const root0 = @import("root0.sig");
+                \\const root0 = @import("root0.zig");
                 \\const root1 = @This();
                 \\const mod0 = @import("module");
                 \\const mod1 = mod0.mod1;
@@ -1464,12 +1466,12 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             },
             .{
                 .import = "module",
-                .path = "mod0.sig",
+                .path = "mod0.zig",
                 .source =
                 \\const root0 = @import("root");
                 \\const root1 = root0.root1;
                 \\const mod0 = @This();
-                \\pub const mod1 = @import("mod1.sig");
+                \\pub const mod1 = @import("mod1.zig");
                 \\pub fn m0pf(m0pa: u32) void {
                 \\    root0.r0cf(m0pa ^ 1);
                 \\    root0.r0cfi(m0pa ^ 2);
@@ -1502,11 +1504,11 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 ,
             },
             .{
-                .path = "mod1.sig",
+                .path = "mod1.zig",
                 .source =
                 \\const root0 = @import("root");
                 \\const root1 = root0.root1;
-                \\const mod0 = @import("mod0.sig");
+                \\const mod0 = @import("mod0.zig");
                 \\const mod1 = @This();
                 \\pub fn m1pf(m1pa: u32) void {
                 \\    root0.r0cf(m1pa ^ 1);
@@ -1542,14 +1544,14 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
         },
         \\settings set frame-format 'frame #${frame.index}:{ ${module.file.basename}{\`${function.name-with-args}{${frame.no-debug}${function.pc-offset}}}}{ at ${line.file.basename}:${line.number}{:${line.column}}}{${function.is-optimized} [opt]}{${frame.is-artificial} [artificial]}\n'
         \\
-        \\breakpoint set --file root0.sig --line 26
-        \\breakpoint set --file root0.sig --line 30
-        \\breakpoint set --file root1.sig --line 26
-        \\breakpoint set --file root1.sig --line 30
-        \\breakpoint set --file mod0.sig --line 26
-        \\breakpoint set --file mod0.sig --line 30
-        \\breakpoint set --file mod1.sig --line 26
-        \\breakpoint set --file mod1.sig --line 30
+        \\breakpoint set --file root0.zig --line 26
+        \\breakpoint set --file root0.zig --line 30
+        \\breakpoint set --file root1.zig --line 26
+        \\breakpoint set --file root1.zig --line 30
+        \\breakpoint set --file mod0.zig --line 26
+        \\breakpoint set --file mod0.zig --line 30
+        \\breakpoint set --file mod1.zig --line 26
+        \\breakpoint set --file mod1.zig --line 30
         \\
         \\process launch
         \\thread backtrace --count 3
@@ -1688,269 +1690,269 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
         \\thread backtrace --count 3
     ,
         &.{
-            \\   * frame #0: inline_call`root0.r0cf(r0ca=13) at root0.sig:26:5
-            \\     frame #1: inline_call`root0.r0pf(r0pa=12) at root0.sig:6:15
-            \\     frame #2: inline_call`root0.main at root0.sig:34:15
+            \\   * frame #0: inline_call`root0.r0cf(r0ca=13) at root0.zig:26:5
+            \\     frame #1: inline_call`root0.r0pf(r0pa=12) at root0.zig:6:15
+            \\     frame #2: inline_call`root0.main at root0.zig:34:15
             ,
-            \\   * frame #0: inline_call`r0cfi(r0cai=14) at root0.sig:30:5
-            \\     frame #1: inline_call`root0.r0pf(r0pa=12) at root0.sig:7:16
-            \\     frame #2: inline_call`root0.main at root0.sig:34:15
+            \\   * frame #0: inline_call`r0cfi(r0cai=14) at root0.zig:30:5
+            \\     frame #1: inline_call`root0.r0pf(r0pa=12) at root0.zig:7:16
+            \\     frame #2: inline_call`root0.main at root0.zig:34:15
             ,
-            \\   * frame #0: inline_call`root1.r1cf(r1ca=15) at root1.sig:26:5
-            \\     frame #1: inline_call`root0.r0pf(r0pa=12) at root0.sig:8:15
-            \\     frame #2: inline_call`root0.main at root0.sig:34:15
+            \\   * frame #0: inline_call`root1.r1cf(r1ca=15) at root1.zig:26:5
+            \\     frame #1: inline_call`root0.r0pf(r0pa=12) at root0.zig:8:15
+            \\     frame #2: inline_call`root0.main at root0.zig:34:15
             ,
-            \\   * frame #0: inline_call`r1cfi(r1cai=8) at root1.sig:30:5
-            \\     frame #1: inline_call`root0.r0pf(r0pa=12) at root0.sig:9:16
-            \\     frame #2: inline_call`root0.main at root0.sig:34:15
+            \\   * frame #0: inline_call`r1cfi(r1cai=8) at root1.zig:30:5
+            \\     frame #1: inline_call`root0.r0pf(r0pa=12) at root0.zig:9:16
+            \\     frame #2: inline_call`root0.main at root0.zig:34:15
             ,
-            \\   * frame #0: inline_call`mod0.m0cf(m0ca=9) at mod0.sig:26:5
-            \\     frame #1: inline_call`root0.r0pf(r0pa=12) at root0.sig:10:14
-            \\     frame #2: inline_call`root0.main at root0.sig:34:15
+            \\   * frame #0: inline_call`mod0.m0cf(m0ca=9) at mod0.zig:26:5
+            \\     frame #1: inline_call`root0.r0pf(r0pa=12) at root0.zig:10:14
+            \\     frame #2: inline_call`root0.main at root0.zig:34:15
             ,
-            \\   * frame #0: inline_call`m0cfi(m0cai=10) at mod0.sig:30:5
-            \\     frame #1: inline_call`root0.r0pf(r0pa=12) at root0.sig:11:15
-            \\     frame #2: inline_call`root0.main at root0.sig:34:15
+            \\   * frame #0: inline_call`m0cfi(m0cai=10) at mod0.zig:30:5
+            \\     frame #1: inline_call`root0.r0pf(r0pa=12) at root0.zig:11:15
+            \\     frame #2: inline_call`root0.main at root0.zig:34:15
             ,
-            \\   * frame #0: inline_call`mod1.m1cf(m1ca=11) at mod1.sig:26:5
-            \\     frame #1: inline_call`root0.r0pf(r0pa=12) at root0.sig:12:14
-            \\     frame #2: inline_call`root0.main at root0.sig:34:15
+            \\   * frame #0: inline_call`mod1.m1cf(m1ca=11) at mod1.zig:26:5
+            \\     frame #1: inline_call`root0.r0pf(r0pa=12) at root0.zig:12:14
+            \\     frame #2: inline_call`root0.main at root0.zig:34:15
             ,
-            \\   * frame #0: inline_call`m1cfi(m1cai=4) at mod1.sig:30:5
-            \\     frame #1: inline_call`root0.r0pf(r0pa=12) at root0.sig:13:15
-            \\     frame #2: inline_call`root0.main at root0.sig:34:15
+            \\   * frame #0: inline_call`m1cfi(m1cai=4) at mod1.zig:30:5
+            \\     frame #1: inline_call`root0.r0pf(r0pa=12) at root0.zig:13:15
+            \\     frame #2: inline_call`root0.main at root0.zig:34:15
             ,
-            \\   * frame #0: inline_call`root0.r0cf(r0ca=22) at root0.sig:26:5
-            \\     frame #1: inline_call`r0pfi(r0pai=23) at root0.sig:16:15
-            \\     frame #2: inline_call`root0.main at root0.sig:35:16
+            \\   * frame #0: inline_call`root0.r0cf(r0ca=22) at root0.zig:26:5
+            \\     frame #1: inline_call`r0pfi(r0pai=23) at root0.zig:16:15
+            \\     frame #2: inline_call`root0.main at root0.zig:35:16
             ,
-            \\   * frame #0: inline_call`r0cfi(r0cai=21) at root0.sig:30:5
-            \\     frame #1: inline_call`r0pfi(r0pai=23) at root0.sig:17:16
-            \\     frame #2: inline_call`root0.main at root0.sig:35:16
+            \\   * frame #0: inline_call`r0cfi(r0cai=21) at root0.zig:30:5
+            \\     frame #1: inline_call`r0pfi(r0pai=23) at root0.zig:17:16
+            \\     frame #2: inline_call`root0.main at root0.zig:35:16
             ,
-            \\   * frame #0: inline_call`root1.r1cf(r1ca=20) at root1.sig:26:5
-            \\     frame #1: inline_call`r0pfi(r0pai=23) at root0.sig:18:15
-            \\     frame #2: inline_call`root0.main at root0.sig:35:16
+            \\   * frame #0: inline_call`root1.r1cf(r1ca=20) at root1.zig:26:5
+            \\     frame #1: inline_call`r0pfi(r0pai=23) at root0.zig:18:15
+            \\     frame #2: inline_call`root0.main at root0.zig:35:16
             ,
-            \\   * frame #0: inline_call`r1cfi(r1cai=19) at root1.sig:30:5
-            \\     frame #1: inline_call`r0pfi(r0pai=23) at root0.sig:19:16
-            \\     frame #2: inline_call`root0.main at root0.sig:35:16
+            \\   * frame #0: inline_call`r1cfi(r1cai=19) at root1.zig:30:5
+            \\     frame #1: inline_call`r0pfi(r0pai=23) at root0.zig:19:16
+            \\     frame #2: inline_call`root0.main at root0.zig:35:16
             ,
-            \\   * frame #0: inline_call`mod0.m0cf(m0ca=18) at mod0.sig:26:5
-            \\     frame #1: inline_call`r0pfi(r0pai=23) at root0.sig:20:14
-            \\     frame #2: inline_call`root0.main at root0.sig:35:16
+            \\   * frame #0: inline_call`mod0.m0cf(m0ca=18) at mod0.zig:26:5
+            \\     frame #1: inline_call`r0pfi(r0pai=23) at root0.zig:20:14
+            \\     frame #2: inline_call`root0.main at root0.zig:35:16
             ,
-            \\   * frame #0: inline_call`m0cfi(m0cai=17) at mod0.sig:30:5
-            \\     frame #1: inline_call`r0pfi(r0pai=23) at root0.sig:21:15
-            \\     frame #2: inline_call`root0.main at root0.sig:35:16
+            \\   * frame #0: inline_call`m0cfi(m0cai=17) at mod0.zig:30:5
+            \\     frame #1: inline_call`r0pfi(r0pai=23) at root0.zig:21:15
+            \\     frame #2: inline_call`root0.main at root0.zig:35:16
             ,
-            \\   * frame #0: inline_call`mod1.m1cf(m1ca=16) at mod1.sig:26:5
-            \\     frame #1: inline_call`r0pfi(r0pai=23) at root0.sig:22:14
-            \\     frame #2: inline_call`root0.main at root0.sig:35:16
+            \\   * frame #0: inline_call`mod1.m1cf(m1ca=16) at mod1.zig:26:5
+            \\     frame #1: inline_call`r0pfi(r0pai=23) at root0.zig:22:14
+            \\     frame #2: inline_call`root0.main at root0.zig:35:16
             ,
-            \\   * frame #0: inline_call`m1cfi(m1cai=31) at mod1.sig:30:5
-            \\     frame #1: inline_call`r0pfi(r0pai=23) at root0.sig:23:15
-            \\     frame #2: inline_call`root0.main at root0.sig:35:16
+            \\   * frame #0: inline_call`m1cfi(m1cai=31) at mod1.zig:30:5
+            \\     frame #1: inline_call`r0pfi(r0pai=23) at root0.zig:23:15
+            \\     frame #2: inline_call`root0.main at root0.zig:35:16
             ,
-            \\   * frame #0: inline_call`root0.r0cf(r0ca=35) at root0.sig:26:5
-            \\     frame #1: inline_call`root1.r1pf(r1pa=34) at root1.sig:6:15
-            \\     frame #2: inline_call`root0.main at root0.sig:36:15
+            \\   * frame #0: inline_call`root0.r0cf(r0ca=35) at root0.zig:26:5
+            \\     frame #1: inline_call`root1.r1pf(r1pa=34) at root1.zig:6:15
+            \\     frame #2: inline_call`root0.main at root0.zig:36:15
             ,
-            \\   * frame #0: inline_call`r0cfi(r0cai=32) at root0.sig:30:5
-            \\     frame #1: inline_call`root1.r1pf(r1pa=34) at root1.sig:7:16
-            \\     frame #2: inline_call`root0.main at root0.sig:36:15
+            \\   * frame #0: inline_call`r0cfi(r0cai=32) at root0.zig:30:5
+            \\     frame #1: inline_call`root1.r1pf(r1pa=34) at root1.zig:7:16
+            \\     frame #2: inline_call`root0.main at root0.zig:36:15
             ,
-            \\   * frame #0: inline_call`root1.r1cf(r1ca=33) at root1.sig:26:5
-            \\     frame #1: inline_call`root1.r1pf(r1pa=34) at root1.sig:8:15
-            \\     frame #2: inline_call`root0.main at root0.sig:36:15
+            \\   * frame #0: inline_call`root1.r1cf(r1ca=33) at root1.zig:26:5
+            \\     frame #1: inline_call`root1.r1pf(r1pa=34) at root1.zig:8:15
+            \\     frame #2: inline_call`root0.main at root0.zig:36:15
             ,
-            \\   * frame #0: inline_call`r1cfi(r1cai=38) at root1.sig:30:5
-            \\     frame #1: inline_call`root1.r1pf(r1pa=34) at root1.sig:9:16
-            \\     frame #2: inline_call`root0.main at root0.sig:36:15
+            \\   * frame #0: inline_call`r1cfi(r1cai=38) at root1.zig:30:5
+            \\     frame #1: inline_call`root1.r1pf(r1pa=34) at root1.zig:9:16
+            \\     frame #2: inline_call`root0.main at root0.zig:36:15
             ,
-            \\   * frame #0: inline_call`mod0.m0cf(m0ca=39) at mod0.sig:26:5
-            \\     frame #1: inline_call`root1.r1pf(r1pa=34) at root1.sig:10:14
-            \\     frame #2: inline_call`root0.main at root0.sig:36:15
+            \\   * frame #0: inline_call`mod0.m0cf(m0ca=39) at mod0.zig:26:5
+            \\     frame #1: inline_call`root1.r1pf(r1pa=34) at root1.zig:10:14
+            \\     frame #2: inline_call`root0.main at root0.zig:36:15
             ,
-            \\   * frame #0: inline_call`m0cfi(m0cai=36) at mod0.sig:30:5
-            \\     frame #1: inline_call`root1.r1pf(r1pa=34) at root1.sig:11:15
-            \\     frame #2: inline_call`root0.main at root0.sig:36:15
+            \\   * frame #0: inline_call`m0cfi(m0cai=36) at mod0.zig:30:5
+            \\     frame #1: inline_call`root1.r1pf(r1pa=34) at root1.zig:11:15
+            \\     frame #2: inline_call`root0.main at root0.zig:36:15
             ,
-            \\   * frame #0: inline_call`mod1.m1cf(m1ca=37) at mod1.sig:26:5
-            \\     frame #1: inline_call`root1.r1pf(r1pa=34) at root1.sig:12:14
-            \\     frame #2: inline_call`root0.main at root0.sig:36:15
+            \\   * frame #0: inline_call`mod1.m1cf(m1ca=37) at mod1.zig:26:5
+            \\     frame #1: inline_call`root1.r1pf(r1pa=34) at root1.zig:12:14
+            \\     frame #2: inline_call`root0.main at root0.zig:36:15
             ,
-            \\   * frame #0: inline_call`m1cfi(m1cai=42) at mod1.sig:30:5
-            \\     frame #1: inline_call`root1.r1pf(r1pa=34) at root1.sig:13:15
-            \\     frame #2: inline_call`root0.main at root0.sig:36:15
+            \\   * frame #0: inline_call`m1cfi(m1cai=42) at mod1.zig:30:5
+            \\     frame #1: inline_call`root1.r1pf(r1pa=34) at root1.zig:13:15
+            \\     frame #2: inline_call`root0.main at root0.zig:36:15
             ,
-            \\   * frame #0: inline_call`root0.r0cf(r0ca=44) at root0.sig:26:5
-            \\     frame #1: inline_call`r1pfi(r1pai=45) at root1.sig:16:15
-            \\     frame #2: inline_call`root0.main at root0.sig:37:16
+            \\   * frame #0: inline_call`root0.r0cf(r0ca=44) at root0.zig:26:5
+            \\     frame #1: inline_call`r1pfi(r1pai=45) at root1.zig:16:15
+            \\     frame #2: inline_call`root0.main at root0.zig:37:16
             ,
-            \\   * frame #0: inline_call`r0cfi(r0cai=47) at root0.sig:30:5
-            \\     frame #1: inline_call`r1pfi(r1pai=45) at root1.sig:17:16
-            \\     frame #2: inline_call`root0.main at root0.sig:37:16
+            \\   * frame #0: inline_call`r0cfi(r0cai=47) at root0.zig:30:5
+            \\     frame #1: inline_call`r1pfi(r1pai=45) at root1.zig:17:16
+            \\     frame #2: inline_call`root0.main at root0.zig:37:16
             ,
-            \\   * frame #0: inline_call`root1.r1cf(r1ca=46) at root1.sig:26:5
-            \\     frame #1: inline_call`r1pfi(r1pai=45) at root1.sig:18:15
-            \\     frame #2: inline_call`root0.main at root0.sig:37:16
+            \\   * frame #0: inline_call`root1.r1cf(r1ca=46) at root1.zig:26:5
+            \\     frame #1: inline_call`r1pfi(r1pai=45) at root1.zig:18:15
+            \\     frame #2: inline_call`root0.main at root0.zig:37:16
             ,
-            \\   * frame #0: inline_call`r1cfi(r1cai=41) at root1.sig:30:5
-            \\     frame #1: inline_call`r1pfi(r1pai=45) at root1.sig:19:16
-            \\     frame #2: inline_call`root0.main at root0.sig:37:16
+            \\   * frame #0: inline_call`r1cfi(r1cai=41) at root1.zig:30:5
+            \\     frame #1: inline_call`r1pfi(r1pai=45) at root1.zig:19:16
+            \\     frame #2: inline_call`root0.main at root0.zig:37:16
             ,
-            \\   * frame #0: inline_call`mod0.m0cf(m0ca=40) at mod0.sig:26:5
-            \\     frame #1: inline_call`r1pfi(r1pai=45) at root1.sig:20:14
-            \\     frame #2: inline_call`root0.main at root0.sig:37:16
+            \\   * frame #0: inline_call`mod0.m0cf(m0ca=40) at mod0.zig:26:5
+            \\     frame #1: inline_call`r1pfi(r1pai=45) at root1.zig:20:14
+            \\     frame #2: inline_call`root0.main at root0.zig:37:16
             ,
-            \\   * frame #0: inline_call`m0cfi(m0cai=43) at mod0.sig:30:5
-            \\     frame #1: inline_call`r1pfi(r1pai=45) at root1.sig:21:15
-            \\     frame #2: inline_call`root0.main at root0.sig:37:16
+            \\   * frame #0: inline_call`m0cfi(m0cai=43) at mod0.zig:30:5
+            \\     frame #1: inline_call`r1pfi(r1pai=45) at root1.zig:21:15
+            \\     frame #2: inline_call`root0.main at root0.zig:37:16
             ,
-            \\   * frame #0: inline_call`mod1.m1cf(m1ca=42) at mod1.sig:26:5
-            \\     frame #1: inline_call`r1pfi(r1pai=45) at root1.sig:22:14
-            \\     frame #2: inline_call`root0.main at root0.sig:37:16
+            \\   * frame #0: inline_call`mod1.m1cf(m1ca=42) at mod1.zig:26:5
+            \\     frame #1: inline_call`r1pfi(r1pai=45) at root1.zig:22:14
+            \\     frame #2: inline_call`root0.main at root0.zig:37:16
             ,
-            \\   * frame #0: inline_call`m1cfi(m1cai=37) at mod1.sig:30:5
-            \\     frame #1: inline_call`r1pfi(r1pai=45) at root1.sig:23:15
-            \\     frame #2: inline_call`root0.main at root0.sig:37:16
+            \\   * frame #0: inline_call`m1cfi(m1cai=37) at mod1.zig:30:5
+            \\     frame #1: inline_call`r1pfi(r1pai=45) at root1.zig:23:15
+            \\     frame #2: inline_call`root0.main at root0.zig:37:16
             ,
-            \\   * frame #0: inline_call`root0.r0cf(r0ca=57) at root0.sig:26:5
-            \\     frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.sig:6:15
-            \\     frame #2: inline_call`root0.main at root0.sig:38:14
+            \\   * frame #0: inline_call`root0.r0cf(r0ca=57) at root0.zig:26:5
+            \\     frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.zig:6:15
+            \\     frame #2: inline_call`root0.main at root0.zig:38:14
             ,
-            \\   * frame #0: inline_call`r0cfi(r0cai=58) at root0.sig:30:5
-            \\     frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.sig:7:16
-            \\     frame #2: inline_call`root0.main at root0.sig:38:14
+            \\   * frame #0: inline_call`r0cfi(r0cai=58) at root0.zig:30:5
+            \\     frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.zig:7:16
+            \\     frame #2: inline_call`root0.main at root0.zig:38:14
             ,
-            \\   * frame #0: inline_call`root1.r1cf(r1ca=59) at root1.sig:26:5
-            \\     frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.sig:8:15
-            \\     frame #2: inline_call`root0.main at root0.sig:38:14
+            \\   * frame #0: inline_call`root1.r1cf(r1ca=59) at root1.zig:26:5
+            \\     frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.zig:8:15
+            \\     frame #2: inline_call`root0.main at root0.zig:38:14
             ,
-            \\   * frame #0: inline_call`r1cfi(r1cai=60) at root1.sig:30:5
-            \\     frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.sig:9:16
-            \\     frame #2: inline_call`root0.main at root0.sig:38:14
+            \\   * frame #0: inline_call`r1cfi(r1cai=60) at root1.zig:30:5
+            \\     frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.zig:9:16
+            \\     frame #2: inline_call`root0.main at root0.zig:38:14
             ,
-            \\   * frame #0: inline_call`mod0.m0cf(m0ca=61) at mod0.sig:26:5
-            \\     frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.sig:10:14
-            \\     frame #2: inline_call`root0.main at root0.sig:38:14
+            \\   * frame #0: inline_call`mod0.m0cf(m0ca=61) at mod0.zig:26:5
+            \\     frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.zig:10:14
+            \\     frame #2: inline_call`root0.main at root0.zig:38:14
             ,
-            \\   * frame #0: inline_call`m0cfi(m0cai=62) at mod0.sig:30:5
-            \\     frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.sig:11:15
-            \\     frame #2: inline_call`root0.main at root0.sig:38:14
+            \\   * frame #0: inline_call`m0cfi(m0cai=62) at mod0.zig:30:5
+            \\     frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.zig:11:15
+            \\     frame #2: inline_call`root0.main at root0.zig:38:14
             ,
-            \\   * frame #0: inline_call`mod1.m1cf(m1ca=63) at mod1.sig:26:5
-            \\     frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.sig:12:14
-            \\     frame #2: inline_call`root0.main at root0.sig:38:14
+            \\   * frame #0: inline_call`mod1.m1cf(m1ca=63) at mod1.zig:26:5
+            \\     frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.zig:12:14
+            \\     frame #2: inline_call`root0.main at root0.zig:38:14
             ,
-            \\   * frame #0: inline_call`m1cfi(m1cai=48) at mod1.sig:30:5
-            \\     frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.sig:13:15
-            \\     frame #2: inline_call`root0.main at root0.sig:38:14
+            \\   * frame #0: inline_call`m1cfi(m1cai=48) at mod1.zig:30:5
+            \\     frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.zig:13:15
+            \\     frame #2: inline_call`root0.main at root0.zig:38:14
             ,
-            \\   * frame #0: inline_call`root0.r0cf(r0ca=66) at root0.sig:26:5
-            \\     frame #1: inline_call`m0pfi(m0pai=67) at mod0.sig:16:15
-            \\     frame #2: inline_call`root0.main at root0.sig:39:15
+            \\   * frame #0: inline_call`root0.r0cf(r0ca=66) at root0.zig:26:5
+            \\     frame #1: inline_call`m0pfi(m0pai=67) at mod0.zig:16:15
+            \\     frame #2: inline_call`root0.main at root0.zig:39:15
             ,
-            \\   * frame #0: inline_call`r0cfi(r0cai=65) at root0.sig:30:5
-            \\     frame #1: inline_call`m0pfi(m0pai=67) at mod0.sig:17:16
-            \\     frame #2: inline_call`root0.main at root0.sig:39:15
+            \\   * frame #0: inline_call`r0cfi(r0cai=65) at root0.zig:30:5
+            \\     frame #1: inline_call`m0pfi(m0pai=67) at mod0.zig:17:16
+            \\     frame #2: inline_call`root0.main at root0.zig:39:15
             ,
-            \\   * frame #0: inline_call`root1.r1cf(r1ca=64) at root1.sig:26:5
-            \\     frame #1: inline_call`m0pfi(m0pai=67) at mod0.sig:18:15
-            \\     frame #2: inline_call`root0.main at root0.sig:39:15
+            \\   * frame #0: inline_call`root1.r1cf(r1ca=64) at root1.zig:26:5
+            \\     frame #1: inline_call`m0pfi(m0pai=67) at mod0.zig:18:15
+            \\     frame #2: inline_call`root0.main at root0.zig:39:15
             ,
-            \\   * frame #0: inline_call`r1cfi(r1cai=71) at root1.sig:30:5
-            \\     frame #1: inline_call`m0pfi(m0pai=67) at mod0.sig:19:16
-            \\     frame #2: inline_call`root0.main at root0.sig:39:15
+            \\   * frame #0: inline_call`r1cfi(r1cai=71) at root1.zig:30:5
+            \\     frame #1: inline_call`m0pfi(m0pai=67) at mod0.zig:19:16
+            \\     frame #2: inline_call`root0.main at root0.zig:39:15
             ,
-            \\   * frame #0: inline_call`mod0.m0cf(m0ca=70) at mod0.sig:26:5
-            \\     frame #1: inline_call`m0pfi(m0pai=67) at mod0.sig:20:14
-            \\     frame #2: inline_call`root0.main at root0.sig:39:15
+            \\   * frame #0: inline_call`mod0.m0cf(m0ca=70) at mod0.zig:26:5
+            \\     frame #1: inline_call`m0pfi(m0pai=67) at mod0.zig:20:14
+            \\     frame #2: inline_call`root0.main at root0.zig:39:15
             ,
-            \\   * frame #0: inline_call`m0cfi(m0cai=69) at mod0.sig:30:5
-            \\     frame #1: inline_call`m0pfi(m0pai=67) at mod0.sig:21:15
-            \\     frame #2: inline_call`root0.main at root0.sig:39:15
+            \\   * frame #0: inline_call`m0cfi(m0cai=69) at mod0.zig:30:5
+            \\     frame #1: inline_call`m0pfi(m0pai=67) at mod0.zig:21:15
+            \\     frame #2: inline_call`root0.main at root0.zig:39:15
             ,
-            \\   * frame #0: inline_call`mod1.m1cf(m1ca=68) at mod1.sig:26:5
-            \\     frame #1: inline_call`m0pfi(m0pai=67) at mod0.sig:22:14
-            \\     frame #2: inline_call`root0.main at root0.sig:39:15
+            \\   * frame #0: inline_call`mod1.m1cf(m1ca=68) at mod1.zig:26:5
+            \\     frame #1: inline_call`m0pfi(m0pai=67) at mod0.zig:22:14
+            \\     frame #2: inline_call`root0.main at root0.zig:39:15
             ,
-            \\   * frame #0: inline_call`m1cfi(m1cai=75) at mod1.sig:30:5
-            \\     frame #1: inline_call`m0pfi(m0pai=67) at mod0.sig:23:15
-            \\     frame #2: inline_call`root0.main at root0.sig:39:15
+            \\   * frame #0: inline_call`m1cfi(m1cai=75) at mod1.zig:30:5
+            \\     frame #1: inline_call`m0pfi(m0pai=67) at mod0.zig:23:15
+            \\     frame #2: inline_call`root0.main at root0.zig:39:15
             ,
-            \\   * frame #0: inline_call`root0.r0cf(r0ca=79) at root0.sig:26:5
-            \\     frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.sig:6:15
-            \\     frame #2: inline_call`root0.main at root0.sig:40:14
+            \\   * frame #0: inline_call`root0.r0cf(r0ca=79) at root0.zig:26:5
+            \\     frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.zig:6:15
+            \\     frame #2: inline_call`root0.main at root0.zig:40:14
             ,
-            \\   * frame #0: inline_call`r0cfi(r0cai=76) at root0.sig:30:5
-            \\     frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.sig:7:16
-            \\     frame #2: inline_call`root0.main at root0.sig:40:14
+            \\   * frame #0: inline_call`r0cfi(r0cai=76) at root0.zig:30:5
+            \\     frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.zig:7:16
+            \\     frame #2: inline_call`root0.main at root0.zig:40:14
             ,
-            \\   * frame #0: inline_call`root1.r1cf(r1ca=77) at root1.sig:26:5
-            \\     frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.sig:8:15
-            \\     frame #2: inline_call`root0.main at root0.sig:40:14
+            \\   * frame #0: inline_call`root1.r1cf(r1ca=77) at root1.zig:26:5
+            \\     frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.zig:8:15
+            \\     frame #2: inline_call`root0.main at root0.zig:40:14
             ,
-            \\   * frame #0: inline_call`r1cfi(r1cai=74) at root1.sig:30:5
-            \\     frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.sig:9:16
-            \\     frame #2: inline_call`root0.main at root0.sig:40:14
+            \\   * frame #0: inline_call`r1cfi(r1cai=74) at root1.zig:30:5
+            \\     frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.zig:9:16
+            \\     frame #2: inline_call`root0.main at root0.zig:40:14
             ,
-            \\   * frame #0: inline_call`mod0.m0cf(m0ca=75) at mod0.sig:26:5
-            \\     frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.sig:10:14
-            \\     frame #2: inline_call`root0.main at root0.sig:40:14
+            \\   * frame #0: inline_call`mod0.m0cf(m0ca=75) at mod0.zig:26:5
+            \\     frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.zig:10:14
+            \\     frame #2: inline_call`root0.main at root0.zig:40:14
             ,
-            \\   * frame #0: inline_call`m0cfi(m0cai=72) at mod0.sig:30:5
-            \\     frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.sig:11:15
-            \\     frame #2: inline_call`root0.main at root0.sig:40:14
+            \\   * frame #0: inline_call`m0cfi(m0cai=72) at mod0.zig:30:5
+            \\     frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.zig:11:15
+            \\     frame #2: inline_call`root0.main at root0.zig:40:14
             ,
-            \\   * frame #0: inline_call`mod1.m1cf(m1ca=73) at mod1.sig:26:5
-            \\     frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.sig:12:14
-            \\     frame #2: inline_call`root0.main at root0.sig:40:14
+            \\   * frame #0: inline_call`mod1.m1cf(m1ca=73) at mod1.zig:26:5
+            \\     frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.zig:12:14
+            \\     frame #2: inline_call`root0.main at root0.zig:40:14
             ,
-            \\   * frame #0: inline_call`m1cfi(m1cai=70) at mod1.sig:30:5
-            \\     frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.sig:13:15
-            \\     frame #2: inline_call`root0.main at root0.sig:40:14
+            \\   * frame #0: inline_call`m1cfi(m1cai=70) at mod1.zig:30:5
+            \\     frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.zig:13:15
+            \\     frame #2: inline_call`root0.main at root0.zig:40:14
             ,
-            \\   * frame #0: inline_call`root0.r0cf(r0ca=88) at root0.sig:26:5
-            \\     frame #1: inline_call`m1pfi(m1pai=89) at mod1.sig:16:15
-            \\     frame #2: inline_call`root0.main at root0.sig:41:15
+            \\   * frame #0: inline_call`root0.r0cf(r0ca=88) at root0.zig:26:5
+            \\     frame #1: inline_call`m1pfi(m1pai=89) at mod1.zig:16:15
+            \\     frame #2: inline_call`root0.main at root0.zig:41:15
             ,
-            \\   * frame #0: inline_call`r0cfi(r0cai=91) at root0.sig:30:5
-            \\     frame #1: inline_call`m1pfi(m1pai=89) at mod1.sig:17:16
-            \\     frame #2: inline_call`root0.main at root0.sig:41:15
+            \\   * frame #0: inline_call`r0cfi(r0cai=91) at root0.zig:30:5
+            \\     frame #1: inline_call`m1pfi(m1pai=89) at mod1.zig:17:16
+            \\     frame #2: inline_call`root0.main at root0.zig:41:15
             ,
-            \\   * frame #0: inline_call`root1.r1cf(r1ca=90) at root1.sig:26:5
-            \\     frame #1: inline_call`m1pfi(m1pai=89) at mod1.sig:18:15
-            \\     frame #2: inline_call`root0.main at root0.sig:41:15
+            \\   * frame #0: inline_call`root1.r1cf(r1ca=90) at root1.zig:26:5
+            \\     frame #1: inline_call`m1pfi(m1pai=89) at mod1.zig:18:15
+            \\     frame #2: inline_call`root0.main at root0.zig:41:15
             ,
-            \\   * frame #0: inline_call`r1cfi(r1cai=93) at root1.sig:30:5
-            \\     frame #1: inline_call`m1pfi(m1pai=89) at mod1.sig:19:16
-            \\     frame #2: inline_call`root0.main at root0.sig:41:15
+            \\   * frame #0: inline_call`r1cfi(r1cai=93) at root1.zig:30:5
+            \\     frame #1: inline_call`m1pfi(m1pai=89) at mod1.zig:19:16
+            \\     frame #2: inline_call`root0.main at root0.zig:41:15
             ,
-            \\   * frame #0: inline_call`mod0.m0cf(m0ca=92) at mod0.sig:26:5
-            \\     frame #1: inline_call`m1pfi(m1pai=89) at mod1.sig:20:14
-            \\     frame #2: inline_call`root0.main at root0.sig:41:15
+            \\   * frame #0: inline_call`mod0.m0cf(m0ca=92) at mod0.zig:26:5
+            \\     frame #1: inline_call`m1pfi(m1pai=89) at mod1.zig:20:14
+            \\     frame #2: inline_call`root0.main at root0.zig:41:15
             ,
-            \\   * frame #0: inline_call`m0cfi(m0cai=95) at mod0.sig:30:5
-            \\     frame #1: inline_call`m1pfi(m1pai=89) at mod1.sig:21:15
-            \\     frame #2: inline_call`root0.main at root0.sig:41:15
+            \\   * frame #0: inline_call`m0cfi(m0cai=95) at mod0.zig:30:5
+            \\     frame #1: inline_call`m1pfi(m1pai=89) at mod1.zig:21:15
+            \\     frame #2: inline_call`root0.main at root0.zig:41:15
             ,
-            \\   * frame #0: inline_call`mod1.m1cf(m1ca=94) at mod1.sig:26:5
-            \\     frame #1: inline_call`m1pfi(m1pai=89) at mod1.sig:22:14
-            \\     frame #2: inline_call`root0.main at root0.sig:41:15
+            \\   * frame #0: inline_call`mod1.m1cf(m1ca=94) at mod1.zig:26:5
+            \\     frame #1: inline_call`m1pfi(m1pai=89) at mod1.zig:22:14
+            \\     frame #2: inline_call`root0.main at root0.zig:41:15
             ,
-            \\   * frame #0: inline_call`m1cfi(m1cai=81) at mod1.sig:30:5
-            \\     frame #1: inline_call`m1pfi(m1pai=89) at mod1.sig:23:15
-            \\     frame #2: inline_call`root0.main at root0.sig:41:15
+            \\   * frame #0: inline_call`m1cfi(m1cai=81) at mod1.zig:30:5
+            \\     frame #1: inline_call`m1pfi(m1pai=89) at mod1.zig:23:15
+            \\     frame #2: inline_call`root0.main at root0.zig:41:15
         },
+        .{ .skip_new_linker = true },
     );
     db.addLldbTest(
         "link_object",
-        target,
         &.{
             .{
-                .path = "main.sig",
+                .path = "main.zig",
                 .source =
                 \\extern fn fabsf(f32) f32;
                 \\pub fn main() void {
@@ -1962,12 +1964,12 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 ,
             },
         },
-        \\breakpoint set --file main.sig --source-pattern-regexp 'x = fabsf\(x\);'
+        \\breakpoint set --file main.zig --source-pattern-regexp 'x = fabsf\(x\);'
         \\process launch
         \\frame variable --show-all-children -- x
         \\breakpoint delete --force 1
         \\
-        \\breakpoint set --file main.sig --source-pattern-regexp '_ = &x;'
+        \\breakpoint set --file main.zig --source-pattern-regexp '_ = &x;'
         \\process continue
         \\frame variable --show-all-children -- x
         \\breakpoint delete --force 2
@@ -1983,13 +1985,13 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             \\(lldb) breakpoint delete --force 2
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
+        .{},
     );
     db.addLldbTest(
         "hash_map",
-        target,
         &.{
             .{
-                .path = "main.sig",
+                .path = "main.zig",
                 .source =
                 \\const std = @import("std");
                 \\const Context = struct {
@@ -2020,7 +2022,7 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 ,
             },
         },
-        \\breakpoint set --file main.sig --source-pattern-regexp '_ = map;'
+        \\breakpoint set --file main.zig --source-pattern-regexp '_ = map;'
         \\process launch
         \\frame variable --show-all-children --show-types -- map
         \\breakpoint delete --force 1
@@ -2052,13 +2054,13 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
+        .{ .skip_new_linker = true },
     );
     db.addLldbTest(
         "multi_array_list",
-        target,
         &.{
             .{
-                .path = "main.sig",
+                .path = "main.zig",
                 .source =
                 \\const std = @import("std");
                 \\const Elem0 = struct { u32, u8, u16 };
@@ -2094,7 +2096,7 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
                 ,
             },
         },
-        \\breakpoint set --file main.sig --source-pattern-regexp '_ = \.{ list0, slice0, list1, slice1 };'
+        \\breakpoint set --file main.zig --source-pattern-regexp '_ = \.{ list0, slice0, list1, slice1 };'
         \\process launch
         \\frame variable --show-all-children --show-types -- list0 list0.len list0.capacity list0[0] list0[1] list0[2] 'list0.@"0"' 'list0.@"1"' 'list0.@"2"'
         \\frame variable --show-all-children --show-types -- slice0 slice0.len slice0.capacity slice0[0] slice0[1] slice0[2] 'slice0.@"0"' 'slice0.@"1"' 'slice0.@"2"'
@@ -2306,22 +2308,26 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
+        .{ .skip_new_linker = true },
     );
 }
 
 const File = struct { import: ?[]const u8 = null, path: []const u8, source: []const u8 };
 
+const TestOptions = struct {
+    skip_new_linker: bool = false,
+};
+
 fn addGdbTest(
     db: *Debugger,
     name: []const u8,
-    target: *const Target,
     files: []const File,
     commands: []const u8,
     expected_output: []const []const u8,
+    options: TestOptions,
 ) void {
     db.addTest(
         name,
-        target,
         files,
         &.{},
         &.{
@@ -2331,24 +2337,22 @@ fn addGdbTest(
         },
         "set remotetimeout 0",
         commands,
-        &.{
-            "--args",
-        },
+        &.{"--args"},
         expected_output,
+        options,
     );
 }
 
 fn addLldbTest(
     db: *Debugger,
     name: []const u8,
-    target: *const Target,
     files: []const File,
     commands: []const u8,
     expected_output: []const []const u8,
+    options: TestOptions,
 ) void {
     db.addTest(
         name,
-        target,
         files,
         &.{.{ "LANG", "C.UTF-8" }}, // affects output formatting
         &.{
@@ -2358,10 +2362,9 @@ fn addLldbTest(
         },
         "settings set plugin.process.gdb-remote.packet-timeout 0",
         commands,
-        &.{
-            "--",
-        },
+        &.{"--"},
         expected_output,
+        options,
     );
 }
 
@@ -2373,7 +2376,6 @@ const success = 99;
 fn addTest(
     db: *Debugger,
     name: []const u8,
-    target: *const Target,
     files: []const File,
     env: []const struct { []const u8, []const u8 },
     db_argv1: []const []const u8,
@@ -2381,57 +2383,85 @@ fn addTest(
     commands: []const u8,
     db_argv2: []const []const u8,
     expected_output: []const []const u8,
+    options: TestOptions,
 ) void {
     if (db.options.test_filters.len > 0) {
         for (db.options.test_filters) |test_filter| {
             if (std.mem.find(u8, name, test_filter) != null) break;
         } else return;
     }
-    if (db.options.test_target_filters.len > 0) {
-        const triple_txt = target.resolved.query.sigTriple(db.b.allocator) catch @panic("OOM");
-        for (db.options.test_target_filters) |filter| {
-            if (std.mem.find(u8, triple_txt, filter) != null) break;
-        } else return;
-    }
-    const files_wf = db.b.addWriteFiles();
 
-    const mod = db.b.createModule(.{
-        .target = target.resolved,
-        .root_source_file = files_wf.add(files[0].path, files[0].source),
-        .optimize = target.optimize_mode,
-        .link_libc = target.link_libc,
-        .single_threaded = target.single_threaded,
-        .pic = target.pic,
-        .strip = false,
-    });
+    const wf = db.b.addWriteFiles();
+    const root_source_file = wf.add(files[0].path, files[0].source);
+    var imports: std.array_hash_map.String(*std.Build.Module) = .empty;
     for (files[1..]) |file| {
-        const path = files_wf.add(file.path, file.source);
-        if (file.import) |import| mod.addImport(import, db.b.createModule(.{
+        const path = wf.add(file.path, file.source);
+        if (file.import) |import| imports.putNoClobber(db.b.allocator, import, db.b.createModule(.{
             .root_source_file = path,
-        }));
+        })) catch @panic("OOM");
     }
-
-    const exe = db.b.addExecutable(.{
-        .name = name,
-        .root_module = mod,
-        .use_llvm = false,
-        .use_lld = false,
-    });
-
-    const commands_wf = db.b.addWriteFiles();
-    const run = std.Build.Step.Run.create(db.b, db.b.fmt("run {s} {s}", .{ name, target.test_name_suffix }));
-    for (env) |env_var| run.setEnvironmentVariable(env_var[0], env_var[1]);
-    run.addArgs(db_argv1);
-    run.addFileArg(commands_wf.add(
+    const commands_file = wf.add(
         db.b.fmt("{s}.cmd", .{name}),
         db.b.fmt("{s}\n\n{s}\n\nquit {d}\n", .{ db_commands, commands, success }),
-    ));
-    run.addArgs(db_argv2);
-    run.addArtifactArg(exe);
-    for (expected_output) |expected| run.addCheck(.{ .expect_stdout_match = db.b.fmt("{s}\n", .{expected}) });
-    run.addCheck(.{ .expect_term = .{ .exited = success } });
-    run.setStdIn(.{ .bytes = "" });
-    db.root_step.dependOn(&run.step);
+    );
+
+    for (db.test_matrix) |test_target| {
+        if (options.skip_new_linker and test_target.linker == .new) continue;
+
+        const resolved_target = db.b.resolveTargetQuery(test_target.target);
+
+        const target_str = db.b.fmt("{s}{s}{s}", .{
+            resolved_target.query.zigTriple(db.b.allocator) catch @panic("OOM"),
+            switch (test_target.linker) {
+                .default, .old => "",
+                .new => "-new-linker",
+            },
+            if (test_target.pic == true) "-pic" else "",
+        });
+
+        if (db.options.test_target_filters.len > 0) {
+            for (db.options.test_target_filters) |filter| {
+                if (std.mem.find(u8, target_str, filter) != null) break;
+            } else continue;
+        }
+
+        const mod = db.b.createModule(.{
+            .target = resolved_target,
+            .root_source_file = root_source_file,
+            .optimize = test_target.optimize_mode,
+            .link_libc = test_target.link_libc,
+            .single_threaded = test_target.single_threaded,
+            .pic = test_target.pic,
+            .strip = false,
+        });
+        for (imports.keys(), imports.values()) |import_name, import_mod|
+            mod.addImport(import_name, import_mod);
+
+        const exe = db.b.addExecutable(.{
+            .name = name,
+            .root_module = mod,
+            .use_llvm = false,
+            .use_lld = false,
+        });
+        exe.use_new_linker = switch (test_target.linker) {
+            .default => null,
+            .old => false,
+            .new => true,
+        };
+
+        const run = std.Build.Step.Run.create(db.b, db.b.fmt("run {s} {s}", .{ name, target_str }));
+        for (env) |env_var| run.setEnvironmentVariable(env_var[0], env_var[1]);
+        run.addArgs(db_argv1);
+        run.addFileArg(commands_file);
+        run.addArgs(db_argv2);
+        run.addArtifactArg(exe);
+        for (expected_output) |expected| run.addCheck(.{
+            .expect_stdout_match = db.b.fmt("{s}\n", .{expected}),
+        });
+        run.addCheck(.{ .expect_term = .{ .exited = success } });
+        run.setStdIn(.{ .bytes = "" });
+        db.root_step.dependOn(&run.step);
+    }
 }
 
 const Debugger = @This();

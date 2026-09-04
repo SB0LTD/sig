@@ -4,37 +4,37 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const Ast = std.sig.Ast;
-const AstGen = std.sig.AstGen;
+const Ast = std.zig.Ast;
+const AstGen = std.zig.AstGen;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Cache = std.Build.Cache;
 const log = std.log.scoped(.zcu);
 const mem = std.mem;
-const Zir = std.sig.Zir;
-const Zoir = std.sig.Zoir;
-const ZonGen = std.sig.ZonGen;
+const Zir = std.zig.Zir;
+const Zoir = std.zig.Zoir;
+const ZonGen = std.zig.ZonGen;
 const Io = std.Io;
 
-const Air = @import("../Air.sig");
-const Builtin = @import("../Builtin.sig");
+const Air = @import("../Air.zig");
+const Builtin = @import("../Builtin.zig");
 const build_options = @import("build_options");
 const builtin = @import("builtin");
-const dev = @import("../dev.sig");
-const InternPool = @import("../InternPool.sig");
+const dev = @import("../dev.zig");
+const InternPool = @import("../InternPool.zig");
 const AnalUnit = InternPool.AnalUnit;
-const Module = @import("../Module.sig");
-const Sema = @import("../Sema.sig");
-const target_util = @import("../target.sig");
-const tracy = @import("../tracy.sig");
+const Module = @import("../Module.zig");
+const Sema = @import("../Sema.zig");
+const target_util = @import("../target.zig");
+const tracy = @import("../tracy.zig");
 const trace = tracy.trace;
 const traceNamed = tracy.traceNamed;
-const Type = @import("../Type.sig");
-const Value = @import("../Value.sig");
-const Zcu = @import("../Zcu.sig");
-const Compilation = @import("../Compilation.sig");
-const codegen = @import("../codegen.sig");
-const crash_report = @import("../crash_report.sig");
+const Type = @import("../Type.zig");
+const Value = @import("../Value.zig");
+const Zcu = @import("../Zcu.zig");
+const Compilation = @import("../Compilation.zig");
+const codegen = @import("../codegen.zig");
+const crash_report = @import("../crash_report.zig");
 
 zcu: *Zcu,
 
@@ -164,13 +164,13 @@ pub fn update(
             file: *Zcu.File,
         }) = .empty;
         defer astgen_work_items.deinit(gpa);
-        // Not every item in `import_table` will need updating, because some are builtin.sig
+        // Not every item in `import_table` will need updating, because some are builtin.zig
         // files. However, most will, so let's just reserve sufficient capacity upfront.
         try astgen_work_items.ensureTotalCapacity(gpa, zcu.import_table.count());
         for (zcu.import_table.keys()) |file_index| {
             const file = zcu.fileByIndex(file_index);
             if (file.is_builtin) {
-                // This is a `builtin.sig`, so updating is redundant. However, we want to make
+                // This is a `builtin.zig`, so updating is redundant. However, we want to make
                 // sure the file contents are still correct on disk, since it can improve the
                 // debugging experience better. That job only needs `file`, so we can kick it
                 // off right now.
@@ -258,6 +258,8 @@ pub fn update(
         return;
     }
 
+    try comp.link_queue.enqueueZcu(comp, pt.tid, .files_ready);
+
     if (comp.config.incremental) {
         const update_zir_refs_node = main_progress_node.start("Update ZIR References", 0);
         defer update_zir_refs_node.end();
@@ -314,7 +316,7 @@ pub fn update(
     defer tracy_trace.end();
 
     // This is the main semantic analysis loop, which is essentially the main loop of the whole
-    // Sig compilation pipeline. It selects some `AnalUnit` which we know needs to be analyzed,
+    // Zig compilation pipeline. It selects some `AnalUnit` which we know needs to be analyzed,
     // and analyzes it, which may in turn discover more `AnalUnit`s which we need to analyze.
     while (try zcu.findOutdatedToAnalyze()) |unit| {
         const maybe_err: UpdateUnitError!void = switch (unit.unwrap()) {
@@ -380,7 +382,7 @@ fn workerUpdateFile(
     };
 
     switch (file.getMode()) {
-        .Sig => {}, // continue to logic below
+        .zig => {}, // continue to logic below
         .zon => return, // ZON can't import anything so we're done
     }
 
@@ -479,7 +481,7 @@ pub fn updateFile(
 
     const want_local_cache = switch (file.path.root) {
         .none, .local_cache, .build_root => true,
-        .global_cache, .sig_lib => false,
+        .global_cache, .zig_lib => false,
     };
 
     const hex_digest: Cache.HexDigest = d: {
@@ -542,7 +544,7 @@ pub fn updateFile(
     // We're going to re-load everything, so unload source, AST, ZIR, ZOIR.
     file.unload(gpa);
 
-    // We ask for a lock in order to coordinate with other Sig processes.
+    // We ask for a lock in order to coordinate with other zig processes.
     // If another process is already working on this file, we will get the cached
     // version. Likewise if we're working on AstGen and another process asks for
     // the cached file, they'll get it.
@@ -648,7 +650,7 @@ pub fn updateFile(
 
         timer = comp.startTimer();
         switch (file.getMode()) {
-            .Sig => {
+            .zig => {
                 file.zir = try AstGen.generate(gpa, file.tree.?);
                 Zcu.saveZirCache(gpa, &cache_file_writer, stat, file.zir.?) catch |err| switch (err) {
                     error.OutOfMemory => |e| return e,
@@ -691,7 +693,7 @@ pub fn updateFile(
     // Mark file successes/failures as needed.
 
     switch (file.getMode()) {
-        .Sig => {
+        .zig => {
             if (file.zir.?.hasCompileErrors()) {
                 comp.mutex.lockUncancelable(io);
                 defer comp.mutex.unlock(io);
@@ -735,7 +737,7 @@ fn loadZirZoirCache(
     const io = zcu.comp.io;
 
     const Header = switch (mode) {
-        .Sig => Zir.Header,
+        .zig => Zir.Header,
         .zon => Zoir.Header,
     };
 
@@ -747,7 +749,7 @@ fn loadZirZoirCache(
     // First we read the header to determine the lengths of arrays.
     const header = (cache_br.takeStructPointer(Header) catch |err| switch (err) {
         error.ReadFailed => return cache_fr.err.?,
-        // This can happen if Sig bails out of this function between creating
+        // This can happen if Zig bails out of this function between creating
         // the cached file and writing it.
         error.EndOfStream => return .invalid,
         else => |e| return e,
@@ -763,7 +765,7 @@ fn loadZirZoirCache(
     }
 
     switch (mode) {
-        .Sig => file.zir = Zcu.loadZirCacheBody(gpa, header, cache_br) catch |err| switch (err) {
+        .zig => file.zir = Zcu.loadZirCacheBody(gpa, header, cache_br) catch |err| switch (err) {
             error.ReadFailed => return cache_fr.err.?,
             error.EndOfStream => return .truncated,
             else => |e| return e,
@@ -800,7 +802,7 @@ fn updateZirRefs(pt: Zcu.PerThread) (Io.Cancelable || Allocator.Error)!void {
     defer tracy_trace.end();
 
     // We need to visit every updated File for every TrackedInst in InternPool.
-    // This only includes Sig files; ZON files are omitted.
+    // This only includes Zig files; ZON files are omitted.
     var updated_files: std.array_hash_map.Auto(Zcu.File.Index, UpdatedFile) = .empty;
     defer cleanupUpdatedFiles(gpa, &updated_files);
 
@@ -817,7 +819,7 @@ fn updateZirRefs(pt: Zcu.PerThread) (Io.Cancelable || Allocator.Error)!void {
             continue;
         }
         switch (file.getMode()) {
-            .Sig => {}, // logic below
+            .zig => {}, // logic below
             .zon => {
                 if (file.zoir_invalidated) {
                     try zcu.markDependeeOutdated(.not_marked_po, .{ .source_file = file_index });
@@ -859,30 +861,68 @@ fn updateZirRefs(pt: Zcu.PerThread) (Io.Cancelable || Allocator.Error)!void {
                 log.debug("tracking failed for %{d}", .{old_inst});
                 tracked_inst.inst = .lost;
                 try zcu.markDependeeOutdated(.not_marked_po, .{ .src_hash = tracked_inst_index });
+                try comp.link_queue.enqueueZcu(comp, pt.tid, .{ .lost_tracking = tracked_inst_index });
                 continue;
             };
-            tracked_inst.inst = InternPool.TrackedInst.MaybeLost.ZirIndex.wrap(new_inst);
+            tracked_inst.inst = .wrap(new_inst);
 
             const old_zir = file.prev_zir.?.*;
-            const new_zir = file.zir.?;
             const old_tag = old_zir.instructions.items(.tag)[@backingInt(old_inst)];
             const old_data = old_zir.instructions.items(.data)[@backingInt(old_inst)];
 
-            switch (old_tag) {
-                .declaration => {
-                    const old_line = old_zir.getDeclaration(old_inst).src_line;
-                    const new_line = new_zir.getDeclaration(new_inst).src_line;
-                    if (old_line != new_line) {
-                        comp.link_prog_node.increaseEstimatedTotalItems(1);
-                        try comp.link_queue.enqueueZcu(comp, pt.tid, .{ .debug_update_line_number = tracked_inst_index });
-                    }
-                },
-                else => {},
+            const new_zir = file.zir.?;
+            const new_data = new_zir.instructions.items(.data)[@backingInt(new_inst)];
+
+            debug_update_line_number: {
+                const old_line, const new_line = switch (old_tag) {
+                    .declaration => .{
+                        old_zir.getDeclaration(old_inst).src_line,
+                        new_zir.getDeclaration(new_inst).src_line,
+                    },
+                    .extended => switch (old_data.extended.opcode) {
+                        .struct_decl => .{
+                            old_zir.getStructDecl(old_inst).src_line,
+                            new_zir.getStructDecl(new_inst).src_line,
+                        },
+                        .union_decl => .{
+                            old_zir.getUnionDecl(old_inst).src_line,
+                            new_zir.getUnionDecl(new_inst).src_line,
+                        },
+                        .enum_decl => .{
+                            old_zir.getEnumDecl(old_inst).src_line,
+                            new_zir.getEnumDecl(new_inst).src_line,
+                        },
+                        .opaque_decl => .{
+                            old_zir.getOpaqueDecl(old_inst).src_line,
+                            new_zir.getOpaqueDecl(new_inst).src_line,
+                        },
+                        .reify_enum => .{
+                            old_zir.extraData(Zir.Inst.ReifyEnum, old_data.extended.operand).data.src_line,
+                            new_zir.extraData(Zir.Inst.ReifyEnum, new_data.extended.operand).data.src_line,
+                        },
+                        .reify_struct => .{
+                            old_zir.extraData(Zir.Inst.ReifyStruct, old_data.extended.operand).data.src_line,
+                            new_zir.extraData(Zir.Inst.ReifyStruct, new_data.extended.operand).data.src_line,
+                        },
+                        .reify_union => .{
+                            old_zir.extraData(Zir.Inst.ReifyUnion, old_data.extended.operand).data.src_line,
+                            new_zir.extraData(Zir.Inst.ReifyUnion, new_data.extended.operand).data.src_line,
+                        },
+                        else => break :debug_update_line_number,
+                    },
+                    else => break :debug_update_line_number,
+                };
+                if (old_line == new_line) break :debug_update_line_number;
+                comp.link_prog_node.increaseEstimatedTotalItems(1);
+                try comp.link_queue.enqueueZcu(comp, pt.tid, .{ .debug_update_line_number = .{
+                    .inst = tracked_inst_index,
+                    .line = new_line,
+                } });
             }
 
             if (old_zir.getAssociatedSrcHash(old_inst)) |old_hash| hash_changed: {
                 if (new_zir.getAssociatedSrcHash(new_inst)) |new_hash| {
-                    if (std.sig.srcHashEql(old_hash, new_hash)) {
+                    if (std.zig.srcHashEql(old_hash, new_hash)) {
                         break :hash_changed;
                     }
                     log.debug("hash for (%{d} -> %{d}) changed: {x} -> {x}", .{
@@ -979,8 +1019,8 @@ fn updateZirRefs(pt: Zcu.PerThread) (Io.Cancelable || Allocator.Error)!void {
 /// Ensures that `zcu.fileRootType` on this `file_index` is populated (not `.none`). This implies
 /// that the file's namespace is scanned, discovering declarations.
 ///
-/// Typical Sig compilations begin by claling this function on the root source file of the standard
-/// library, `lib/std/std.sig`. The resulting namespace scan discovers a `comptime` declaration in
+/// Typical Zig compilations begin by calling this function on the root source file of the standard
+/// library, `lib/std/std.zig`. The resulting namespace scan discovers a `comptime` declaration in
 /// that file, which is queued for analysis, and everything goes from there.
 pub fn ensureFilePopulated(pt: Zcu.PerThread, file_index: Zcu.File.Index) (Allocator.Error || Io.Cancelable)!void {
     dev.check(.sema);
@@ -999,7 +1039,7 @@ pub fn ensureFilePopulated(pt: Zcu.PerThread, file_index: Zcu.File.Index) (Alloc
     if (zcu.comp.time_report) |*tr| tr.stats.n_imported_files += 1;
 
     const file = zcu.fileByIndex(file_index);
-    assert(file.getMode() == .Sig);
+    assert(file.getMode() == .zig);
     const struct_decl = file.zir.?.getStructDecl(.main_struct_inst);
     const tracked_inst = try ip.trackZir(gpa, io, pt.tid, .{
         .file = file_index,
@@ -1020,7 +1060,12 @@ pub fn ensureFilePopulated(pt: Zcu.PerThread, file_index: Zcu.File.Index) (Alloc
     };
     errdefer wip.cancel(ip, pt.tid);
 
-    wip.setName(ip, try file.internFullyQualifiedName(pt), .none);
+    wip.setName(
+        ip,
+        try ip.getOrPutString(gpa, io, pt.tid, std.fs.path.stem(file.sub_file_path), .no_embedded_nulls),
+        try file.internFullyQualifiedName(pt),
+        .none,
+    );
     const new_namespace_index: InternPool.NamespaceIndex = try pt.createNamespace(.{
         .parent = .none,
         .owner_type = wip.index,
@@ -1261,6 +1306,7 @@ fn analyzeComptimeUnit(pt: Zcu.PerThread, cu_id: InternPool.ComptimeUnit.Id) Zcu
     // The comptime unit declares on the source of the corresponding `comptime` declaration.
     try sema.declareDependency(.{ .src_hash = comptime_unit.zir_index });
 
+    const parent_ns = Type.fromInterned(zcu.namespacePtr(comptime_unit.namespace).owner_type).containerTypeName(ip);
     var block: Sema.Block = .{
         .parent = null,
         .sema = &sema,
@@ -1276,7 +1322,10 @@ fn analyzeComptimeUnit(pt: Zcu.PerThread, cu_id: InternPool.ComptimeUnit.Id) Zcu
         } },
         .src_base_inst = comptime_unit.zir_index,
         .type_name_ctx = try ip.getOrPutStringFmt(gpa, io, pt.tid, "{f}.comptime", .{
-            Type.fromInterned(zcu.namespacePtr(comptime_unit.namespace).owner_type).containerTypeName(ip).fmt(ip),
+            parent_ns.name.fmt(ip),
+        }, .no_embedded_nulls),
+        .type_fqn_ctx = try ip.getOrPutStringFmt(gpa, io, pt.tid, "{f}.comptime", .{
+            parent_ns.fqn.fmt(ip),
         }, .no_embedded_nulls),
     };
     defer block.instructions.deinit(gpa);
@@ -1352,7 +1401,7 @@ pub fn ensureTypeLayoutUpToDate(
         info.deps.clearRetainingCapacity();
     }
 
-    const unit_tracking = zcu.trackUnitSema(ty.containerTypeName(ip).toSlice(ip), null);
+    const unit_tracking = zcu.trackUnitSema(ty.containerTypeName(ip).fqn.toSlice(ip), null);
     defer unit_tracking.end(zcu);
 
     try zcu.analysis_in_progress.put(gpa, anal_unit, reason);
@@ -1464,7 +1513,7 @@ pub fn ensureStructDefaultsUpToDate(
         info.deps.clearRetainingCapacity();
     }
 
-    const unit_tracking = zcu.trackUnitSema(ty.containerTypeName(ip).toSlice(ip), null);
+    const unit_tracking = zcu.trackUnitSema(ty.containerTypeName(ip).fqn.toSlice(ip), null);
     defer unit_tracking.end(zcu);
 
     try zcu.analysis_in_progress.put(gpa, anal_unit, reason);
@@ -1673,7 +1722,8 @@ fn analyzeNavVal(
         .inlining = null,
         .comptime_reason = undefined, // set below
         .src_base_inst = old_nav.analysis.?.zir_index,
-        .type_name_ctx = old_nav.fqn,
+        .type_name_ctx = old_nav.name,
+        .type_fqn_ctx = old_nav.fqn,
     };
     defer block.instructions.deinit(gpa);
 
@@ -2042,7 +2092,8 @@ fn analyzeNavType(
         .inlining = null,
         .comptime_reason = undefined, // set below
         .src_base_inst = old_nav.analysis.?.zir_index,
-        .type_name_ctx = old_nav.fqn,
+        .type_name_ctx = old_nav.name,
+        .type_fqn_ctx = old_nav.fqn,
     };
     defer block.instructions.deinit(gpa);
 
@@ -2267,7 +2318,7 @@ fn analyzeFuncBody(
 /// struct type, either re-scan its namespace, or clear it and invalidate dependencies if the
 /// type is no longer valid. See comments in body for more details.
 ///
-/// Called by `updateZirRefs` for all updated Sig source files before the main update loop.
+/// Called by `updateZirRefs` for all updated Zig source files before the main update loop.
 ///
 /// Asserts that the file has successfully populated ZIR.
 fn updateFileRootStructType(pt: Zcu.PerThread, file_index: Zcu.File.Index) Allocator.Error!void {
@@ -2300,7 +2351,7 @@ fn updateFileRootStructType(pt: Zcu.PerThread, file_index: Zcu.File.Index) Alloc
         // The existing struct type is valid, but the namespace contents might have changed. For
         // most struct types, that would cause the surrounding declaration to be invalidated which
         // causes `Sema.zirStructType` (or whatever) to call `ensureNamespaceUpToDate`. However,
-        // there is no "surrounding declaration" for the root struct type of a Sig source file, so
+        // there is no "surrounding declaration" for the root struct type of a Zig source file, so
         // update this namespace now.
         const decls = file.zir.?.getStructDecl(.main_struct_inst).decls;
         try pt.scanNamespace(loaded_struct.namespace, decls);
@@ -2328,7 +2379,7 @@ pub fn discoverImport(
     const io = comp.io;
     const gpa = comp.gpa;
 
-    if (Zcu.File.modeFromPath(import_string) == null) {
+    if (!mem.endsWith(u8, import_string, ".zig") and !mem.endsWith(u8, import_string, ".zon")) {
         return .module;
     }
 
@@ -2414,7 +2465,9 @@ pub fn doImport(
             };
         }
     }
-    if (Zcu.File.modeFromPath(import_string) == null) {
+    if (!std.mem.endsWith(u8, import_string, ".zig") and
+        !std.mem.endsWith(u8, import_string, ".zon"))
+    {
         return error.ModuleNotFound;
     }
     const path = try importer.path.upJoin(gpa, zcu.comp.dirs, import_string);
@@ -2581,7 +2634,7 @@ fn computeAliveFiles(pt: Zcu.PerThread) Allocator.Error!bool {
         try comp.appendFileSystemInput(file.path);
 
         switch (file.getMode()) {
-            .Sig => {}, // continue to logic below
+            .zig => {}, // continue to logic below
             .zon => continue, // ZON can't import anything
         }
 
@@ -2589,7 +2642,7 @@ fn computeAliveFiles(pt: Zcu.PerThread) Allocator.Error!bool {
 
         const zir = file.zir.?;
         const imports_index = zir.extra[@backingInt(Zir.ExtraIndex.imports)];
-        if (imports_index == 0) continue; // this Sig file has no imports
+        if (imports_index == 0) continue; // this Zig file has no imports
         const extra = zir.extraData(Zir.Inst.Imports, imports_index);
         var extra_index = extra.end;
         try zcu.alive_files.ensureUnusedCapacity(gpa, extra.data.imports_len);
@@ -2600,7 +2653,7 @@ fn computeAliveFiles(pt: Zcu.PerThread) Allocator.Error!bool {
 
             if (std.mem.eql(u8, import_path, "builtin")) {
                 // We've not necessarily generated builtin modules yet, so `doImport` could fail. Instead,
-                // create the module here. Then, since we know that `builtin.sig` doesn't have an error and
+                // create the module here. Then, since we know that `builtin.zig` doesn't have an error and
                 // has no imports other than 'std', we can just continue onto the next import.
                 try pt.updateBuiltinModule(file.mod.?.getBuiltinOptions(comp.config));
                 continue;
@@ -2699,7 +2752,7 @@ fn computeAliveFiles(pt: Zcu.PerThread) Allocator.Error!bool {
 /// Ensures that the `@import("builtin")` module corresponding to `opts` is available in
 /// `builtin_modules`, and that its file is populated. Also ensures the file on disk is
 /// up-to-date, setting a misc failure if updating it fails.
-/// Asserts that the imported `builtin.sig` has no ZIR errors, and that it has only one
+/// Asserts that the imported `builtin.zig` has no ZIR errors, and that it has only one
 /// import, which is 'std'.
 pub fn updateBuiltinModule(pt: Zcu.PerThread, opts: Builtin) Allocator.Error!void {
     const zcu = pt.zcu;
@@ -2714,7 +2767,7 @@ pub fn updateBuiltinModule(pt: Zcu.PerThread, opts: Builtin) Allocator.Error!voi
     const mod: *Module = try .createBuiltin(comp.arena, opts, comp.dirs);
     assert(std.mem.eql(u8, &mod.getBuiltinOptions(comp.config).hash(), gop.key_ptr)); // builtin is its own builtin
 
-    const path = try mod.root.join(gpa, comp.dirs, "builtin.sig");
+    const path = try mod.root.join(gpa, comp.dirs, "builtin.zig");
     errdefer path.deinit(gpa);
 
     const file_gop = try zcu.import_table.getOrPutAdapted(gpa, path, Zcu.ImportTableAdapter{ .zcu = zcu });
@@ -2738,7 +2791,7 @@ pub fn updateBuiltinModule(pt: Zcu.PerThread, opts: Builtin) Allocator.Error!voi
         .zir = null,
         .zoir = null,
         .mod = mod,
-        .sub_file_path = "builtin.sig",
+        .sub_file_path = "builtin.zig",
         .module_changed = false,
         .prev_zir = null,
         .zoir_invalidated = false,
@@ -2981,11 +3034,11 @@ pub fn scanNamespace(
 
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
-    tracy_trace.addText(Type.fromInterned(namespace.owner_type).containerTypeName(ip).toSlice(ip));
+    tracy_trace.addText(Type.fromInterned(namespace.owner_type).containerTypeName(ip).fqn.toSlice(ip));
     tracy_trace.addTextFmt("type_ip_index={d}", .{namespace.owner_type});
 
     const tracked_unit = zcu.trackUnitSema(
-        Type.fromInterned(namespace.owner_type).containerTypeName(ip).toSlice(ip),
+        Type.fromInterned(namespace.owner_type).containerTypeName(ip).fqn.toSlice(ip),
         null,
     );
     defer tracked_unit.end(zcu);
@@ -3307,7 +3360,8 @@ fn analyzeFuncBodyInner(
         .inlining = null,
         .comptime_reason = null,
         .src_base_inst = decl_analysis.zir_index,
-        .type_name_ctx = func_nav.fqn,
+        .type_name_ctx = func_nav.name,
+        .type_fqn_ctx = func_nav.fqn,
     };
     defer inner_block.instructions.deinit(gpa);
 
@@ -3517,7 +3571,7 @@ fn lockAndClearFileCompileError(pt: Zcu.PerThread, file_index: Zcu.File.Index, f
         .retryable_failure => true,
         .astgen_failure => true,
         .success => switch (file.getMode()) {
-            .Sig => has_error: {
+            .zig => has_error: {
                 const zir = file.zir orelse break :has_error false;
                 break :has_error zir.hasCompileErrors();
             },
@@ -3760,7 +3814,7 @@ pub fn populateTestFunctions(pt: Zcu.PerThread) Allocator.Error!void {
         ip.resolveNav(io, test_fns_nav_index, new_resolved_test_fns);
     }
     // The linker thread is not running, so we actually need to dispatch this task directly.
-    @import("../link.sig").linkTestFunctionsNav(pt, test_fns_nav_index);
+    @import("../link.zig").linkTestFunctionsNav(pt, test_fns_nav_index);
 }
 
 /// Stores an error in `pt.zcu.failed_files` for this file, and sets the file
@@ -4407,8 +4461,7 @@ pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) Ru
                 comp.config.use_llvm,
             )) {
                 else => unreachable, // assertion failure
-                .stage2_llvm,
-                => {},
+                .stage2_llvm => {},
             },
             error.Canceled => |e| return e,
         }

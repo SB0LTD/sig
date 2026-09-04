@@ -380,7 +380,7 @@ pub fn resolveRelocs(self: *ZigObject, macho_file: *MachO) !void {
         if (!atom.isAlive()) continue;
         const sect = &macho_file.sections.items(.header)[atom.out_n_sect];
         if (sect.isZerofill()) continue;
-        if (!macho_file.isZigSection(atom.out_n_sect)) continue; // Non-Sig sections are handled separately
+        if (!macho_file.isZigSection(atom.out_n_sect)) continue; // Non-Zig sections are handled separately
         if (atom.getRelocs(macho_file).len == 0) continue;
         // TODO: we will resolve and write ZigObject's TLS data twice:
         // once here, and once in writeAtoms
@@ -647,14 +647,11 @@ pub fn getNavVAddr(
                 },
             });
         },
-        .debug_output => |debug_output| switch (debug_output) {
-            .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
-                .source_off = @intCast(reloc_info.offset),
-                .target_sym = @fromBackingInt(@intCast(sym_index)),
-                .target_off = reloc_info.addend,
-            }),
-            .none => unreachable,
-        },
+        .debug_output => |debug_output| try debug_output.dwarf.infoExternalReloc(.{
+            .source_off = @intCast(reloc_info.offset),
+            .target_sym = @fromBackingInt(@intCast(sym_index)),
+            .target_off = reloc_info.addend,
+        }),
     }
     return vaddr;
 }
@@ -686,14 +683,11 @@ pub fn getUavVAddr(
                 },
             });
         },
-        .debug_output => |debug_output| switch (debug_output) {
-            .dwarf => |wip_nav| try wip_nav.infoExternalReloc(.{
-                .source_off = @intCast(reloc_info.offset),
-                .target_sym = @fromBackingInt(@intCast(sym_index)),
-                .target_off = reloc_info.addend,
-            }),
-            .none => unreachable,
-        },
+        .debug_output => |debug_output| try debug_output.dwarf.infoExternalReloc(.{
+            .source_off = @intCast(reloc_info.offset),
+            .target_sym = @fromBackingInt(@intCast(sym_index)),
+            .target_off = reloc_info.addend,
+        }),
     }
     return vaddr;
 }
@@ -1418,11 +1412,11 @@ fn updateLazySymbol(
     try macho_file.pwriteAll(code, file_offset);
 }
 
-pub fn updateLineNumber(self: *ZigObject, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) link.Error!void {
+pub fn updateLineNumber(self: *ZigObject, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index, line: u32) link.Error!void {
     if (self.dwarf) |*dwarf| {
         const comp = dwarf.bin_file.comp;
         const diags = &comp.link_diags;
-        dwarf.updateLineNumber(pt.zcu, ti_id) catch |err| switch (err) {
+        dwarf.updateLineNumber(pt.zcu, ti_id, line) catch |err| switch (err) {
             error.OutOfMemory, error.Canceled, error.AlreadyReported => |e| return e,
             else => |e| return diags.fail("failed to update dwarf line numbers: {s}", .{@errorName(e)}),
         };
@@ -1750,6 +1744,7 @@ const TlvInitializerTable = std.array_hash_map.Auto(Atom.Index, TlvInitializer);
 
 const x86_64 = struct {
     fn writeTrampolineCode(source_addr: u64, target_addr: u64, buf: *[max_trampoline_len]u8) ![]u8 {
+        dev.checkAny(&.{ .llvm_backend, .x86_64_backend });
         const disp = @as(i64, @intCast(target_addr)) - @as(i64, @intCast(source_addr)) - 5;
         var bytes = [_]u8{
             0xe9, 0x00, 0x00, 0x00, 0x00, // jmp rel32
@@ -1763,30 +1758,31 @@ const x86_64 = struct {
 
 const assert = std.debug.assert;
 const builtin = @import("builtin");
-const codegen = @import("../../codegen.sig");
-const link = @import("../../link.sig");
+const codegen = @import("../../codegen.zig");
+const dev = @import("../../dev.zig");
+const link = @import("../../link.zig");
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;
-const target_util = @import("../../target.sig");
-const trace = @import("../../tracy.sig").trace;
+const target_util = @import("../../target.zig");
+const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
 const Writer = std.Io.Writer;
 
 const Allocator = std.mem.Allocator;
-const Archive = @import("Archive.sig");
-const Atom = @import("Atom.sig");
-const Dwarf = @import("../Dwarf.sig");
-const File = @import("file.sig").File;
-const InternPool = @import("../../InternPool.sig");
-const MachO = @import("../MachO.sig");
+const Archive = @import("Archive.zig");
+const Atom = @import("Atom.zig");
+const Dwarf = @import("../Dwarf.zig");
+const File = @import("file.zig").File;
+const InternPool = @import("../../InternPool.zig");
+const MachO = @import("../MachO.zig");
 const Nlist = Object.Nlist;
-const Zcu = @import("../../Zcu.sig");
-const Object = @import("Object.sig");
-const Relocation = @import("Relocation.sig");
-const Symbol = @import("Symbol.sig");
-const StringTable = @import("../StringTable.sig");
-const Type = @import("../../Type.sig");
-const Value = @import("../../Value.sig");
+const Zcu = @import("../../Zcu.zig");
+const Object = @import("Object.zig");
+const Relocation = @import("Relocation.zig");
+const Symbol = @import("Symbol.zig");
+const StringTable = @import("../StringTable.zig");
+const Type = @import("../../Type.zig");
+const Value = @import("../../Value.zig");
 const AnalUnit = InternPool.AnalUnit;
 const ZigObject = @This();

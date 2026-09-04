@@ -9,17 +9,16 @@ const assert = std.debug.assert;
 const Path = std.Build.Cache.Path;
 const log = std.log.scoped(.link);
 
-const Air = @import("../Air.sig");
-const InternPool = @import("../InternPool.sig");
-const Zcu = @import("../Zcu.sig");
-const CodeGen = @import("../codegen/spork8/CodeGen.sig");
-const codegen = @import("../codegen.sig");
-const Mir = @import("../codegen/spork8/Mir.sig");
-const link = @import("../link.sig");
-const Compilation = @import("../Compilation.sig");
-const Liveness = @import("../Air/Liveness.sig");
-const dev = @import("../dev.sig");
-const Value = @import("../Value.sig");
+const Air = @import("../Air.zig");
+const InternPool = @import("../InternPool.zig");
+const Zcu = @import("../Zcu.zig");
+const CodeGen = @import("../codegen/spork8/CodeGen.zig");
+const codegen = @import("../codegen.zig");
+const Mir = @import("../codegen/spork8/Mir.zig");
+const link = @import("../link.zig");
+const Compilation = @import("../Compilation.zig");
+const Liveness = @import("../Air/Liveness.zig");
+const Value = @import("../Value.zig");
 
 base: link.File,
 /// All MIR instructions for all Zcu functions.
@@ -89,7 +88,6 @@ pub fn updateFunc(
     func_index: InternPool.Index,
     any_mir: *const codegen.AnyMir,
 ) !void {
-    dev.check(.spork8_backend);
     // This linker implementation only works with `std.lang.CompilerBackend.zsf_spork8`.
     const mir = &any_mir.spork8;
     const zcu = pt.zcu;
@@ -168,10 +166,11 @@ pub fn updateNav(spork8: *Spork8, pt: Zcu.PerThread, nav_index: InternPool.Nav.I
     log.debug("updateNav {f}", .{nav.fqn.fmt(ip)});
 }
 
-pub fn updateLineNumber(spork8: *Spork8, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
+pub fn updateLineNumber(spork8: *Spork8, pt: Zcu.PerThread, inst: InternPool.TrackedInst.Index, line: u32) !void {
     _ = spork8;
     _ = pt;
-    _ = ti_id;
+    _ = inst;
+    _ = line;
 }
 
 pub fn deleteExport(

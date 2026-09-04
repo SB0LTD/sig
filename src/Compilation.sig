@@ -2101,6 +2101,7 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
                 .analysis_roots_buffer = undefined,
                 .analysis_roots_len = 0,
                 .codegen_task_pool = try .init(arena),
+                .anon_name_counter = 0,
             };
             try zcu.init(gpa, io, options.thread_limit);
             break :blk zcu;
@@ -2383,6 +2384,7 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
                 comp.verbose_llvm_bc != null))
         {
             if (opt_zcu) |zcu| {
+                dev.check(.llvm_backend);
                 zcu.llvm_object = try LlvmObject.create(arena, zcu);
             }
         }
@@ -2829,6 +2831,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
             }
 
             const is_hit = man.hit(main_progress_node) catch |err| switch (err) {
+                error.Canceled, error.OutOfMemory => |e| return e,
                 error.CacheCheckFailed => switch (man.diagnostic) {
                     .none => unreachable,
                     .manifest_create, .manifest_read, .manifest_lock => |e| return comp.setMiscFailure(
@@ -2844,7 +2847,6 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
                         });
                     },
                 },
-                error.OutOfMemory, error.Canceled => |e| return e,
                 error.InvalidFormat => return comp.setMiscFailure(
                     .check_whole_cache,
                     "failed to check cache: invalid manifest file format",
@@ -3283,8 +3285,8 @@ fn flush(comp: *Compilation, arena: Allocator) (Io.Cancelable || Allocator.Error
                 .fuzz = comp.config.any_fuzz,
                 .lto = comp.config.lto,
             }) catch |err| switch (err) {
+                error.Canceled, error.OutOfMemory => |e| return e,
                 error.AlreadyReported => {},
-                error.OutOfMemory => |e| return e,
             };
 
             if (zcu_obj_path) |path| {
@@ -3293,8 +3295,8 @@ fn flush(comp: *Compilation, arena: Allocator) (Io.Cancelable || Allocator.Error
                 // `link.Queue` has not called `prelink` because it knew we would want to send that
                 // final link input. It is *our* responsibility to call `prelink` now we're done.
                 comp.bin_file.?.prelink() catch |err| switch (err) {
+                    error.Canceled, error.OutOfMemory => |e| return e,
                     error.AlreadyReported => return,
-                    else => |e| return e,
                 };
             }
         }
@@ -3308,8 +3310,8 @@ fn flush(comp: *Compilation, arena: Allocator) (Io.Cancelable || Allocator.Error
         };
         // This is needed before reading the error flags.
         lf.flush(arena, tid, comp.link_prog_node) catch |err| switch (err) {
+            error.Canceled, error.OutOfMemory => |e| return e,
             error.AlreadyReported => return,
-            error.OutOfMemory, error.Canceled => |e| return e,
         };
     }
 }
@@ -3709,8 +3711,15 @@ pub fn saveState(comp: *Compilation) !void {
 
     // linker state
     switch (lf.tag) {
+        .elf => {},
+        .elf2 => {
+            const elf = lf.cast(.elf2).?;
+            try bufs.ensureUnusedCapacity(3);
+            addBuf(&bufs, @ptrCast(elf.mf.nodes.items));
+            addBuf(&bufs, @ptrCast(&elf.mf.free_ni));
+            addBuf(&bufs, @ptrCast(elf.mf.large.items));
+        },
         .wasm => {
-            dev.check(link.File.Tag.wasm.devFeature());
             const wasm = lf.cast(.wasm).?;
             const is_obj = comp.config.output_mode == .Obj;
             try bufs.ensureUnusedCapacity(85);

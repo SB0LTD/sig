@@ -1,9 +1,9 @@
-//! Sig Compilation Unit
+//! Zig Compilation Unit
 //!
-//! Compilation of all Sig source code is represented by one `Zcu`.
+//! Compilation of all Zig source code is represented by one `Zcu`.
 //!
 //! Each `Compilation` has exactly one or zero `Zcu`, depending on whether
-//! there is or is not any Sig source code, respectively.
+//! there is or is not any zig source code, respectively.
 const Zcu = @This();
 const builtin = @import("builtin");
 
@@ -19,30 +19,30 @@ const refs_log = std.log.scoped(.zcu_refs);
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
-const Ast = std.sig.Ast;
+const Ast = std.zig.Ast;
 
-const Compilation = @import("Compilation.sig");
+const Compilation = @import("Compilation.zig");
 const Cache = std.Build.Cache;
-pub const Value = @import("Value.sig");
-pub const Type = @import("Type.sig");
-const Module = @import("Module.sig");
-const link = @import("link.sig");
-const Air = @import("Air.sig");
-const Zir = std.sig.Zir;
-const tracy = @import("tracy.sig");
-const AstGen = std.sig.AstGen;
-const Sema = @import("Sema.sig");
-const target_util = @import("target.sig");
+pub const Value = @import("Value.zig");
+pub const Type = @import("Type.zig");
+const Module = @import("Module.zig");
+const link = @import("link.zig");
+const Air = @import("Air.zig");
+const Zir = std.zig.Zir;
+const tracy = @import("tracy.zig");
+const AstGen = std.zig.AstGen;
+const Sema = @import("Sema.zig");
+const target_util = @import("target.zig");
 const build_options = @import("build_options");
-const InternPool = @import("InternPool.sig");
+const InternPool = @import("InternPool.zig");
 const Alignment = InternPool.Alignment;
 const AnalUnit = InternPool.AnalUnit;
-const BuiltinFn = std.sig.BuiltinFn;
-const codegen = @import("codegen.sig");
-const LlvmObject = @import("codegen/llvm.sig").Object;
-const dev = @import("dev.sig");
-const Zoir = std.sig.Zoir;
-const ZonGen = std.sig.ZonGen;
+const BuiltinFn = std.zig.BuiltinFn;
+const codegen = @import("codegen.zig");
+const LlvmObject = @import("codegen/llvm.zig").Object;
+const dev = @import("dev.zig");
+const Zoir = std.zig.Zoir;
+const ZonGen = std.zig.ZonGen;
 
 comptime {
     @setEvalBranchQuota(4000);
@@ -65,7 +65,7 @@ llvm_object: ?LlvmObject.Ptr,
 
 /// Pointer to externally managed resource.
 root_mod: *Module,
-/// Normally, `main_mod` and `root_mod` are the same. The exception is `Sig test`, in which
+/// Normally, `main_mod` and `root_mod` are the same. The exception is `zig test`, in which
 /// `root_mod` is the test runner, and `main_mod` is the user's source file which has the tests.
 main_mod: *Module,
 std_mod: *Module,
@@ -108,10 +108,10 @@ multi_exports: std.array_hash_map.Auto(AnalUnit, extern struct {
 builtin_modules: std.array_hash_map.Auto(Cache.BinDigest, *Module) = .empty,
 
 /// Populated as soon as the `Compilation` is created. Guaranteed to contain all modules, even builtin ones.
-/// Modules whose root file is not a Sig or ZON file have the value `.none`.
+/// Modules whose root file is not a Zig or ZON file have the value `.none`.
 module_roots: std.array_hash_map.Auto(*Module, File.Index.Optional) = .empty,
 
-/// The set of all the Sig source files in the Sig Compilation Unit. Tracked in
+/// The set of all the Zig source files in the Zig Compilation Unit. Tracked in
 /// order to iterate over it and check which source files have been modified on
 /// the file system when an update is requested, as well as to cache `@import`
 /// results.
@@ -261,7 +261,7 @@ failed_imports: std.ArrayList(struct {
 failed_exports: std.array_hash_map.Auto(Export.Index, *ErrorMsg) = .empty,
 /// If analysis failed due to a cimport error, the corresponding Clang errors
 /// are stored here.
-cimport_errors: std.array_hash_map.Auto(AnalUnit, std.sig.ErrorBundle) = .empty,
+cimport_errors: std.array_hash_map.Auto(AnalUnit, std.zig.ErrorBundle) = .empty,
 
 /// Maximum amount of distinct error values, set by --error-limit
 error_limit: ErrorInt,
@@ -348,6 +348,9 @@ codegen_task_pool: CodegenTaskPool,
 
 generation: u32 = 0,
 
+/// Only access from the Sema thread.
+anon_name_counter: u32,
+
 pub const DependencyReason = struct {
     src: LazySrcLoc,
     /// Only populated if this is for a `.type_layout` unit.
@@ -356,7 +359,7 @@ pub const DependencyReason = struct {
 
 /// These are not required for anything, but when the compiler is built with debug extensions, we
 /// store these in `Zcu.transitive_failed_analysis` and surface them in the incremental debug server
-/// (see `src/IncrementalDebugServer.sig`) because they are a useful debugging aid for bugs in
+/// (see `src/IncrementalDebugServer.zig`) because they are a useful debugging aid for bugs in
 /// incremental compilation.
 pub const TransitiveFailureReason = union(enum) {
     astgen_error,
@@ -411,7 +414,7 @@ pub const IncrementalDebugState = struct {
     }
 };
 
-pub const PerThread = @import("Zcu/PerThread.sig");
+pub const PerThread = @import("Zcu/PerThread.zig");
 
 pub const ImportTableAdapter = struct {
     zcu: *const Zcu,
@@ -687,7 +690,7 @@ pub const SimplePanicId = enum {
 
     pub fn toStdLangDecl(id: SimplePanicId) StdLangDecl {
         return switch (id) {
-            // Sig fmt: off
+            // zig fmt: off
             .reached_unreachable        => .@"panic.reachedUnreachable",
             .unwrap_null                => .@"panic.unwrapNull",
             .cast_to_null               => .@"panic.castToNull",
@@ -708,7 +711,7 @@ pub const SimplePanicId = enum {
             .memcpy_alias               => .@"panic.memcpyAlias",
             .noreturn_returned          => .@"panic.noreturnReturned",
             .load_uninstantiable_type   => .@"panic.loadUninstantiableType",
-            // Sig fmt: on
+            // zig fmt: on
         };
     }
 };
@@ -915,7 +918,7 @@ pub const Namespace = struct {
         return ip.filePtr(ns.file_scope);
     }
 
-    /// This renders e.g. "std/fs.sig:Dir.OpenOptions"
+    /// This renders e.g. "std/fs.zig:Dir.OpenOptions"
     pub fn renderFullyQualifiedDebugName(
         ns: Namespace,
         zcu: *Zcu,
@@ -944,9 +947,9 @@ pub const Namespace = struct {
         tid: Zcu.PerThread.Id,
         name: InternPool.NullTerminatedString,
     ) !InternPool.NullTerminatedString {
-        const ns_name = Type.fromInterned(ns.owner_type).containerTypeName(ip);
-        if (name == .empty) return ns_name;
-        return ip.getOrPutStringFmt(gpa, io, tid, "{f}.{f}", .{ ns_name.fmt(ip), name.fmt(ip) }, .no_embedded_nulls);
+        const ns_fqn = Type.fromInterned(ns.owner_type).containerTypeName(ip).fqn;
+        if (name == .empty) return ns_fqn;
+        return ip.getOrPutStringFmt(gpa, io, tid, "{f}.{f}", .{ ns_fqn.fmt(ip), name.fmt(ip) }, .no_embedded_nulls);
     }
 };
 
@@ -1059,20 +1062,11 @@ pub const File = struct {
     pub fn modeFromPath(path: []const u8) ?Ast.Mode {
         if (std.mem.endsWith(u8, path, ".zon")) {
             return .zon;
-        } else if (std.mem.endsWith(u8, path, ".sig") or
-            std.mem.endsWith(u8, path, ".sig"))
-        {
-            return .Sig;
+        } else if (std.mem.endsWith(u8, path, ".zig")) {
+            return .zig;
         } else {
             return null;
         }
-    }
-
-    test "modeFromPath recognizes Sig, Sig, and ZON sources" {
-        try std.testing.expectEqual(Ast.Mode.sig, modeFromPath("root.sig").?);
-        try std.testing.expectEqual(Ast.Mode.sig, modeFromPath("root.sig").?);
-        try std.testing.expectEqual(Ast.Mode.zon, modeFromPath("build.zon").?);
-        try std.testing.expectEqual(@as(?Ast.Mode, null), modeFromPath("object.o"));
     }
 
     pub fn unload(file: *File, gpa: Allocator) void {
@@ -1210,8 +1204,8 @@ pub const File = struct {
     pub fn errorBundleWholeFileSrc(
         file: *File,
         zcu: *const Zcu,
-        eb: *std.sig.ErrorBundle.Wip,
-    ) Allocator.Error!std.sig.ErrorBundle.SourceLocationIndex {
+        eb: *std.zig.ErrorBundle.Wip,
+    ) Allocator.Error!std.zig.ErrorBundle.SourceLocationIndex {
         return eb.addSourceLocation(.{
             .src_path = try eb.printString("{f}", .{file.path.fmt(zcu.comp)}),
             .span_start = 0,
@@ -1227,12 +1221,12 @@ pub const File = struct {
         file: *File,
         tok: Ast.TokenIndex,
         zcu: *const Zcu,
-        eb: *std.sig.ErrorBundle.Wip,
-    ) Allocator.Error!std.sig.ErrorBundle.SourceLocationIndex {
+        eb: *std.zig.ErrorBundle.Wip,
+    ) Allocator.Error!std.zig.ErrorBundle.SourceLocationIndex {
         const tree = &file.tree.?;
         const start = tree.tokenStart(tok);
         const end = start + tree.tokenSlice(tok).len;
-        const loc = std.sig.findLineColumn(file.source.?, start);
+        const loc = std.zig.findLineColumn(file.source.?, start);
         return eb.addSourceLocation(.{
             .src_path = try eb.printString("{f}", .{file.path.fmt(zcu.comp)}),
             .span_start = start,
@@ -1321,7 +1315,7 @@ pub const AstGenSrc = union(enum) {
     root,
     import: struct {
         importing_file: Zcu.File.Index,
-        import_tok: std.sig.Ast.TokenIndex,
+        import_tok: std.zig.Ast.TokenIndex,
     },
 };
 
@@ -2976,7 +2970,7 @@ pub fn namespacePtrUnwrap(zcu: *Zcu, index: Namespace.OptionalIndex) ?*Namespace
     return zcu.namespacePtr(index.unwrap() orelse return null);
 }
 
-// TODO https://github.com/ziglang/Sig/issues/8643
+// TODO https://github.com/ziglang/zig/issues/8643
 pub const data_has_safety_tag = @sizeOf(Zir.Inst.Data) != 8;
 pub const HackDataLayout = extern struct {
     data: [8]u8 align(@alignOf(Zir.Inst.Data)),
@@ -3931,7 +3925,7 @@ pub fn errorSetBits(zcu: *const Zcu) u16 {
 
     if (zcu.error_limit == 0) return 0;
     if (target.cpu.arch.isSpirV()) {
-        // As expected by https://github.com/Snektron/Sig-spirv-test-executor
+        // As expected by https://github.com/Snektron/zig-spirv-test-executor
         if (zcu.comp.config.is_test) return 32;
     }
 
@@ -3955,7 +3949,7 @@ pub fn errNote(
     };
 }
 
-/// Deprecated. There is no global target for a Sig Compilation Unit. Instead,
+/// Deprecated. There is no global target for a Zig Compilation Unit. Instead,
 /// look up the target based on the Module that contains the source code being
 /// analyzed.
 pub fn getTarget(zcu: *const Zcu) *const Target {
@@ -4115,7 +4109,7 @@ pub fn typeToPackedStruct(zcu: *const Zcu, ty: Type) ?InternPool.LoadedStructTyp
     return s;
 }
 
-/// https://github.com/ziglang/Sig/issues/17178 explored storing these bit offsets
+/// https://github.com/ziglang/zig/issues/17178 explored storing these bit offsets
 /// into the packed struct InternPool data rather than computing this on the
 /// fly, however it was found to perform worse when measured on real world
 /// projects.
@@ -4243,7 +4237,7 @@ fn resolveReferencesInner(zcu: *Zcu) Allocator.Error!std.array_hash_map.Auto(Ana
             const referencer = types.values()[type_idx];
             type_idx += 1;
 
-            refs_log.debug("handle type '{f}'", .{Type.fromInterned(ty).containerTypeName(ip).fmt(ip)});
+            refs_log.debug("handle type '{f}'", .{Type.fromInterned(ty).containerTypeName(ip).fqn.fmt(ip)});
 
             // Queue any decls within this type which would be automatically analyzed.
             // Keep in sync with analysis queueing logic in `Zcu.PerThread.ScanDeclIter.scanDecl`.
@@ -4254,7 +4248,7 @@ fn resolveReferencesInner(zcu: *Zcu) Allocator.Error!std.array_hash_map.Auto(Ana
                 const gop = try units.getOrPut(gpa, unit);
                 if (!gop.found_existing) {
                     refs_log.debug("type '{f}': ref comptime %{}", .{
-                        Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
+                        Type.fromInterned(ty).containerTypeName(ip).fqn.fmt(ip),
                         @backingInt(ip.getComptimeUnit(cu).zir_index.resolve(ip) orelse continue),
                     });
                     gop.value_ptr.* = referencer;
@@ -4288,7 +4282,7 @@ fn resolveReferencesInner(zcu: *Zcu) Allocator.Error!std.array_hash_map.Auto(Ana
                         const gop = try units.getOrPut(gpa, .wrap(.{ .nav_val = nav_id }));
                         if (!gop.found_existing) {
                             refs_log.debug("type '{f}': ref test %{}", .{
-                                Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
+                                Type.fromInterned(ty).containerTypeName(ip).fqn.fmt(ip),
                                 @backingInt(inst_info.inst),
                             });
                             gop.value_ptr.* = referencer;
@@ -4311,7 +4305,7 @@ fn resolveReferencesInner(zcu: *Zcu) Allocator.Error!std.array_hash_map.Auto(Ana
                     const gop = try units.getOrPut(gpa, unit);
                     if (!gop.found_existing) {
                         refs_log.debug("type '{f}': ref named %{}", .{
-                            Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
+                            Type.fromInterned(ty).containerTypeName(ip).fqn.fmt(ip),
                             @backingInt(inst_info.inst),
                         });
                         gop.value_ptr.* = referencer;
@@ -4328,7 +4322,7 @@ fn resolveReferencesInner(zcu: *Zcu) Allocator.Error!std.array_hash_map.Auto(Ana
                     const gop = try units.getOrPut(gpa, unit);
                     if (!gop.found_existing) {
                         refs_log.debug("type '{f}': ref named %{}", .{
-                            Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
+                            Type.fromInterned(ty).containerTypeName(ip).fqn.fmt(ip),
                             @backingInt(inst_info.inst),
                         });
                         gop.value_ptr.* = referencer;
@@ -4391,7 +4385,7 @@ fn resolveReferencesInner(zcu: *Zcu) Allocator.Error!std.array_hash_map.Auto(Ana
                     if (!gop.found_existing) {
                         refs_log.debug("unit '{f}': ref type '{f}'", .{
                             zcu.fmtAnalUnit(unit),
-                            Type.fromInterned(ref.referenced).containerTypeName(ip).fmt(ip),
+                            Type.fromInterned(ref.referenced).containerTypeName(ip).fqn.fmt(ip),
                         });
                         gop.value_ptr.* = .{
                             .referencer = unit,
@@ -4504,7 +4498,7 @@ fn formatAnalUnit(data: FormatAnalUnit, writer: *Io.Writer) Io.Writer.Error!void
             }
         },
         .nav_val, .nav_ty => |nav, tag| return writer.print("{t}('{f}' [{}])", .{ tag, ip.getNav(nav).fqn.fmt(ip), @backingInt(nav) }),
-        .type_layout, .struct_defaults => |ty, tag| return writer.print("{t}('{f}' [{}])", .{ tag, Type.fromInterned(ty).containerTypeName(ip).fmt(ip), @backingInt(ty) }),
+        .type_layout, .struct_defaults => |ty, tag| return writer.print("{t}('{f}' [{}])", .{ tag, Type.fromInterned(ty).containerTypeName(ip).fqn.fmt(ip), @backingInt(ty) }),
         .func => |func| {
             const nav = zcu.funcInfo(func).owner_nav;
             return writer.print("func('{f}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @backingInt(func) });
@@ -4530,8 +4524,8 @@ fn formatDependee(data: FormatDependee, writer: *Io.Writer) Io.Writer.Error!void
             return writer.print("{t}('{f}')", .{ tag, fqn.fmt(ip) });
         },
         .type_layout, .struct_defaults => |ip_index, tag| {
-            const name = Type.fromInterned(ip_index).containerTypeName(ip);
-            return writer.print("{t}('{f}')", .{ tag, name.fmt(ip) });
+            const fqn = Type.fromInterned(ip_index).containerTypeName(ip).fqn;
+            return writer.print("{t}('{f}')", .{ tag, fqn.fmt(ip) });
         },
         .func_ies => |ip_index| {
             const fqn = ip.getNav(ip.indexToKey(ip_index).func.owner_nav).fqn;
@@ -4578,13 +4572,17 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.lang.CallingConvention) union(enum) 
             if (allowed_arch == target.cpu.arch) break;
         } else return .{ .bad_arch = cc.archs() },
     }
-    const backend_ok = switch (backend) {
+    const backend_ok = ok: switch (backend) {
         .stage1 => unreachable,
         .other => unreachable,
         _ => unreachable,
 
-        .stage2_llvm => @import("codegen/llvm.sig").toLlvmCallConv(cc, target) != null,
-        .stage2_c => ok: {
+        .stage2_llvm => {
+            dev.check(.llvm_backend);
+            break :ok @import("codegen/llvm.zig").toLlvmCallConv(cc, target) != null;
+        },
+        .stage2_c => {
+            dev.check(.c_backend);
             if (target.cCallingConvention()) |default_c| {
                 if (cc.eql(default_c)) {
                     break :ok true;
@@ -4642,81 +4640,114 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.lang.CallingConvention) union(enum) 
                 else => false,
             };
         },
-        .stage2_wasm => switch (cc) {
-            .wasm_mvp => |opts| opts.incoming_stack_alignment == null,
-            else => false,
-        },
-        .stage2_arm => switch (cc) {
-            .arm_aapcs => |opts| opts.incoming_stack_alignment == null,
-            .naked => true,
-            else => false,
-        },
-        .stage2_x86_64 => switch (cc) {
-            .x86_64_sysv, .x86_64_win, .naked => true, // incoming stack alignment supported
-            else => false,
-        },
-        .stage2_aarch64 => switch (cc) {
-            .aarch64_aapcs, .aarch64_aapcs_darwin, .naked => true,
-            else => false,
-        },
-        .stage2_x86 => switch (cc) {
-            .x86_sysv,
-            .x86_win,
-            .x86_mingw,
-            => |opts| opts.incoming_stack_alignment == null and opts.register_params == 0,
-            .naked => true,
-            else => false,
-        },
-        .stage2_powerpc => switch (target.cpu.arch) {
-            .powerpc, .powerpcle => switch (cc) {
-                .powerpc_sysv,
-                .powerpc_sysv_altivec,
-                .powerpc_aix,
-                .powerpc_aix_altivec,
-                .naked,
-                => true,
+        .stage2_wasm => {
+            dev.check(.wasm_backend);
+            break :ok switch (cc) {
+                .wasm_mvp => |opts| opts.incoming_stack_alignment == null,
                 else => false,
-            },
-            .powerpc64, .powerpc64le => switch (cc) {
-                .powerpc64_elf,
-                .powerpc64_elf_altivec,
-                .powerpc64_elf_v2,
-                .naked,
-                => true,
+            };
+        },
+        .stage2_arm => {
+            dev.check(.arm_backend);
+            break :ok switch (cc) {
+                .arm_aapcs => |opts| opts.incoming_stack_alignment == null,
+                .naked => true,
                 else => false,
-            },
-            else => unreachable,
+            };
         },
-        .stage2_riscv64 => switch (cc) {
-            .riscv64_lp64 => |opts| opts.incoming_stack_alignment == null,
-            .naked => true,
-            else => false,
+        .stage2_x86_64 => {
+            dev.check(.x86_64_backend);
+            break :ok switch (cc) {
+                .x86_64_sysv, .x86_64_win, .naked => true, // incoming stack alignment supported
+                else => false,
+            };
         },
-        .stage2_sparc64 => switch (cc) {
-            .sparc64_sysv => |opts| opts.incoming_stack_alignment == null,
-            .naked => true,
-            else => false,
+        .stage2_aarch64 => {
+            dev.check(.aarch64_backend);
+            break :ok switch (cc) {
+                .aarch64_aapcs, .aarch64_aapcs_darwin, .naked => true,
+                else => false,
+            };
         },
-        .stage2_spirv => switch (cc) {
-            .spirv_device, .spirv_kernel => true,
-            .spirv_fragment, .spirv_vertex => target.os.tag == .vulkan or target.os.tag == .opengl,
-            .spirv_task, .spirv_mesh => target.os.tag == .vulkan,
-            else => false,
+        .stage2_x86 => {
+            dev.check(.x86_backend);
+            break :ok switch (cc) {
+                .x86_sysv,
+                .x86_win,
+                .x86_mingw,
+                => |opts| opts.incoming_stack_alignment == null and opts.register_params == 0,
+                .naked => true,
+                else => false,
+            };
         },
-        .stage2_loongarch => switch (cc) {
-            .loongarch64_lp64, .loongarch32_ilp32, .naked => true,
-            else => false,
+        .stage2_powerpc => {
+            dev.check(.powerpc_backend);
+            break :ok switch (target.cpu.arch) {
+                .powerpc, .powerpcle => switch (cc) {
+                    .powerpc_sysv,
+                    .powerpc_sysv_altivec,
+                    .powerpc_aix,
+                    .powerpc_aix_altivec,
+                    .naked,
+                    => true,
+                    else => false,
+                },
+                .powerpc64, .powerpc64le => switch (cc) {
+                    .powerpc64_elf,
+                    .powerpc64_elf_altivec,
+                    .powerpc64_elf_v2,
+                    .naked,
+                    => true,
+                    else => false,
+                },
+                else => unreachable,
+            };
         },
-        .zsf_spork8 => switch (cc) {
-            .spork8, .naked => true,
-            else => false,
+        .stage2_riscv64 => {
+            dev.check(.riscv64_backend);
+            break :ok switch (cc) {
+                .riscv64_lp64 => |opts| opts.incoming_stack_alignment == null,
+                .naked => true,
+                else => false,
+            };
+        },
+        .stage2_sparc64 => {
+            dev.check(.sparc64_backend);
+            break :ok switch (cc) {
+                .sparc64_sysv => |opts| opts.incoming_stack_alignment == null,
+                .naked => true,
+                else => false,
+            };
+        },
+        .stage2_spirv => {
+            dev.check(.spirv_backend);
+            break :ok switch (cc) {
+                .spirv_device, .spirv_kernel => true,
+                .spirv_fragment, .spirv_vertex => target.os.tag == .vulkan or target.os.tag == .opengl,
+                .spirv_task, .spirv_mesh => target.os.tag == .vulkan,
+                else => false,
+            };
+        },
+        .stage2_loongarch => {
+            dev.check(.loongarch_backend);
+            break :ok switch (cc) {
+                .loongarch64_lp64, .loongarch32_ilp32, .naked => true,
+                else => false,
+            };
+        },
+        .zsf_spork8 => {
+            dev.check(.spork8_backend);
+            break :ok switch (cc) {
+                .spork8, .naked => true,
+                else => false,
+            };
         },
     };
     if (!backend_ok) return .{ .bad_backend = backend };
     return .ok;
 }
 
-pub const CodegenFailError = error{
+pub const CodegenFailError = Io.Cancelable || error{
     /// Indicates the error message has been already stored at `Zcu.failed_codegen`.
     AlreadyReported,
     OutOfMemory,
@@ -4772,7 +4803,7 @@ pub fn codegenFailTypeMsg(zcu: *Zcu, ty_index: InternPool.Index, msg: *ErrorMsg)
 /// Asserts that `zcu.multi_module_err != null`.
 pub fn addFileInMultipleModulesError(
     zcu: *Zcu,
-    eb: *std.sig.ErrorBundle.Wip,
+    eb: *std.zig.ErrorBundle.Wip,
 ) Allocator.Error!void {
     const gpa = zcu.gpa;
 
@@ -4792,7 +4823,7 @@ pub fn addFileInMultipleModulesError(
         info.modules[1].fully_qualified_name,
     });
 
-    var notes: std.ArrayList(std.sig.ErrorBundle.MessageIndex) = .empty;
+    var notes: std.ArrayList(std.zig.ErrorBundle.MessageIndex) = .empty;
     defer notes.deinit(gpa);
 
     try notes.append(gpa, try eb.addErrorMessage(.{
@@ -4809,14 +4840,14 @@ pub fn addFileInMultipleModulesError(
         .notes_len = @intCast(notes.items.len),
     });
     const notes_start = try eb.reserveNotes(@intCast(notes.items.len));
-    const notes_slice: []std.sig.ErrorBundle.MessageIndex = @ptrCast(eb.extra.items[notes_start..]);
+    const notes_slice: []std.zig.ErrorBundle.MessageIndex = @ptrCast(eb.extra.items[notes_start..]);
     @memcpy(notes_slice, notes.items);
 }
 
 fn explainWhyFileIsInModule(
     zcu: *Zcu,
-    eb: *std.sig.ErrorBundle.Wip,
-    notes_out: *std.ArrayList(std.sig.ErrorBundle.MessageIndex),
+    eb: *std.zig.ErrorBundle.Wip,
+    notes_out: *std.ArrayList(std.zig.ErrorBundle.MessageIndex),
     file: File.Index,
     in_module: *Module,
     ref: File.Reference,
@@ -4886,7 +4917,7 @@ fn explainWhyFileIsInModule(
     }
 }
 
-pub fn addDependencyLoopErrors(zcu: *Zcu, eb: *std.sig.ErrorBundle.Wip) Allocator.Error!void {
+pub fn addDependencyLoopErrors(zcu: *Zcu, eb: *std.zig.ErrorBundle.Wip) Allocator.Error!void {
     const gpa = zcu.comp.gpa;
 
     const all_references = try zcu.resolveReferences();
@@ -4931,7 +4962,7 @@ pub fn addDependencyLoopErrors(zcu: *Zcu, eb: *std.sig.ErrorBundle.Wip) Allocato
         }
 
         // Collect a reference trace for the start of the loop.
-        var ref_trace: std.ArrayList(std.sig.ErrorBundle.ReferenceTrace) = .empty;
+        var ref_trace: std.ArrayList(std.zig.ErrorBundle.ReferenceTrace) = .empty;
         defer ref_trace.deinit(gpa);
         const frame_limit = zcu.comp.reference_trace orelse 0;
         try zcu.populateReferenceTrace(units.items[start_index], frame_limit, eb, &ref_trace);
@@ -4948,7 +4979,7 @@ pub fn addDependencyLoopErrors(zcu: *Zcu, eb: *std.sig.ErrorBundle.Wip) Allocato
         }
 
         // Collect all notes first so we don't leave an incomplete root error message on `error.AlreadyReported`.
-        const note_buf = try gpa.alloc(std.sig.ErrorBundle.MessageIndex, units.items.len + 1);
+        const note_buf = try gpa.alloc(std.zig.ErrorBundle.MessageIndex, units.items.len + 1);
         defer gpa.free(note_buf);
         note_buf[0] = addDependencyLoopErrorLine(zcu, eb, units.items[start_index], ref_trace.items) catch |err| switch (err) {
             error.AlreadyReported => return, // give up on the dep loop error
@@ -4977,16 +5008,16 @@ pub fn addDependencyLoopErrors(zcu: *Zcu, eb: *std.sig.ErrorBundle.Wip) Allocato
             .notes_len = @intCast(units.items.len + 1),
         });
         const notes_start = try eb.reserveNotes(@intCast(units.items.len + 1));
-        const notes: []std.sig.ErrorBundle.MessageIndex = @ptrCast(eb.extra.items[notes_start..]);
+        const notes: []std.zig.ErrorBundle.MessageIndex = @ptrCast(eb.extra.items[notes_start..]);
         @memcpy(notes, note_buf);
     }
 }
 fn addDependencyLoopErrorLine(
     zcu: *Zcu,
-    eb: *std.sig.ErrorBundle.Wip,
+    eb: *std.zig.ErrorBundle.Wip,
     source_unit: AnalUnit,
-    ref_trace: []const std.sig.ErrorBundle.ReferenceTrace,
-) (Allocator.Error || error{AlreadyReported})!std.sig.ErrorBundle.MessageIndex {
+    ref_trace: []const std.zig.ErrorBundle.ReferenceTrace,
+) (Allocator.Error || error{AlreadyReported})!std.zig.ErrorBundle.MessageIndex {
     const ip = &zcu.intern_pool;
     const comp = zcu.comp;
 
@@ -4997,7 +5028,7 @@ fn addDependencyLoopErrorLine(
 
     const dep_node = zcu.dependency_loop_nodes.get(source_unit).?;
 
-    const msg: std.sig.ErrorBundle.String = if (dep_node.unit == source_unit) switch (source_unit.unwrap()) {
+    const msg: std.zig.ErrorBundle.String = if (dep_node.unit == source_unit) switch (source_unit.unwrap()) {
         .@"comptime" => unreachable, // cannot be involved in a dependency loop
         .nav_ty, .nav_val => try eb.printString("{f} depends on itself here", .{fmt_source}),
         .memoized_state => unreachable, // memoized_state definitely does not *directly* depend on itself
@@ -5008,7 +5039,7 @@ fn addDependencyLoopErrorLine(
         }),
         .struct_defaults => |ty| try eb.printString(
             "default field values of '{f}' depend on themselves for initialization here",
-            .{Type.fromInterned(ty).containerTypeName(ip).fmt(ip)},
+            .{Type.fromInterned(ty).containerTypeName(ip).fqn.fmt(ip)},
         ),
     } else switch (dep_node.unit.unwrap()) {
         .@"comptime" => unreachable, // cannot be involved in a dependency loop
@@ -5027,12 +5058,12 @@ fn addDependencyLoopErrorLine(
         }),
         .type_layout => |ty| try eb.printString("{f} depends on type '{f}' {s}", .{
             fmt_source,
-            Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
+            Type.fromInterned(ty).containerTypeName(ip).fqn.fmt(ip),
             dep_node.reason.type_layout_reason.msg(),
         }),
         .struct_defaults => |ty| try eb.printString(
             "{f} uses default field values of '{f}' here",
-            .{ fmt_source, Type.fromInterned(ty).containerTypeName(ip).fmt(ip) },
+            .{ fmt_source, Type.fromInterned(ty).containerTypeName(ip).fqn.fmt(ip) },
         ),
     };
 
@@ -5045,7 +5076,7 @@ fn addDependencyLoopErrorLine(
         try Compilation.unableToLoadZcuFile(zcu, eb, src_loc.file_scope, err);
         return error.AlreadyReported;
     };
-    const loc = std.sig.findLineColumn(source, span.main);
+    const loc = std.zig.findLineColumn(source, span.main);
     const eb_src = try eb.addSourceLocation(.{
         .src_path = try eb.printString("{f}", .{src_loc.file_scope.path.fmt(comp)}),
         .span_start = span.start,
@@ -5074,10 +5105,10 @@ fn formatDependencyLoopSourceUnit(data: FormatAnalUnit, w: *Io.Writer) Io.Writer
             else => try w.writeAll("'std.lang' declarations"),
         },
         .type_layout => |ty| try w.print("type '{f}'", .{
-            Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
+            Type.fromInterned(ty).containerTypeName(ip).fqn.fmt(ip),
         }),
         .struct_defaults => |ty| try w.print("default field value of '{f}'", .{
-            Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
+            Type.fromInterned(ty).containerTypeName(ip).fqn.fmt(ip),
         }),
         .func => |func| try w.print("function '{f}'", .{
             ip.getNav(zcu.funcInfo(func).owner_nav).fqn.fmt(ip),
@@ -5089,8 +5120,8 @@ pub fn populateReferenceTrace(
     zcu: *Zcu,
     root: AnalUnit,
     frame_limit: u32,
-    eb: *std.sig.ErrorBundle.Wip,
-    ref_trace: *std.ArrayList(std.sig.ErrorBundle.ReferenceTrace),
+    eb: *std.zig.ErrorBundle.Wip,
+    ref_trace: *std.ArrayList(std.zig.ErrorBundle.ReferenceTrace),
 ) Allocator.Error!void {
     const ip = &zcu.intern_pool;
     const gpa = zcu.comp.gpa;
@@ -5127,7 +5158,7 @@ pub fn populateReferenceTrace(
             const root_name: ?[]const u8 = switch (ref.referencer.unwrap()) {
                 .@"comptime" => "comptime",
                 .nav_val, .nav_ty => |nav| ip.getNav(nav).name.toSlice(ip),
-                .type_layout, .struct_defaults => |ty| Type.fromInterned(ty).containerTypeName(ip).toSlice(ip),
+                .type_layout, .struct_defaults => |ty| Type.fromInterned(ty).containerTypeName(ip).fqn.toSlice(ip),
                 .func => |f| ip.getNav(zcu.funcInfo(f).owner_nav).name.toSlice(ip),
                 .memoized_state => null,
             };
@@ -5153,8 +5184,8 @@ pub fn populateReferenceTrace(
 }
 fn addReferenceTraceFrame(
     zcu: *Zcu,
-    eb: *std.sig.ErrorBundle.Wip,
-    ref_trace: *std.ArrayList(std.sig.ErrorBundle.ReferenceTrace),
+    eb: *std.zig.ErrorBundle.Wip,
+    ref_trace: *std.ArrayList(std.zig.ErrorBundle.ReferenceTrace),
     name: []const u8,
     lazy_src: Zcu.LazySrcLoc,
     inlined: bool,
@@ -5169,7 +5200,7 @@ fn addReferenceTraceFrame(
         try Compilation.unableToLoadZcuFile(zcu, eb, src.file_scope, err);
         return error.AlreadyReported;
     };
-    const loc = std.sig.findLineColumn(source, span.main);
+    const loc = std.zig.findLineColumn(source, span.main);
     try ref_trace.append(gpa, .{
         .decl_name = try eb.printString("{s}{s}", .{ name, if (inlined) " [inlined]" else "" }),
         .src_loc = try eb.addSourceLocation(.{
@@ -5249,7 +5280,7 @@ pub const CodegenTaskPool = struct {
     /// memory on AIR/MIR, we see a limit of around 10 MiB of AIR in-flight.
     const max_air_bytes_in_flight = 10 * 1024 * 1024;
 
-    const max_funcs_in_flight = @import("link.sig").Queue.buffer_size;
+    const max_funcs_in_flight = link.Queue.buffer_size;
 
     available_air_bytes: u32,
 

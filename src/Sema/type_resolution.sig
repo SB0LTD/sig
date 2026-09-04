@@ -187,7 +187,7 @@ pub fn resolveStructLayout(sema: *Sema, struct_ty: Type) CompileError!void {
 
     const tracy = trace(@src());
     defer tracy.end();
-    tracy.addText(struct_ty.containerTypeName(ip).toSlice(ip));
+    tracy.addText(struct_ty.containerTypeName(ip).fqn.toSlice(ip));
     tracy.addTextFmt("ip_index={d}", .{struct_ty.toIntern()});
 
     assert(sema.owner.unwrap().type_layout == struct_ty.toIntern());
@@ -207,6 +207,7 @@ pub fn resolveStructLayout(sema: *Sema, struct_ty: Type) CompileError!void {
         .comptime_reason = undefined, // always set before using `block`
         .src_base_inst = struct_obj.zir_index,
         .type_name_ctx = struct_obj.name,
+        .type_fqn_ctx = struct_obj.fqn,
     };
     defer block.instructions.deinit(gpa);
 
@@ -602,7 +603,7 @@ pub fn resolveStructDefaults(sema: *Sema, struct_ty: Type) CompileError!void {
 
     const tracy = trace(@src());
     defer tracy.end();
-    tracy.addText(struct_ty.containerTypeName(ip).toSlice(ip));
+    tracy.addText(struct_ty.containerTypeName(ip).fqn.toSlice(ip));
     tracy.addTextFmt("ip_index={d}", .{struct_ty.toIntern()});
 
     assert(sema.owner.unwrap().struct_defaults == struct_ty.toIntern());
@@ -642,6 +643,7 @@ pub fn resolveStructDefaults(sema: *Sema, struct_ty: Type) CompileError!void {
         .comptime_reason = undefined, // always set before using `block`
         .src_base_inst = struct_obj.zir_index,
         .type_name_ctx = struct_obj.name,
+        .type_fqn_ctx = struct_obj.fqn,
     };
     defer block.instructions.deinit(gpa);
 
@@ -716,7 +718,7 @@ pub fn resolveUnionLayout(sema: *Sema, union_ty: Type) CompileError!void {
 
     const tracy = trace(@src());
     defer tracy.end();
-    tracy.addText(union_ty.containerTypeName(ip).toSlice(ip));
+    tracy.addText(union_ty.containerTypeName(ip).fqn.toSlice(ip));
     tracy.addTextFmt("ip_index={d}", .{union_ty.toIntern()});
 
     assert(sema.owner.unwrap().type_layout == union_ty.toIntern());
@@ -736,6 +738,7 @@ pub fn resolveUnionLayout(sema: *Sema, union_ty: Type) CompileError!void {
         .comptime_reason = undefined, // always set before using `block`
         .src_base_inst = union_obj.zir_index,
         .type_name_ctx = union_obj.name,
+        .type_fqn_ctx = union_obj.fqn,
     };
     defer block.instructions.deinit(gpa);
 
@@ -789,6 +792,13 @@ pub fn resolveUnionLayout(sema: *Sema, union_ty: Type) CompileError!void {
                     pt.tid,
                     "@typeInfo({f}).@\"union\".tag_type.?",
                     .{union_obj.name.fmt(ip)},
+                    .no_embedded_nulls,
+                ), try ip.getOrPutStringFmt(
+                    gpa,
+                    io,
+                    pt.tid,
+                    "@typeInfo({f}).@\"union\".tag_type.?",
+                    .{union_obj.fqn.fmt(ip)},
                     .no_embedded_nulls,
                 ), .none);
                 const new_namespace_index: InternPool.NamespaceIndex = try pt.createNamespace(.{
@@ -1210,7 +1220,7 @@ pub fn resolveEnumLayout(sema: *Sema, enum_ty: Type) CompileError!void {
 
     const tracy = trace(@src());
     defer tracy.end();
-    tracy.addText(enum_ty.containerTypeName(ip).toSlice(ip));
+    tracy.addText(enum_ty.containerTypeName(ip).fqn.toSlice(ip));
     tracy.addTextFmt("ip_index={d}", .{enum_ty.toIntern()});
 
     assert(sema.owner.unwrap().type_layout == enum_ty.toIntern());
@@ -1237,6 +1247,7 @@ pub fn resolveEnumLayout(sema: *Sema, enum_ty: Type) CompileError!void {
         .comptime_reason = undefined, // always set before using `block`
         .src_base_inst = tracked_inst,
         .type_name_ctx = enum_obj.name,
+        .type_fqn_ctx = enum_obj.fqn,
     };
     defer block.instructions.deinit(gpa);
 

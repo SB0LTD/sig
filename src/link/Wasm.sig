@@ -10,9 +10,9 @@
 //! precomputed and stored separately.
 
 const Wasm = @This();
-const Archive = @import("Wasm/Archive.sig");
-const Object = @import("Wasm/Object.sig");
-pub const Flush = @import("Wasm/Flush.sig");
+const Archive = @import("Wasm/Archive.zig");
+const Object = @import("Wasm/Object.zig");
+pub const Flush = @import("Wasm/Flush.zig");
 
 const builtin = @import("builtin");
 const native_endian = builtin.cpu.arch.endian();
@@ -30,19 +30,18 @@ const leb = std.leb;
 const log = std.log.scoped(.link);
 const mem = std.mem;
 
-const Mir = @import("../codegen/wasm/Mir.sig");
-const CodeGen = @import("../codegen/wasm/CodeGen.sig");
-const abi = @import("../codegen/wasm/abi.sig");
-const Compilation = @import("../Compilation.sig");
-const Dwarf = @import("Dwarf.sig");
-const InternPool = @import("../InternPool.sig");
-const Zcu = @import("../Zcu.sig");
-const codegen = @import("../codegen.sig");
-const dev = @import("../dev.sig");
-const link = @import("../link.sig");
-const trace = @import("../tracy.sig").trace;
-const wasi_libc = @import("../libs/wasi_libc.sig");
-const Value = @import("../Value.sig");
+const Mir = @import("../codegen/wasm/Mir.zig");
+const CodeGen = @import("../codegen/wasm/CodeGen.zig");
+const abi = @import("../codegen/wasm/abi.zig");
+const Compilation = @import("../Compilation.zig");
+const Dwarf = @import("Dwarf.zig");
+const InternPool = @import("../InternPool.zig");
+const Zcu = @import("../Zcu.zig");
+const codegen = @import("../codegen.zig");
+const link = @import("../link.zig");
+const trace = @import("../tracy.zig").trace;
+const wasi_libc = @import("../libs/wasi_libc.zig");
+const Value = @import("../Value.zig");
 
 base: link.File,
 /// Null-terminated strings, indexes have type String and string_table provides
@@ -135,7 +134,7 @@ object_total_sections: u32 = 0,
 /// All comdat symbols from all objects concatenated.
 object_comdat_symbols: std.MultiArrayList(Comdat.Symbol) = .empty,
 
-/// Relocations produced by Sig code and data lowering. These retain semantic
+/// Relocations produced by Zig code and data lowering. These retain semantic
 /// targets until `flush`, where final output indexes are known.
 zcu_relocations: std.MultiArrayList(ZcuRelocation) = .empty,
 /// List of locations within `string_bytes` that must be patched with the virtual
@@ -272,7 +271,7 @@ tag_name_table_ref_count: u32 = 0,
 
 /// Set to true if any `GLOBAL_INDEX` relocation is encountered with
 /// `SymbolFlags.tls` set to true. This is for objects only; final
-/// value must be this OR'd with the same logic for Sig functions
+/// value must be this OR'd with the same logic for zig functions
 /// (set to true if any threadlocal global is used).
 any_tls_relocs: bool = false,
 any_passive_inits: bool = false,
@@ -551,10 +550,10 @@ pub const TableIndex = enum(u32) {
 
 /// The first N indexes correspond to input objects (`objects`) array.
 /// After that, the indexes correspond to the `source_locations` array,
-/// representing a location in a Sig source file that can be pinpointed
+/// representing a location in a Zig source file that can be pinpointed
 /// precisely via AST node and token.
 pub const SourceLocation = enum(u32) {
-    /// From the Sig compilation unit but no precise source location.
+    /// From the Zig compilation unit but no precise source location.
     zig_object_nofile = std.math.maxInt(u32) - 1,
     none = std.math.maxInt(u32),
     _,
@@ -603,7 +602,7 @@ pub const SourceLocation = enum(u32) {
         const diags = &wasm.base.comp.link_diags;
         switch (sl.unpack(wasm)) {
             .none => unreachable,
-            .zig_object_nofile => diags.addError("Sig compilation unit: " ++ f, args),
+            .zig_object_nofile => diags.addError("zig compilation unit: " ++ f, args),
             .object_index => |i| diags.addError("{f}: " ++ f, .{i.ptr(wasm).path} ++ args),
             .source_location_index => @panic("TODO"),
         }
@@ -627,12 +626,12 @@ pub const SourceLocation = enum(u32) {
     pub fn string(
         sl: SourceLocation,
         msg: []const u8,
-        bundle: *std.sig.ErrorBundle.Wip,
+        bundle: *std.zig.ErrorBundle.Wip,
         wasm: *const Wasm,
-    ) Allocator.Error!std.sig.ErrorBundle.String {
+    ) Allocator.Error!std.zig.ErrorBundle.String {
         return switch (sl.unpack(wasm)) {
             .none => try bundle.addString(msg),
-            .zig_object_nofile => try bundle.printString("Sig compilation unit: {s}", .{msg}),
+            .zig_object_nofile => try bundle.printString("zig compilation unit: {s}", .{msg}),
             .object_index => |i| {
                 const obj = i.ptr(wasm);
                 return if (obj.archive_member_name.slice(wasm)) |obj_name|
@@ -680,18 +679,18 @@ pub const SymbolFlags = packed struct(u32) {
     // Above here matches the tooling conventions ABI.
 
     padding1: u13 = 0,
-    /// Sig-specific. Dead things are allowed to be garbage collected.
+    /// Zig-specific. Dead things are allowed to be garbage collected.
     alive: bool = false,
-    /// Sig-specific. This symbol comes from an object that must be included in
+    /// Zig-specific. This symbol comes from an object that must be included in
     /// the final link.
     must_link: bool = false,
-    /// Sig-specific.
+    /// Zig-specific.
     global_type: GlobalType4 = .zero,
-    /// Sig-specific.
+    /// Zig-specific.
     limits_has_max: bool = false,
-    /// Sig-specific.
+    /// Zig-specific.
     limits_is_shared: bool = false,
-    /// Sig-specific.
+    /// Zig-specific.
     ref_type: RefType1 = .funcref,
 
     pub const Binding = enum(u2) {
@@ -746,7 +745,7 @@ pub const SymbolFlags = packed struct(u32) {
         return name;
     }
 
-    /// Masks off the Sig-specific stuff.
+    /// Masks off the Zig-specific stuff.
     pub fn toAbiInteger(flags: SymbolFlags) u32 {
         var copy = flags;
         copy.initZigSpecific(false, flags.no_strip);
@@ -1374,11 +1373,7 @@ pub const GlobalImport = extern struct {
                 .__tls_base => @tagName(Unpacked.__tls_base),
                 .__tls_size => @tagName(Unpacked.__tls_size),
                 .object_global => |i| i.name(wasm).slice(wasm),
-                inline .uav_obj, .uav_exe => |i| std.mem.print(
-                    buf,
-                    "__anon_{d}",
-                    .{@backingInt(i.key(wasm).*)},
-                ) catch unreachable,
+                inline .uav_obj, .uav_exe => |i| std.mem.print(buf, "__anon_{d}", .{i}) catch unreachable,
                 .nav_obj => |i| i.name(wasm),
                 .nav_exe => |i| i.name(wasm),
             };
@@ -1997,11 +1992,7 @@ pub const ObjectDataImport = extern struct {
                 .__heap_base => @tagName(.__heap_base),
                 .__heap_end => @tagName(.__heap_end),
                 .__wasm_first_page_end => @tagName(.__wasm_first_page_end),
-                inline .uav_exe, .uav_obj => |i| std.mem.print(
-                    buf,
-                    "__anon_{d}",
-                    .{@backingInt(i.key(wasm).*)},
-                ) catch unreachable,
+                inline .uav_exe, .uav_obj => |i| std.mem.print(buf, "__anon_{d}", .{i}) catch unreachable,
                 inline .nav_exe, .nav_obj => |i| i.name(wasm),
             };
         }
@@ -2651,7 +2642,7 @@ pub const ZcuImportIndex = enum(u32) {
     pub fn globalType(index: ZcuImportIndex, wasm: *const Wasm) ObjectGlobal.Type {
         _ = index;
         _ = wasm;
-        unreachable; // Sig has no way to create Wasm globals yet.
+        unreachable; // Zig has no way to create Wasm globals yet.
     }
 };
 
@@ -3268,7 +3259,7 @@ pub const Feature = packed struct(u8) {
                 .multimemory => .multimemory,
                 .multivalue => .multivalue,
                 .mutable_globals => .@"mutable-globals",
-                .nontrapping_bulk_memory_len0 => .@"nontrapping-bulk-memory-len0", // Sig extension.
+                .nontrapping_bulk_memory_len0 => .@"nontrapping-bulk-memory-len0", // Zig extension.
                 .nontrapping_fptoint => .@"nontrapping-fptoint",
                 .reference_types => .@"reference-types",
                 .relaxed_simd => .@"relaxed-simd",
@@ -3293,7 +3284,7 @@ pub const Feature = packed struct(u8) {
                 .multimemory => .multimemory,
                 .multivalue => .multivalue,
                 .@"mutable-globals" => .mutable_globals,
-                .@"nontrapping-bulk-memory-len0" => .nontrapping_bulk_memory_len0, // Sig extension.
+                .@"nontrapping-bulk-memory-len0" => .nontrapping_bulk_memory_len0, // Zig extension.
                 .@"nontrapping-fptoint" => .nontrapping_fptoint,
                 .@"reference-types" => .reference_types,
                 .@"relaxed-simd" => .relaxed_simd,
@@ -3583,8 +3574,6 @@ pub fn updateFunc(
     func_index: InternPool.Index,
     any_mir: *const codegen.AnyMir,
 ) !void {
-    dev.check(.wasm_backend);
-
     // This linker implementation only works with codegen backend `.stage2_wasm`.
     const mir = &any_mir.wasm;
     const zcu = pt.zcu;
@@ -3736,11 +3725,11 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     }
 }
 
-pub fn updateLineNumber(wasm: *Wasm, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) link.Error!void {
+pub fn updateLineNumber(wasm: *Wasm, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index, line: u32) link.Error!void {
     const comp = wasm.base.comp;
     const diags = &comp.link_diags;
     if (wasm.dwarf) |*dw| {
-        dw.updateLineNumber(pt.zcu, ti_id) catch |err| switch (err) {
+        dw.updateLineNumber(pt.zcu, ti_id, line) catch |err| switch (err) {
             error.OutOfMemory, error.Canceled, error.AlreadyReported => |e| return e,
             else => |e| return diags.fail("failed to update dwarf line numbers: {s}", .{@errorName(e)}),
         };
@@ -3862,7 +3851,7 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.Error!void {
     }
 
     if (comp.zcu != null) {
-        // Sig always depends on a stack pointer global.
+        // Zig always depends on a stack pointer global.
         // If emitting an object, it's an import. Otherwise, the linker synthesizes it.
         if (is_obj) {
             try wasm.global_imports.putNoClobber(

@@ -3,23 +3,22 @@ const Io = std.Io;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const DW = std.dwarf;
-const Builder = std.sig.llvm.Builder;
+const Builder = std.zig.llvm.Builder;
 const builtin = @import("builtin");
 const build_options = @import("build_options");
 
-const Air = @import("../Air.sig");
-const codegen = @import("../codegen.sig");
-const Compilation = @import("../Compilation.sig");
-const dev = @import("../dev.sig");
-const InternPool = @import("../InternPool.sig");
-const link = @import("../link.sig");
-const Module = @import("../Module.sig");
-const target_util = @import("../target.sig");
-const Type = @import("../Type.sig");
-const Value = @import("../Value.sig");
-const Zcu = @import("../Zcu.sig");
-const aarch64_c_abi = @import("aarch64/abi.sig");
-const FuncGen = @import("llvm/FuncGen.sig");
+const Air = @import("../Air.zig");
+const codegen = @import("../codegen.zig");
+const Compilation = @import("../Compilation.zig");
+const InternPool = @import("../InternPool.zig");
+const link = @import("../link.zig");
+const Module = @import("../Module.zig");
+const target_util = @import("../target.zig");
+const Type = @import("../Type.zig");
+const Value = @import("../Value.zig");
+const Zcu = @import("../Zcu.zig");
+const aarch64_c_abi = @import("aarch64/abi.zig");
+const FuncGen = @import("llvm/FuncGen.zig");
 const isByRef = FuncGen.isByRef;
 const fnReturnStrat = FuncGen.fnReturnStrat;
 const iterateParamTypes = FuncGen.iterateParamTypes;
@@ -27,7 +26,7 @@ const ccAbiPromoteInt = FuncGen.ccAbiPromoteInt;
 
 const log = std.log.scoped(.codegen);
 const bindings = if (build_options.have_llvm)
-    @import("llvm/bindings.sig")
+    @import("llvm/bindings.zig")
 else
     @compileError("LLVM unavailable");
 
@@ -136,12 +135,12 @@ pub const Object = struct {
     enum_tag_name_map: std.AutoHashMapUnmanaged(InternPool.Index, Builder.Function.Index),
     /// Serves the same purpose as `enum_tag_name_map` but for the `is_named_enum_value` instruction.
     named_enum_map: std.AutoHashMapUnmanaged(InternPool.Index, Builder.Function.Index),
-    /// Maps Sig types to LLVM types. The table memory is backed by the GPA of
+    /// Maps Zig types to LLVM types. The table memory is backed by the GPA of
     /// the compiler.
     /// TODO when InternPool garbage collection is implemented, this map needs
     /// to be garbage collected as well.
     type_map: TypeMap,
-    /// The LLVM global table which holds the names corresponding to Sig errors.
+    /// The LLVM global table which holds the names corresponding to Zig errors.
     /// Note that the values are not added until `emit`, when all errors in
     /// the compilation are known.
     error_name_table: Builder.Variable.Index,
@@ -155,12 +154,11 @@ pub const Object = struct {
     /// Values for `@llvm.used`.
     used: std.ArrayList(Builder.Constant),
 
-    pub const Ptr = if (dev.env.supports(.llvm_backend)) *Object else noreturn;
+    pub const Ptr = if (@import("../dev.zig").env.supports(.llvm_backend)) *Object else noreturn;
 
     const TypeMap = std.AutoHashMapUnmanaged(InternPool.Index, Builder.Type);
 
     pub fn create(arena: Allocator, zcu: *Zcu) !Ptr {
-        dev.check(.llvm_backend);
         const comp = zcu.comp;
         const gpa = comp.gpa;
         const target = zcu.getTarget();
@@ -201,7 +199,7 @@ pub const Object = struct {
                     debug_file,
                     // Don't use the version string here; LLVM misparses it when it
                     // includes the git revision.
-                    try builder.metadataStringFmt("Sig {d}.{d}.{d}", .{
+                    try builder.metadataStringFmt("zig {d}.{d}.{d}", .{
                         build_options.semver.major,
                         build_options.semver.minor,
                         build_options.semver.patch,
@@ -227,7 +225,7 @@ pub const Object = struct {
         obj.* = .{
             .gpa = gpa,
             .builder = builder,
-            .out_bin_basename = try std.sig.binNameAlloc(arena, .{
+            .out_bin_basename = try std.zig.binNameAlloc(arena, .{
                 .root_name = try std.fmt.allocPrint(arena, "{s}_zcu", .{comp.root_name}),
                 .cpu_arch = target.cpu.arch,
                 .os_tag = target.os.tag,
@@ -345,10 +343,10 @@ pub const Object = struct {
         time_report: ?*Compilation.TimeReport,
         sanitize_thread: bool,
         fuzz: bool,
-        lto: std.sig.LtoMode,
+        lto: std.zig.LtoMode,
     };
 
-    pub fn emit(o: *Object, pt: Zcu.PerThread, options: EmitOptions) error{ AlreadyReported, OutOfMemory }!void {
+    pub fn emit(o: *Object, pt: Zcu.PerThread, options: EmitOptions) link.Error!void {
         const zcu = o.zcu;
         const comp = zcu.comp;
         const io = comp.io;
@@ -521,7 +519,7 @@ pub const Object = struct {
             }
 
             const bitcode = try o.builder.toBitcode(o.gpa, .{
-                .name = "sig",
+                .name = "zig",
                 .version = build_options.semver,
             });
             defer o.gpa.free(bitcode);
@@ -658,7 +656,7 @@ pub const Object = struct {
             .coverage = .{
                 .CoverageType = .Edge,
                 // Works in tandem with Inline8bitCounters or InlineBoolFlag.
-                // Sig does not yet implement its own version of this but it
+                // Zig does not yet implement its own version of this but it
                 // needs to for better fuzzing logic.
                 .IndirectCalls = false,
                 .TraceBB = false,
@@ -668,10 +666,10 @@ pub const Object = struct {
                 .Use8bitCounters = false,
                 .TracePC = false,
                 .TracePCGuard = comp.config.san_cov_trace_pc_guard,
-                // Sig emits its own inline 8-bit counters instrumentation.
+                // Zig emits its own inline 8-bit counters instrumentation.
                 .Inline8bitCounters = false,
                 .InlineBoolFlag = false,
-                // Sig emits its own PC table instrumentation.
+                // Zig emits its own PC table instrumentation.
                 .PCTable = false,
                 .NoPrune = false,
                 // Workaround for https://github.com/llvm/llvm-project/pull/106464
@@ -989,7 +987,7 @@ pub const Object = struct {
     }
 
     fn workaroundPrivateSymbolBugs(target: *const std.Target, resolved: *const InternPool.Nav.Resolved) bool {
-        // https://codeberg.org/ziglang/Sig/issues/31865
+        // https://codeberg.org/ziglang/zig/issues/31865
         return target.cpu.arch.isAARCH64() and target.ofmt == .coff and resolved.@"threadlocal";
     }
 
@@ -1141,7 +1139,7 @@ pub const Object = struct {
         }
     }
 
-    fn flushTypePool(o: *Object, pt: Zcu.PerThread) Allocator.Error!void {
+    fn flushTypePool(o: *Object, pt: Zcu.PerThread) link.Error!void {
         try o.type_pool.flushPending(pt, .{ .llvm = o });
     }
 
@@ -1304,7 +1302,7 @@ pub const Object = struct {
         }, &o.builder);
     }
 
-    pub fn updateContainerType(o: *Object, pt: Zcu.PerThread, ty: InternPool.Index, success: bool) Allocator.Error!void {
+    pub fn updateContainerType(o: *Object, pt: Zcu.PerThread, ty: InternPool.Index, success: bool) link.Error!void {
         _ = o.type_map.remove(ty);
         try o.type_pool.updateContainerType(pt, .{ .llvm = o }, ty, success);
         if (o.named_enum_map.get(ty)) |llvm_function| {
@@ -1404,7 +1402,7 @@ pub const Object = struct {
         const dirs = o.zcu.comp.dirs;
         const path = o.zcu.fileByIndex(file_index).path;
         const root_path: ?[]const u8 = switch (path.root) {
-            .sig_lib => dirs.sig_lib.path,
+            .zig_lib => dirs.zig_lib.path,
             .global_cache => dirs.global_cache.path,
             .local_cache => dirs.local_cache.path,
             .build_root => dirs.build_root.path,
@@ -1431,7 +1429,7 @@ pub const Object = struct {
 
     pub fn getDebugType(o: *Object, pt: Zcu.PerThread, ty: Type) Allocator.Error!Builder.Metadata {
         assert(!o.builder.strip);
-        const index = try o.type_pool.get(pt, .{ .llvm = o }, ty.toIntern());
+        const index = o.type_pool.get(pt, .{ .llvm = o }, ty.toIntern()) catch |err| return @errorCast(err);
         return o.debug_types.items[@backingInt(index)];
     }
 
@@ -2215,7 +2213,7 @@ pub const Object = struct {
             //
             // Ideally, we would support something akin to the `-mfloat-abi=softfp` option that GCC
             // and Clang support for Arm32 and CSKY. We don't currently expose such an option in
-            // Sig, and using CPU features as the source of truth for this makes for a miserable
+            // Zig, and using CPU features as the source of truth for this makes for a miserable
             // user experience since people expect e.g. `arm-linux-gnueabi` to mean full soft float
             // unless the compiler has explicitly been told otherwise. (And note that our baseline
             // CPU models almost all include FPU features!)
@@ -2427,13 +2425,13 @@ pub const Object = struct {
 
     pub const TypeRepr = enum {
         /// The representation of the type when it is being manipulated as a value in a function.
-        /// e.g. Sig `u90` -> LLVM `i90`
+        /// e.g. Zig `u90` -> LLVM `i90`
         as_value,
         /// The representation of the type when it is loaded from or stored to memory.
-        /// e.g. Sig `u90` -> LLVM `i96`
+        /// e.g. Zig `u90` -> LLVM `i96`
         memory_access,
         /// The representation of the type when it is in memory.
-        /// e.g. Sig `u90` -> LLVM `[12 x i8]`
+        /// e.g. Zig `u90` -> LLVM `[12 x i8]`
         in_memory,
     };
 
@@ -2443,13 +2441,13 @@ pub const Object = struct {
             .memory_access, .in_memory => {},
         }
         const target = o.zcu.getTarget();
-        const abi_size = std.sig.target.intByteSize(target, bits);
+        const abi_size = std.zig.target.intByteSize(target, bits);
         const llvm_bit_width = @as(u20, 8) * abi_size;
         switch (repr) {
             .as_value => unreachable,
             .memory_access => {},
             .in_memory => {
-                const zig_align = std.sig.target.intAlignment(target, bits);
+                const zig_align = std.zig.target.intAlignment(target, bits);
                 const llvm_align = o.builder.data_layout.getIntegerSpec(llvm_bit_width).abi_align;
                 if (zig_align < llvm_align.toByteUnits().?) return o.builder.arrayType(abi_size, .i8);
             },
@@ -2477,7 +2475,7 @@ pub const Object = struct {
     }) Allocator.Error!SoftF80Layout {
         const zcu = o.zcu;
         const target = zcu.getTarget();
-        assert(std.sig.target.compilerRtFloatAbi(target, 80) == .soft);
+        assert(std.zig.target.compilerRtFloatAbi(target, 80) == .soft);
         // Current compiler rt soft abi, which is not yet affected by endianness for simplicity:
         //
         //     typedef struct { uint64_t mantissa; uint16_t exponent; } f80;
@@ -2546,7 +2544,7 @@ pub const Object = struct {
     }) Allocator.Error!SoftF128Layout {
         const zcu = o.zcu;
         const target = zcu.getTarget();
-        assert(std.sig.target.compilerRtFloatAbi(target, 128) == .soft);
+        assert(std.zig.target.compilerRtFloatAbi(target, 128) == .soft);
         // Current compiler rt soft abi:
         //
         //     #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
@@ -2643,19 +2641,19 @@ pub const Object = struct {
             .f80_type,
             .f128_type,
             => switch (t.floatBits(target)) {
-                16 => |bits| switch (std.sig.target.compilerRtFloatAbi(target, bits)) {
+                16 => |bits| switch (std.zig.target.compilerRtFloatAbi(target, bits)) {
                     .hard => .half,
                     .soft => .i16,
                 },
-                32 => |bits| switch (std.sig.target.compilerRtFloatAbi(target, bits)) {
+                32 => |bits| switch (std.zig.target.compilerRtFloatAbi(target, bits)) {
                     .hard => .float,
                     .soft => .i32,
                 },
-                64 => |bits| switch (std.sig.target.compilerRtFloatAbi(target, bits)) {
+                64 => |bits| switch (std.zig.target.compilerRtFloatAbi(target, bits)) {
                     .hard => .double,
                     .soft => .i64,
                 },
-                80 => |bits| switch (std.sig.target.compilerRtFloatAbi(target, bits)) {
+                80 => |bits| switch (std.zig.target.compilerRtFloatAbi(target, bits)) {
                     .hard => .x86_fp80,
                     .soft => {
                         var llvm_field_types_buf: [5]Builder.Type = undefined;
@@ -2668,7 +2666,7 @@ pub const Object = struct {
                         );
                     },
                 },
-                128 => |bits| switch (std.sig.target.compilerRtFloatAbi(target, bits)) {
+                128 => |bits| switch (std.zig.target.compilerRtFloatAbi(target, bits)) {
                     .hard => .fp128,
                     .soft => {
                         var llvm_field_types_buf: [5]Builder.Type = undefined;
@@ -2803,10 +2801,10 @@ pub const Object = struct {
                     const payload_type = try o.lowerType(.fromInterned(error_union_type.payload_type), repr);
 
                     const payload_align = Type.fromInterned(error_union_type.payload_type).abiAlignment(zcu);
-                    const error_align: InternPool.Alignment = .fromByteUnits(std.sig.target.intAlignment(target, zcu.errorSetBits()));
+                    const error_align: InternPool.Alignment = .fromByteUnits(std.zig.target.intAlignment(target, zcu.errorSetBits()));
 
                     const payload_size = Type.fromInterned(error_union_type.payload_type).abiSize(zcu);
-                    const error_size = std.sig.target.intByteSize(target, zcu.errorSetBits());
+                    const error_size = std.zig.target.intByteSize(target, zcu.errorSetBits());
 
                     var fields: [3]Builder.Type = undefined;
                     var fields_len: usize = 2;
@@ -2893,7 +2891,7 @@ pub const Object = struct {
                         }
                     }
 
-                    const ty = try o.builder.opaqueType(try o.builder.string(t.containerTypeName(ip).toSlice(ip)));
+                    const ty = try o.builder.opaqueType(try o.builder.string(t.containerTypeName(ip).fqn.toSlice(ip)));
                     try o.type_map.put(o.gpa, t.toIntern(), ty);
 
                     o.builder.namedTypeSetBody(
@@ -2983,7 +2981,7 @@ pub const Object = struct {
                     };
 
                     if (layout.tag_size == 0) {
-                        const ty = try o.builder.opaqueType(try o.builder.string(t.containerTypeName(ip).toSlice(ip)));
+                        const ty = try o.builder.opaqueType(try o.builder.string(t.containerTypeName(ip).fqn.toSlice(ip)));
                         try o.type_map.put(o.gpa, t.toIntern(), ty);
 
                         o.builder.namedTypeSetBody(
@@ -3005,13 +3003,13 @@ pub const Object = struct {
                         llvm_fields = .{ payload_ty, enum_tag_ty, .none };
                     }
 
-                    // Insert padding to make the LLVM struct ABI size match the Sig union ABI size.
+                    // Insert padding to make the LLVM struct ABI size match the Zig union ABI size.
                     if (layout.padding != 0) {
                         llvm_fields[llvm_fields_len] = try o.builder.arrayType(layout.padding, .i8);
                         llvm_fields_len += 1;
                     }
 
-                    const ty = try o.builder.opaqueType(try o.builder.string(t.containerTypeName(ip).toSlice(ip)));
+                    const ty = try o.builder.opaqueType(try o.builder.string(t.containerTypeName(ip).fqn.toSlice(ip)));
                     try o.type_map.put(o.gpa, t.toIntern(), ty);
 
                     o.builder.namedTypeSetBody(
@@ -3635,28 +3633,28 @@ pub const Object = struct {
     }
 
     pub fn f16Const(o: *Object, val: f16) Allocator.Error!Builder.Constant {
-        return switch (std.sig.target.compilerRtFloatAbi(o.zcu.getTarget(), 16)) {
+        return switch (std.zig.target.compilerRtFloatAbi(o.zcu.getTarget(), 16)) {
             .hard => o.builder.halfConst(val),
             .soft => o.builder.intConst(.i16, @as(u16, @bitCast(val))),
         };
     }
 
     pub fn f32Const(o: *Object, val: f32) Allocator.Error!Builder.Constant {
-        return switch (std.sig.target.compilerRtFloatAbi(o.zcu.getTarget(), 32)) {
+        return switch (std.zig.target.compilerRtFloatAbi(o.zcu.getTarget(), 32)) {
             .hard => o.builder.floatConst(val),
             .soft => o.builder.intConst(.i32, @as(u32, @bitCast(val))),
         };
     }
 
     pub fn f64Const(o: *Object, val: f64) Allocator.Error!Builder.Constant {
-        return switch (std.sig.target.compilerRtFloatAbi(o.zcu.getTarget(), 64)) {
+        return switch (std.zig.target.compilerRtFloatAbi(o.zcu.getTarget(), 64)) {
             .hard => o.builder.doubleConst(val),
             .soft => o.builder.intConst(.i64, @as(u64, @bitCast(val))),
         };
     }
 
     pub fn f80Const(o: *Object, val: f80) Allocator.Error!Builder.Constant {
-        switch (std.sig.target.compilerRtFloatAbi(o.zcu.getTarget(), 80)) {
+        switch (std.zig.target.compilerRtFloatAbi(o.zcu.getTarget(), 80)) {
             .hard => return o.builder.x86_fp80Const(val),
             .soft => {},
         }
@@ -3685,7 +3683,7 @@ pub const Object = struct {
     }
 
     pub fn f128Const(o: *Object, val: f128) Allocator.Error!Builder.Constant {
-        switch (std.sig.target.compilerRtFloatAbi(o.zcu.getTarget(), 128)) {
+        switch (std.zig.target.compilerRtFloatAbi(o.zcu.getTarget(), 128)) {
             .hard => return o.builder.fp128Const(val),
             .soft => {},
         }
@@ -4026,7 +4024,7 @@ pub const Object = struct {
             // Dummy function type; `updateEnumTagNameFunction` will replace it with the correct type.
             // TODO: change the builder API so we don't need to do this.
             try o.builder.fnType(.void, &.{}, .normal),
-            try o.builder.strtabStringFmt("__zig_tag_name_{f}", .{enum_ty.containerTypeName(ip).fmt(ip)}),
+            try o.builder.strtabStringFmt("__zig_tag_name_{f}", .{enum_ty.containerTypeName(ip).fqn.fmt(ip)}),
             toLlvmAddressSpace(.generic, zcu.getTarget()),
         );
         gop.value_ptr.* = llvm_function;
@@ -4108,7 +4106,7 @@ pub const Object = struct {
     }
 
     pub fn lazyAbiAlignment(o: *Object, pt: Zcu.PerThread, ty: Type) Allocator.Error!Builder.Alignment.Lazy {
-        const index = try o.type_pool.get(pt, .{ .llvm = o }, ty.toIntern());
+        const index = o.type_pool.get(pt, .{ .llvm = o }, ty.toIntern()) catch |err| return @errorCast(err);
         return o.lazy_abi_aligns.items[@backingInt(index)];
     }
 
@@ -4123,7 +4121,7 @@ pub const Object = struct {
             // Dummy function type; `updateIsNamedEnumValue` will replace it with the correct type.
             // TODO: change the builder API so we don't need to do this.
             try o.builder.fnType(.void, &.{}, .normal),
-            try o.builder.strtabStringFmt("__zig_is_named_enum_value_{f}", .{enum_ty.containerTypeName(ip).fmt(ip)}),
+            try o.builder.strtabStringFmt("__zig_is_named_enum_value_{f}", .{enum_ty.containerTypeName(ip).fqn.fmt(ip)}),
             toLlvmAddressSpace(.generic, zcu.getTarget()),
         );
         gop.value_ptr.* = llvm_function;
@@ -4398,14 +4396,14 @@ pub fn toLlvmCallConvTag(cc_tag: std.lang.CallingConvention.Tag, target: *const 
     };
 }
 
-/// Convert a Sig-address space to an llvm address space.
+/// Convert a zig-address space to an llvm address space.
 pub fn toLlvmAddressSpace(address_space: std.lang.AddressSpace, target: *const std.Target) Builder.AddrSpace {
-    for (llvmAddrSpaceInfo(target)) |info| if (info.Sig == address_space) return info.llvm;
+    for (llvmAddrSpaceInfo(target)) |info| if (info.zig == address_space) return info.llvm;
     unreachable;
 }
 
 const AddrSpaceInfo = struct {
-    Sig: ?std.lang.AddressSpace,
+    zig: ?std.lang.AddressSpace,
     llvm: Builder.AddrSpace,
     non_integral: bool = false,
     size: ?u16 = null,
@@ -4417,71 +4415,71 @@ const AddrSpaceInfo = struct {
 fn llvmAddrSpaceInfo(target: *const std.Target) []const AddrSpaceInfo {
     return switch (target.cpu.arch) {
         .x86, .x86_64 => &.{
-            .{ .Sig = .generic, .llvm = .default },
-            .{ .Sig = .gs, .llvm = Builder.AddrSpace.x86.gs },
-            .{ .Sig = .fs, .llvm = Builder.AddrSpace.x86.fs },
-            .{ .Sig = .ss, .llvm = Builder.AddrSpace.x86.ss },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.x86.ptr32_sptr, .size = 32, .abi = 32, .force_in_data_layout = true },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.x86.ptr32_uptr, .size = 32, .abi = 32, .force_in_data_layout = true },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.x86.ptr64, .size = 64, .abi = 64, .force_in_data_layout = true },
+            .{ .zig = .generic, .llvm = .default },
+            .{ .zig = .gs, .llvm = Builder.AddrSpace.x86.gs },
+            .{ .zig = .fs, .llvm = Builder.AddrSpace.x86.fs },
+            .{ .zig = .ss, .llvm = Builder.AddrSpace.x86.ss },
+            .{ .zig = null, .llvm = Builder.AddrSpace.x86.ptr32_sptr, .size = 32, .abi = 32, .force_in_data_layout = true },
+            .{ .zig = null, .llvm = Builder.AddrSpace.x86.ptr32_uptr, .size = 32, .abi = 32, .force_in_data_layout = true },
+            .{ .zig = null, .llvm = Builder.AddrSpace.x86.ptr64, .size = 64, .abi = 64, .force_in_data_layout = true },
         },
         .nvptx, .nvptx64 => &.{
-            .{ .Sig = .generic, .llvm = Builder.AddrSpace.nvptx.generic },
-            .{ .Sig = .global, .llvm = Builder.AddrSpace.nvptx.global },
-            .{ .Sig = .constant, .llvm = Builder.AddrSpace.nvptx.constant },
-            .{ .Sig = .param, .llvm = Builder.AddrSpace.nvptx.param },
-            .{ .Sig = .shared, .llvm = Builder.AddrSpace.nvptx.shared },
-            .{ .Sig = .local, .llvm = Builder.AddrSpace.nvptx.local },
+            .{ .zig = .generic, .llvm = Builder.AddrSpace.nvptx.generic },
+            .{ .zig = .global, .llvm = Builder.AddrSpace.nvptx.global },
+            .{ .zig = .constant, .llvm = Builder.AddrSpace.nvptx.constant },
+            .{ .zig = .param, .llvm = Builder.AddrSpace.nvptx.param },
+            .{ .zig = .shared, .llvm = Builder.AddrSpace.nvptx.shared },
+            .{ .zig = .local, .llvm = Builder.AddrSpace.nvptx.local },
         },
         .amdgcn => &.{
-            .{ .Sig = .generic, .llvm = Builder.AddrSpace.amdgpu.flat, .force_in_data_layout = true },
-            .{ .Sig = .global, .llvm = Builder.AddrSpace.amdgpu.global, .force_in_data_layout = true },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.region, .size = 32, .abi = 32 },
-            .{ .Sig = .shared, .llvm = Builder.AddrSpace.amdgpu.local, .size = 32, .abi = 32 },
-            .{ .Sig = .constant, .llvm = Builder.AddrSpace.amdgpu.constant, .force_in_data_layout = true },
-            .{ .Sig = .local, .llvm = Builder.AddrSpace.amdgpu.private, .size = 32, .abi = 32 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_32bit, .size = 32, .abi = 32 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_fat_pointer, .non_integral = true, .size = 160, .abi = 256, .idx = 32 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_resource, .non_integral = true, .size = 128, .abi = 128 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_strided_pointer, .non_integral = true, .size = 192, .abi = 256, .idx = 32 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_0 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_1 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_2 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_3 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_4 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_5 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_6 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_7 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_8 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_9 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_10 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_11 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_12 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_13 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_14 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_15 },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.amdgpu.streamout_register },
+            .{ .zig = .generic, .llvm = Builder.AddrSpace.amdgpu.flat, .force_in_data_layout = true },
+            .{ .zig = .global, .llvm = Builder.AddrSpace.amdgpu.global, .force_in_data_layout = true },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.region, .size = 32, .abi = 32 },
+            .{ .zig = .shared, .llvm = Builder.AddrSpace.amdgpu.local, .size = 32, .abi = 32 },
+            .{ .zig = .constant, .llvm = Builder.AddrSpace.amdgpu.constant, .force_in_data_layout = true },
+            .{ .zig = .local, .llvm = Builder.AddrSpace.amdgpu.private, .size = 32, .abi = 32 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_32bit, .size = 32, .abi = 32 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_fat_pointer, .non_integral = true, .size = 160, .abi = 256, .idx = 32 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_resource, .non_integral = true, .size = 128, .abi = 128 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.buffer_strided_pointer, .non_integral = true, .size = 192, .abi = 256, .idx = 32 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_0 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_1 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_2 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_3 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_4 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_5 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_6 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_7 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_8 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_9 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_10 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_11 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_12 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_13 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_14 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.constant_buffer_15 },
+            .{ .zig = null, .llvm = Builder.AddrSpace.amdgpu.streamout_register },
         },
         .avr => &.{
-            .{ .Sig = .generic, .llvm = Builder.AddrSpace.avr.data, .abi = 8 },
-            .{ .Sig = .flash, .llvm = Builder.AddrSpace.avr.program, .abi = 8 },
-            .{ .Sig = .flash1, .llvm = Builder.AddrSpace.avr.program1, .abi = 8 },
-            .{ .Sig = .flash2, .llvm = Builder.AddrSpace.avr.program2, .abi = 8 },
-            .{ .Sig = .flash3, .llvm = Builder.AddrSpace.avr.program3, .abi = 8 },
-            .{ .Sig = .flash4, .llvm = Builder.AddrSpace.avr.program4, .abi = 8 },
-            .{ .Sig = .flash5, .llvm = Builder.AddrSpace.avr.program5, .abi = 8 },
+            .{ .zig = .generic, .llvm = Builder.AddrSpace.avr.data, .abi = 8 },
+            .{ .zig = .flash, .llvm = Builder.AddrSpace.avr.program, .abi = 8 },
+            .{ .zig = .flash1, .llvm = Builder.AddrSpace.avr.program1, .abi = 8 },
+            .{ .zig = .flash2, .llvm = Builder.AddrSpace.avr.program2, .abi = 8 },
+            .{ .zig = .flash3, .llvm = Builder.AddrSpace.avr.program3, .abi = 8 },
+            .{ .zig = .flash4, .llvm = Builder.AddrSpace.avr.program4, .abi = 8 },
+            .{ .zig = .flash5, .llvm = Builder.AddrSpace.avr.program5, .abi = 8 },
         },
         .wasm32, .wasm64 => &.{
-            .{ .Sig = .generic, .llvm = Builder.AddrSpace.wasm.default, .force_in_data_layout = true },
-            .{ .Sig = null, .llvm = Builder.AddrSpace.wasm.variable, .non_integral = true },
-            .{ .Sig = .externref, .llvm = Builder.AddrSpace.wasm.externref, .non_integral = true, .size = 8, .abi = 8 },
-            .{ .Sig = .funcref, .llvm = Builder.AddrSpace.wasm.funcref, .non_integral = true, .size = 8, .abi = 8 },
+            .{ .zig = .generic, .llvm = Builder.AddrSpace.wasm.default, .force_in_data_layout = true },
+            .{ .zig = null, .llvm = Builder.AddrSpace.wasm.variable, .non_integral = true },
+            .{ .zig = .externref, .llvm = Builder.AddrSpace.wasm.externref, .non_integral = true, .size = 8, .abi = 8 },
+            .{ .zig = .funcref, .llvm = Builder.AddrSpace.wasm.funcref, .non_integral = true, .size = 8, .abi = 8 },
         },
         .m68k => &.{
-            .{ .Sig = .generic, .llvm = .default, .abi = 16, .pref = 32 },
+            .{ .zig = .generic, .llvm = .default, .abi = 16, .pref = 32 },
         },
         else => &.{
-            .{ .Sig = .generic, .llvm = .default },
+            .{ .zig = .generic, .llvm = .default },
         },
     };
 }
@@ -4511,7 +4509,7 @@ fn toLlvmGlobalAddressSpace(wanted_address_space: std.lang.AddressSpace, target:
 /// LLVMABISizeOfType because these functions will trip assertions
 /// when using them for self-referential types. So our strategy is
 /// to use non-packed llvm structs but to emit all padding explicitly.
-/// We can do this because for all types, Sig ABI alignment >= LLVM ABI
+/// We can do this because for all types, Zig ABI alignment >= LLVM ABI
 /// alignment.
 const struct_layout_version = 2;
 
