@@ -387,7 +387,7 @@ fn mainArgs(
             return buildOutputType(gpa, arena, io, args, .translate_c, environ_map);
         },
         .rc => {
-            const use_server = cmd_args.len > 0 and std.mem.eql(u8, cmd_args[0], "--zig-integration");
+            const use_server = cmd_args.len > 0 and std.mem.eql(u8, cmd_args[0], "--Sig-integration");
             return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
                 .cmd_name = "resinator",
                 .root_src_path = "resinator/main.zig",
@@ -587,7 +587,7 @@ const compile_usage =
     \\  --show-builtin            Output the source of @import("builtin") then exit
     \\  --cache-dir [path]        Override the local cache directory
     \\  --global-cache-dir [path] Override the global cache directory
-    \\  --zig-lib-dir [path]      Override path to Zig installation lib directory
+    \\  --Sig-lib-dir [path]      Override path to sig installation lib directory
     \\  --build-root [path]       Override path to project source files
     \\
     \\Global Compile Options:
@@ -1463,7 +1463,7 @@ fn buildOutputType(
                         override_local_cache_dir = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--global-cache-dir")) {
                         override_global_cache_dir = args_iter.nextOrFatal();
-                    } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
+                    } else if (mem.eql(u8, arg, "--Sig-lib-dir") or mem.eql(u8, arg, "--zig-lib-dir")) {
                         override_lib_dir = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--build-root")) {
                         build_root_path = args_iter.nextOrFatal();
@@ -5398,10 +5398,10 @@ fn jitCmdInner(
     var override_lib_dir: ?[]const u8 = EnvVar.SIG_LIB_DIR.get(environ_map);
     const override_global_cache_dir: ?[]const u8 = EnvVar.SIG_GLOBAL_CACHE_DIR.get(environ_map);
 
-    // Special case: if first arg starts with --zig-lib= then it is handled here.
+    // Special case: if first arg starts with --Sig-lib= then it is handled here.
     var args_i: usize = 0;
     if (args.len - args_i != 0) {
-        if (mem.cutPrefix(u8, args[args_i], "--zig-lib=")) |rest| {
+        if (mem.cutPrefix(u8, args[args_i], "--Sig-lib=")) |rest| {
             override_lib_dir = rest;
             args_i += 1;
         }
@@ -5527,9 +5527,9 @@ fn jitCmdInner(
     if (options.prepend_cmd) |cmd|
         child_argv.appendAssumeCapacity(cmd);
     if (options.prepend_SIG_LIB_DIR_path)
-        child_argv.appendAssumeCapacity(try arena.print("--zig-lib={s}", .{dirs.sig_lib.path orelse "."}));
+        child_argv.appendAssumeCapacity(try arena.print("--Sig-lib={s}", .{dirs.sig_lib.path orelse "."}));
     if (options.prepend_Sig_exe_path)
-        child_argv.appendAssumeCapacity(try arena.print("--zig={s}", .{self_exe_path}));
+        child_argv.appendAssumeCapacity(try arena.print("--Sig={s}", .{self_exe_path}));
     if (options.prepend_global_cache_path)
         child_argv.appendAssumeCapacity(try arena.print("--global-cache={s}", .{dirs.global_cache.path orelse "."}));
     if (options.prepend_seed)
