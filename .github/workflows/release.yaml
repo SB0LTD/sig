@@ -302,7 +302,14 @@ jobs:
           archive="${root}.tar.xz"
           mkdir -p "$root/bin" "$root/tools"
           cp 'stage3-out/bin/${{ matrix.binary }}' "$root/bin/sig"
-          ln "$root/bin/sig" "$root/bin/Sig"
+          # Case-sensitive Linux runners keep a real bin/Sig hardlink; guard the
+          # ln so a case-insensitive FS (should the runner ever change) degrades
+          # to the case-preserving lookup of sig instead of failing.
+          if ln "$root/bin/sig" "$root/bin/Sig" 2>/dev/null; then
+            :
+          else
+            echo "case-insensitive FS: Sig alias served by case-preserving lookup of sig"
+          fi
           cp -r lib "$root/lib"
           cp -r tools/sig_build "$root/tools/sig_build"
           tar -cJf "$archive" "$root"
@@ -440,7 +447,18 @@ jobs:
           archive="${root}.tar.xz"
           mkdir -p "$root/bin" "$root/tools"
           cp stage3-out/bin/sig "$root/bin/sig"
-          ln "$root/bin/sig" "$root/bin/Sig"
+          # The compat-alias keys off argv[0]'s basename: invoked as `Sig` the
+          # binary prints the bare Zig-base version, as `sig` the full Sig
+          # identity. macOS runners use a case-INSENSITIVE APFS volume, so a
+          # separate `bin/Sig` hardlink cannot exist (it resolves to `bin/sig`)
+          # and `ln` fails with "File exists". Only create the link on a
+          # case-sensitive FS; otherwise the case-preserving lookup of `sig`
+          # already serves `Sig`.
+          if ln "$root/bin/sig" "$root/bin/Sig" 2>/dev/null; then
+            :
+          else
+            echo "case-insensitive FS: Sig alias served by case-preserving lookup of sig"
+          fi
           cp -R lib "$root/lib"
           cp -R tools/sig_build "$root/tools/sig_build"
           tar -cJf "$archive" "$root"
