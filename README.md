@@ -21,6 +21,43 @@
 
 ---
 
+## 0.5.0 — Self-Hosted AArch64 Compiles the Whole Compiler for SB0
+
+The self-hosted AArch64 back end is now complete enough to compile the **entire
+compiler** for the native `aarch64-sb0` target — with no LLVM, no LLD, and no
+foreign object container. The self-hosted SB0 linker also emits a bootable
+`SB0K` kernel image (selected by the presence of a linker script) alongside the
+`SB0X` userspace image.
+
+```
+$ sig version
+sig 0.5.0 (zig 0.17.0)
+```
+
+Under the hood this required full code generation for aggregate optionals
+(e.g. `?Token`), tagged-union field extraction, and correct sret/aggregate
+field stores in the AArch64 code generator — enough that
+`compiler/sb0_native_runner.sig`, which imports all of `main.sig`, compiles
+cleanly for `aarch64-sb0` and boots in QEMU as the compiler service itself.
+
+**Dependency resolution in `sig build`.** A project's `build.sig.zon` can now
+declare dependencies as fetched tarballs:
+
+```zig
+.dependencies = .{
+    .zpm = .{
+        .url = "https://github.com/SB0LTD/zpm/archive/<ref>.tar.gz",
+        .hash = "<sha256>",
+    },
+},
+```
+
+`sig build` fetches each dependency into the global cache, verifies its SHA-256,
+extracts it, and exposes its modules to `build.sig` via
+`ctx.getDependency("zpm").modulePath("src/...")` — no vendored source, no
+hardcoded paths. See the
+[changelog](CHANGELOG.md) for the full 0.5.0 capability set and limitations.
+
 ## 0.4.1 — Self-Hosted SB0 Linking
 
 Sig gains a pure-Sig, self-hosted linker for the native SB0 target. Compiling
@@ -54,7 +91,7 @@ sig 0.4.0 (zig 0.17.0)
 ```
 
 `sig build` executes `build.sig` through the fixed-capacity native runner. The
-production graph compiles Sig, installs the library, and runs the real 213-test
+production graph compiles Sig, installs the library, and runs the real 224-test
 compiler suite. `-target aarch64-sb0` remains a first-class native target with
 no libc or dynamic-linker fallback.
 
@@ -170,7 +207,7 @@ build-llvm                 →  build-bootstrap              →  release
 Each stage publishes an exact manifest, SHA-256 set, source commit, producer,
 and workflow run. Drafts become visible only after every required artifact and
 target-specific execution probe succeeds. Bootstrap and final compilers also
-run the canonical 213-test native compiler graph with an explicit fixed stack
+run the canonical 224-test native compiler graph with an explicit fixed stack
 budget, then cross-compile and validate an AArch64 object.
 
 ## License
