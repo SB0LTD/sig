@@ -76,23 +76,22 @@ fn generateReadme(buf: []u8, manifest: SyncManifest) ![]const u8 {
 
 // ── Unit Tests ───────────────────────────────────────────────────────────
 
-test "README contains 'Memory is not a guess' tagline" {
+test "README contains the compiler tagline" {
     var buf: [131072]u8 = undefined;
     const output = try generateReadme(&buf, SyncManifest{});
-    try testing.expect(std.mem.indexOf(u8, output, "Memory is not a guess") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "The Sig compiler that knows how much memory it has") != null);
 }
 
-test "README renders default benchmark tables" {
+test "README renders the release highlights and download table" {
     var buf: [131072]u8 = undefined;
     const output = try generateReadme(&buf, SyncManifest{});
 
-    // Default benchmark section headers present
-    try testing.expect(std.mem.indexOf(u8, output, "### Formatting") != null);
-    try testing.expect(std.mem.indexOf(u8, output, "### I/O Reads") != null);
-    try testing.expect(std.mem.indexOf(u8, output, "### Containers") != null);
-    // Table header row present
-    try testing.expect(std.mem.indexOf(u8, output, "Sig") != null);
-    try testing.expect(std.mem.indexOf(u8, output, "sig") != null);
+    // Current release section + download table present.
+    try testing.expect(std.mem.indexOf(u8, output, "## 0.5.0") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "aarch64-sb0") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "releases/latest/download/sig-x86_64-linux.tar.xz") != null);
+    // No fabricated benchmark tables.
+    try testing.expect(std.mem.indexOf(u8, output, "### Formatting") == null);
 }
 
 test "README sync status includes commit hash and timestamp" {
@@ -111,7 +110,7 @@ test "README sync status includes commit hash and timestamp" {
     try testing.expect(std.mem.indexOf(u8, output, "1700000000") != null);
     // Short hash link to upstream
     try testing.expect(std.mem.indexOf(u8, output, "deadbee") != null);
-    try testing.expect(std.mem.indexOf(u8, output, "https://github.com/ziglang/Sig/commit/") != null);
+    try testing.expect(std.mem.indexOf(u8, output, "https://codeberg.org/ziglang/zig/commit/") != null);
 }
 
 test "README contains all required sections" {
@@ -125,14 +124,11 @@ test "README contains all required sections" {
     const output = try generateReadme(&buf, manifest);
 
     const required_sections = [_][]const u8{
-        "## Why Sig?",
-        "## Benchmarks",
-        "## The Spoon Model",
-        "## Sync Status",
-        "## Getting Started",
-        "## Memory Model at a Glance",
-        "## Error Model",
-        "## Contributing",
+        "## 0.5.0",
+        "## What makes it strict",
+        "## The Spoon",
+        "## Getting started",
+        "## How it's built",
         "## License",
     };
     for (required_sections) |section| {

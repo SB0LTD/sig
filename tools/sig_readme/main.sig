@@ -46,92 +46,135 @@ pub fn writeReadme(w: *std.Io.Writer, manifest: SyncManifest) std.Io.Writer.Erro
         \\  <img src="sig.png" alt="Sig" width="420" />
         \\</p>
         \\
-        \\<h1 align="center">Sig — Strict Sig</h1>
+        \\<h1 align="center">Sig</h1>
         \\
         \\<p align="center">
-        \\  <em>Memory is not a guess.</em>
+        \\  <strong>The Sig compiler that knows how much memory it has.</strong>
         \\</p>
         \\
         \\<p align="center">
-        \\  A capacity-first memory model layer on top of the Sig compiler.<br/>
-        \\  Every buffer is caller-owned. Every container is bounded. Every allocation is visible.
+        \\  <a href="https://github.com/SB0LTD/sig/releases"><img src="https://img.shields.io/github/v/release/SB0LTD/sig?label=latest&color=f7a41d&style=flat-square" alt="Release"></a>
+        \\  <a href="https://codeberg.org/ziglang/zig"><img src="https://img.shields.io/badge/language-base-Zig%200.17.0--dev-blue?style=flat-square" alt="Language base"></a>
+        \\  <a href="https://github.com/SB0LTD/sig/actions/workflows/sig-sync.yaml"><img src="https://img.shields.io/github/actions/workflow/status/SB0LTD/sig/sig-sync.yaml?label=sync&style=flat-square" alt="Sync Status"></a>
+        \\  <a href="https://github.com/SB0LTD/sig/actions/workflows/release.yaml"><img src="https://img.shields.io/github/actions/workflow/status/SB0LTD/sig/release.yaml?label=release&style=flat-square" alt="Release Status"></a>
+        \\</p>
+        \\
+        \\<p align="center">
+        \\  <code>sig</code> retains Zig language compatibility. Rename a file to <code>.sig</code> and the compiler starts caring about where your bytes come from.
         \\</p>
         \\
         \\---
         \\
-        \\## Why Sig?
-        \\
-        \\Sig gives you control. Sig makes that control **the default**.
-        \\
-        \\Standard Sig APIs pass around `std.mem.Allocator` — a runtime parameter that hides when, where, and how much memory is used. Code compiles, ships, and then OOMs in production because an `ArrayList` doubled its backing store at the worst possible moment.
-        \\
-        \\Sig eliminates that entire class of failure. Every API takes a caller-provided buffer or a fixed-capacity container. If the memory isn't there, you get a compile-time-sized error — not a surprise at 3 AM.
-        \\
-        \\```Sig
-        \\// Sig standard library — allocator hidden inside
-        \\var list = std.ArrayList(u8).init(allocator);
-        \\try list.appendSlice(data); // may allocate 1x, 2x, 4x… who knows?
-        \\
-        \\// Sig — you own the memory, always
-        \\var buf: [4096]u8 = undefined;
-        \\const result = try sig.fmt.formatInto(&buf, "{s}: {d} items", .{ name, count });
-        \\```
-        \\
-        \\## Benchmarks
-        \\
-        \\Real numbers. Same hardware, same inputs, same compiler backend. Sig's capacity-first APIs vs Sig's allocator-based equivalents.
-        \\
         \\
     );
 
-    try writeDefaultBenchmarks(w);
-
-    try w.writeAll(
-        \\> **Why is Sig faster?** No allocator overhead, no capacity-doubling reallocs, no indirection through vtable-style `Allocator` interfaces. The buffer is right there on the stack or in a known region — the CPU prefetcher loves it.
-        \\
-        \\
-    );
-
+    try writeReleaseHighlights(w);
+    try writeStrictSection(w);
     try writeSpoonSection(w);
     try writeSyncStatus(w, manifest);
     try writeGettingStarted(w);
-    try writeMemoryModel(w);
-    try writeErrorModel(w);
-    try writeContributing(w);
+    try writeHowItsBuilt(w);
 
     try w.writeAll(
         \\## License
         \\
-        \\Same as upstream Sig. See [LICENSE](LICENSE).
+        \\Same as upstream Zig — MIT. See [LICENSE](LICENSE).
         \\
     );
 }
 
-fn writeDefaultBenchmarks(w: *std.Io.Writer) std.Io.Writer.Error!void {
+fn writeReleaseHighlights(w: *std.Io.Writer) std.Io.Writer.Error!void {
     try w.writeAll(
-        \\### Formatting
+        \\## 0.5.0 — Self-Hosted AArch64 Compiles the Whole Compiler for SB0
         \\
-        \\| Operation | Sig `formatInto` | Sig `std.fmt.bufPrint` | Δ Latency | Sig Peak RAM | Sig Peak RAM |
-        \\|---|--:|--:|--:|--:|--:|
-        \\| Small string (32 B) | **18 ns** | 31 ns | −42% | 64 B | 4,096 B |
-        \\| Medium template (256 B) | **42 ns** | 67 ns | −37% | 256 B | 4,096 B |
-        \\| Large interpolation (2 KB) | **189 ns** | 304 ns | −38% | 2,048 B | 8,192 B |
+        \\The self-hosted AArch64 back end is now complete enough to compile the
+        \\**entire compiler** for the native `aarch64-sb0` target — with no LLVM, no
+        \\LLD, and no foreign object container. The self-hosted SB0 linker also emits a
+        \\bootable `SB0K` kernel image (selected by the presence of a linker script)
+        \\alongside the `SB0X` userspace image.
         \\
-        \\### I/O Reads
+        \\```
+        \\$ sig version
+        \\sig 0.5.0 (zig 0.17.0)
+        \\```
         \\
-        \\| Operation | Sig `readInto` | Sig `std.io` reader | Δ Latency | Sig Peak RAM | Sig Peak RAM |
-        \\|---|--:|--:|--:|--:|--:|
-        \\| 4 KB file read | **1.2 µs** | 2.1 µs | −43% | 4,096 B | 8,192 B |
-        \\| 64 KB buffered read | **14 µs** | 23 µs | −39% | 65,536 B | 131,072 B |
-        \\| 1 MB streaming (4 KB chunks) | **198 µs** | 340 µs | −42% | 4,096 B | 1,048,576 B |
+        \\Under the hood this required full code generation for aggregate optionals
+        \\(e.g. `?Token`), tagged-union field extraction, and correct sret/aggregate
+        \\field stores in the AArch64 code generator — enough that
+        \\`compiler/sb0_native_runner.sig`, which imports all of `main.sig`, compiles
+        \\cleanly for `aarch64-sb0` and boots in QEMU as the compiler service itself.
         \\
-        \\### Containers
+        \\**Dependency resolution in `sig build`.** A project's `build.sig.zon` can now
+        \\declare dependencies as fetched tarballs; `sig build` fetches each into the
+        \\global cache, verifies its SHA-256, extracts it, and exposes its modules to
+        \\`build.sig` via `ctx.getDependency(name).modulePath("src/...")` — no vendored
+        \\source, no hardcoded paths. See the [changelog](CHANGELOG.md) for the full
+        \\0.5.0 capability set and limitations.
         \\
-        \\| Operation | Sig `BoundedVec` | Sig `std.ArrayList` | Δ Latency | Sig Peak RAM | Sig Peak RAM |
-        \\|---|--:|--:|--:|--:|--:|
-        \\| 1,000 push ops | **8.4 µs** | 14.2 µs | −41% | 8,000 B | 16,384 B |
-        \\| 10,000 push ops | **84 µs** | 156 µs | −46% | 80,000 B | 131,072 B |
-        \\| Push/pop interleaved (5,000) | **52 µs** | 89 µs | −42% | 8,000 B | 65,536 B |
+        \\## 0.4.1 — Self-Hosted SB0 Linking
+        \\
+        \\Sig gained a pure-Sig, self-hosted linker for the native SB0 target.
+        \\Compiling `aarch64-sb0` with `-ofmt=raw -fno-llvm` emits a complete SB0X
+        \\image directly — no LLD, no ELF/PE intermediate.
+        \\
+        \\## 0.4.0 — Sovereign
+        \\
+        \\The compiler, standard library, native build runner, and canonical test suite
+        \\are Sig source. The repository tracks no `.zig` source files, and the
+        \\bootstrap and release stages invoke Sig — not an upstream Zig executable.
+        \\
+        \\`sig build` executes `build.sig` through the fixed-capacity native runner. The
+        \\packaged `Sig` alias preserves the upstream-compatible machine-readable
+        \\version-only output, while `sig version` identifies both the Sig and Zig-base
+        \\versions.
+        \\
+        \\| Platform | Backend | Download |
+        \\|---|---|---|
+        \\| x86_64-linux | Full LLVM 22.1.8 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-linux.tar.xz) |
+        \\| aarch64-linux | Full LLVM 22.1.8 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-aarch64-linux.tar.xz) |
+        \\| aarch64-macos | Full LLVM 22.1.8 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-aarch64-macos.tar.xz) |
+        \\| x86_64-windows | Full LLVM 22.1.8 | [zip](https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-windows.zip) |
+        \\| aarch64-sb0 | Native allocator-free SB0K runner | [sb0k](https://github.com/SB0LTD/sig/releases/latest/download/sig-aarch64-sb0-runner.sb0k) |
+        \\
+        \\The final release is produced by Sig itself. CMake and upstream Zig are absent
+        \\from the bootstrap and release stages: an immutable native Sig stage0 creates
+        \\the four verified bootstraps, and those bootstraps compile the final
+        \\LLVM-backed Sig executables with immutable LLVM closures.
+        \\
+        \\---
+        \\
+        \\
+    );
+}
+
+fn writeStrictSection(w: *std.Io.Writer) std.Io.Writer.Error!void {
+    try w.writeAll(
+        \\## What makes it strict
+        \\
+        \\The `.sig` extension activates strict mode. Same syntax. Same parser. Same compiler. But allocator usage becomes a compile error.
+        \\
+        \\```Sig
+        \\// foo.sig — business as usual
+        \\var list = std.ArrayList(u8).init(allocator);
+        \\try list.appendSlice(data);
+        \\
+        \\// foo.sig — you bring the buffer, you know the cost
+        \\var buf: [4096]u8 = undefined;
+        \\const result = try sig.fmt.formatInto(&buf, "{s}: {d}", .{ name, count });
+        \\```
+        \\
+        \\Four errors replace silent reallocation:
+        \\
+        \\| Error | When |
+        \\|---|---|
+        \\| `BufferTooSmall` | Output exceeds the caller-provided buffer |
+        \\| `CapacityExceeded` | Bounded container is full |
+        \\| `DepthExceeded` | Recursion hit its limit |
+        \\| `QuotaExceeded` | Resource cap reached |
+        \\
+        \\Standard Sig error unions. `try`, `catch`, `orelse`. Nothing new to learn.
+        \\
+        \\---
         \\
         \\
     );
@@ -139,32 +182,40 @@ fn writeDefaultBenchmarks(w: *std.Io.Writer) std.Io.Writer.Error!void {
 
 fn writeSpoonSection(w: *std.Io.Writer) std.Io.Writer.Error!void {
     try w.writeAll(
-        \\## The Spoon Model
+        \\## The Spoon
         \\
-        \\Sig is not a fork. It's a **Spoon**.
+        \\Sig stays synchronized with upstream Zig while maintaining its sovereign
+        \\compiler, strict-mode, build-runner, and release layers.
         \\
-        \\A Spoon is a close derivative that stays continuously synchronized with its upstream. While a traditional fork drifts further from its origin with every passing month, a Spoon integrates every upstream commit automatically. Sig tracks the upstream Sig compiler and standard library through **Sig_Sync** — every commit in [ziglang/Sig](https://github.com/ziglang/Sig) flows into Sig automatically.
+        \\When a new commit lands in `ziglang/zig`, it fires a GitHub dispatch. The
+        \\sig-sync workflow cherry-picks the commit, resolves conflicts (keeping
+        \\Sig-owned files), validates the bootstrap, and pushes. If the standard
+        \\library changed in a way that breaks the bootstrap, it triggers a rebuild
+        \\chain automatically.
         \\
-        \\| | Traditional Fork | Spoon (Sig) |
-        \\|---|---|---|
-        \\| Upstream tracking | Manual, periodic | Continuous, automatic |
-        \\| Divergence over time | Grows unbounded | Near zero |
-        \\| Merge conflicts | Accumulate silently | Resolved immediately |
-        \\| Upstream compatibility | Degrades | Always maintained |
+        \\The result: sig never drifts. You get upstream bug fixes, optimizations, and
+        \\new features without waiting.
+        \\
+        \\<!-- Updated automatically by sig-sync workflow -->
         \\
         \\
     );
 }
 
 fn writeSyncStatus(w: *std.Io.Writer, manifest: SyncManifest) std.Io.Writer.Error!void {
-    try w.writeAll("## Sync Status\n\n");
+    // The sig-sync workflow keeps these rows fresh in place via targeted regex
+    // replacements on the "**Latest upstream commit**", "**Last sync**", and
+    // "**Base version**" lines, so their shapes must be preserved exactly.
     if (manifest.last_commit_len > 0) {
         const commit = manifest.lastCommit();
+        const short = if (commit.len >= 8) commit[0..8] else commit;
         try w.writeAll("| | |\n|---|---|\n");
-        try w.writeAll("| Latest integrated upstream commit | `");
+        try w.writeAll("| **Latest upstream commit** | [`");
+        try w.writeAll(short);
+        try w.writeAll("`](https://codeberg.org/ziglang/zig/commit/");
         try w.writeAll(commit);
-        try w.writeAll("` |\n");
-        try w.writeAll("| Integration timestamp | ");
+        try w.writeAll(") |\n");
+        try w.writeAll("| **Last sync** | ");
         if (manifest.last_integration_timestamp > 0) {
             var ts_buf: [20]u8 = undefined;
             const ts_str = sig_fmt.formatInto(&ts_buf, "{d}", .{manifest.last_integration_timestamp}) catch "—";
@@ -173,109 +224,58 @@ fn writeSyncStatus(w: *std.Io.Writer, manifest: SyncManifest) std.Io.Writer.Erro
             try w.writeAll("—");
         }
         try w.writeAll(" |\n");
-        try w.writeAll("| Upstream | [ziglang/Sig @ `");
-        const short = if (commit.len >= 7) commit[0..7] else commit;
-        try w.writeAll(short);
-        try w.writeAll("`](https://codeberg.org/ziglang/zig/commit/");
-        try w.writeAll(commit);
-        try w.writeAll(") |\n\n");
+        try w.writeAll("| **Upstream** | [codeberg.org/ziglang/zig](https://codeberg.org/ziglang/zig) |\n");
+        try w.writeAll("| **Base version** | Sig 0.17.0-dev · LLVM 22.1.8 |\n");
+        try w.writeAll("| **Sync frequency** | Every commit (< 1 min latency) |\n\n");
     } else {
         try w.writeAll("No sync data available.\n\n");
     }
+
+    try w.writeAll("---\n\n");
 }
 
 fn writeGettingStarted(w: *std.Io.Writer) std.Io.Writer.Error!void {
     try w.writeAll(
-        \\## Getting Started
+        \\## Getting started
         \\
         \\```bash
-        \\git clone https://github.com/sig-lang/sig.git
-        \\cd sig
-        \\Sig build
+        \\# Download the latest release
+        \\mkdir -p sig-toolchain
+        \\curl -sL https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-linux.tar.xz \
+        \\  | tar -xJ -C sig-toolchain --strip-components=1
+        \\export PATH="$PWD/sig-toolchain/bin:$PATH"
+        \\
+        \\# Or build from source (requires an existing Sig compiler)
+        \\git clone https://github.com/SB0LTD/sig.git && cd sig
+        \\sig build -OReleaseFast
         \\```
         \\
-        \\Prerequisites: CMake, a system C/C++ toolchain, LLVM 22.x. See the [Sig getting started guide](https://ziglang.org/learn/getting-started/) for details.
+        \\The executable and `lib/` directory are a matched toolchain unit. Normally Sig
+        \\finds the adjacent library automatically. If `SIG_LIB_DIR` is set globally,
+        \\unset it or point it at the extracted `sig-toolchain/lib`; mixing compiler and
+        \\library versions can make the build runner fail before your build begins.
         \\
-        \\### Quick Example
+        \\It's language-compatible by design. Existing `.zig` files compile unchanged;
+        \\rename a source file to `.sig` when you're ready to enable strict mode.
         \\
-        \\```Sig
-        \\const sig = @import("sig");
         \\
-        \\pub fn main() !void {
-        \\    // Format into a stack buffer — zero allocations
-        \\    var buf: [256]u8 = undefined;
-        \\    const msg = try sig.fmt.formatInto(&buf, "Hello, {s}! You have {d} items.", .{ "world", 42 });
+    );
+}
+
+fn writeHowItsBuilt(w: *std.Io.Writer) std.Io.Writer.Error!void {
+    try w.writeAll(
+        \\## How it's built
         \\
-        \\    // Bounded container — capacity is known at comptime
-        \\    var vec = sig.containers.BoundedVec(u32, 1024){};
-        \\    try vec.push(10);
-        \\    try vec.push(20);
-        \\    _ = vec.pop(); // 20
-        \\
-        \\    // Stream a large file in fixed 4KB chunks — RAM never exceeds 4KB
-        \\    var stream = sig.io.StreamReader(4096){};
-        \\    while (stream.next(file_reader)) |chunk| {
-        \\        process(chunk);
-        \\    }
-        \\
-        \\    _ = msg;
-        \\}
+        \\```
+        \\build-llvm                 →  build-bootstrap              →  release
+        \\7 immutable LLVM closures    4 verified host bootstraps      4 LLVM-backed toolchains
         \\```
         \\
-        \\
-    );
-}
-
-fn writeMemoryModel(w: *std.Io.Writer) std.Io.Writer.Error!void {
-    try w.writeAll(
-        \\## Memory Model at a Glance
-        \\
-        \\| Pattern | Classification | Example |
-        \\|---|---|---|
-        \\| Stack buffer | ✅ Canonical | `var buf: [1024]u8 = undefined;` |
-        \\| Caller-provided buffer | ✅ Canonical | `fn read(buf: []u8) ![]u8` |
-        \\| Bounded container | ✅ Canonical | `BoundedVec(u8, 256)` |
-        \\| Fixed pool | ✅ Canonical | `FixedPool(Node, 64)` |
-        \\| Global/static memory | ✅ Canonical | `const table = [_]u8{...};` |
-        \\| Heap allocation | ⚠️ Non-canonical | `allocator.alloc(u8, n)` |
-        \\| Allocator parameter | ⚠️ Non-canonical | `fn init(alloc: Allocator)` |
-        \\| Runtime resizing | ⚠️ Non-canonical | `list.ensureTotalCapacity(n)` |
-        \\
-        \\Non-canonical patterns compile but produce diagnostics. In `strict` mode, they become compile errors.
-        \\
-        \\
-    );
-}
-
-fn writeErrorModel(w: *std.Io.Writer) std.Io.Writer.Error!void {
-    try w.writeAll(
-        \\## Error Model
-        \\
-        \\Sig uses four explicit capacity errors instead of silent reallocation:
-        \\
-        \\| Error | When |
-        \\|---|---|
-        \\| `BufferTooSmall` | Output exceeds the caller-provided buffer |
-        \\| `CapacityExceeded` | Bounded container is full |
-        \\| `DepthExceeded` | Recursive operation exceeds depth limit |
-        \\| `QuotaExceeded` | Resource usage limit reached |
-        \\
-        \\These are standard Sig error unions — handle them with `try`, `catch`, or `orelse`. No panics, no hidden allocations.
-        \\
-        \\
-    );
-}
-
-fn writeContributing(w: *std.Io.Writer) std.Io.Writer.Error!void {
-    try w.writeAll(
-        \\## Contributing
-        \\
-        \\1. Check the issue tracker for open items.
-        \\2. All Sig APIs must follow the capacity-first model — no `Allocator` parameters in public interfaces.
-        \\3. Property-based tests are required for new `Sig_Std` modules.
-        \\4. Run `Sig build test-sig` before submitting.
-        \\
-        \\See the upstream [Sig contributing guide](https://github.com/ziglang/Sig#contributing) for general guidelines.
+        \\Each stage publishes an exact manifest, SHA-256 set, source commit, producer,
+        \\and workflow run. Drafts become visible only after every required artifact and
+        \\target-specific execution probe succeeds. Bootstrap and final compilers also
+        \\run the canonical 224-test native compiler graph with an explicit fixed stack
+        \\budget, then cross-compile and validate an AArch64 object.
         \\
         \\
     );
