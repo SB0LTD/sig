@@ -31,6 +31,10 @@ foreach ($tool in @('sig','zpm')) {
     if ($LASTEXITCODE -ne 0) { throw "Packaged $tool does not run" }
 }
 $files = @('bin/sig.exe','bin/zpm.exe','bin/sig-studio.exe','lib/sig/os.sig','lib/sig/process.sig','tools/sig_build/main.sig','tools/sig_build/build_host.sig','tools/sig_build/cli.sig')
+if (Test-Path -LiteralPath (Join-Path $bundle 'lib/sig/application.sig')) {
+    $files += @('lib/sig/application.sig','lib/sig/sig.sig')
+    foreach ($appFile in Get-ChildItem -LiteralPath (Join-Path $bundle 'lib/sig/app') -File -Filter '*.sig') { $files += 'lib/sig/app/' + $appFile.Name }
+}
 $hashes = @{}
 foreach ($entry in $files) { $hashes[$entry] = (Get-FileHash -LiteralPath (Join-Path $bundle $entry) -Algorithm SHA256).Hash.ToLowerInvariant() }
 @{ schema = 1; name = $BundleName; channel = 'development'; versions = $versions; sha256 = $hashes; created_at = [DateTime]::UtcNow.ToString('o'); note = 'Development SDK: Sig 0.5.2 binary with the locally tested runtime/build-runner fixes, bundled ZPM and native Sig Studio preview. Not a signed stable release.' } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $bundle 'sdk-manifest.json') -Encoding utf8
@@ -51,6 +55,20 @@ or add its bin directory to PATH to use it as a portable SDK.
   zpm run -- "hello world"
   zpm test
   zpm build --release
+
+The application SDK includes caller-buffer collections, type-derived JSON output,
+field validation, and a real local HTTP starter:
+
+  zpm init --template web-server --name service
+  cd service
+  zpm build
+  zpm test
+  zpm run
+
+Open http://127.0.0.1:8080/health or /profile. This is a sequential local service;
+production TLS, deadlines, authentication, database and job adapters are pending.
+The current compiler accepts allocator calls in .sig files. The application APIs
+use bounded storage, but compiler-level allocator rejection remains a release gate.
 
 Launch bin/sig-studio.exe. New creates a project; Open selects an existing .sig file.
 Code supports native editing, save, build, run and test. Plan supports provider account

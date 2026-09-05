@@ -9,6 +9,7 @@ pub const SigError = errors.SigError;
 pub const fmt = @import("fmt.sig");
 pub const io = @import("io.sig");
 pub const containers = @import("containers.sig");
+pub const application = @import("application.sig");
 pub const string = @import("string.sig");
 pub const parse = @import("parse.sig");
 pub const http = @import("http.sig");

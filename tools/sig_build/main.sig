@@ -3334,6 +3334,21 @@ pub const Build_Context = struct {
         return self.modules.register(name, source_path);
     }
 
+    /// Import the application APIs from this compiler's matched SDK library.
+    /// Use in compile/test `.imports = &.{try ctx.applicationImport()}`.
+    /// The entry owns its path bytes; no project-specific SDK path is required.
+    pub fn applicationImport(self: *const Build_Context) SigError!Import_Entry {
+        if (self.sig_lib_dir_len == 0) return error.BufferTooSmall;
+        var entry: Import_Entry = .{};
+        @memcpy(entry.name[0..3], "app");
+        entry.name_len = 3;
+        const module_path = try sig_fs.joinPath(&entry.path, &.{
+            self.sig_lib_dir[0..self.sig_lib_dir_len], "sig", "application.sig",
+        });
+        entry.path_len = module_path.len;
+        return entry;
+    }
+
     /// Wire an import (name → path) onto a module.
     /// Delegates to Module_Registry.addImport().
     pub fn addImport(self: *Build_Context, module: Module_Handle, import_name: []const u8, import_path: []const u8) SigError!void {

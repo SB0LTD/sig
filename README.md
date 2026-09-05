@@ -129,7 +129,7 @@ Sig executables with immutable LLVM closures.
 
 ## What makes it strict
 
-The `.sig` extension activates strict mode. Same syntax. Same parser. Same compiler. But allocator usage becomes a compile error.
+Sig's strict API design uses caller-owned storage and named capacity errors. Compiler enforcement must be verified per SDK: the current 0.5.2 development SDK accepts an allocating `.sig` probe, so the extension does not yet guarantee rejection. See the [application API compatibility evidence](doc/application-apis.md) and `tools/test-application.ps1 -RequireAllocatorRejection` production gate.
 
 ```Sig
 // foo.sig — business as usual
