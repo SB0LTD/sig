@@ -10,6 +10,17 @@ pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
         .expand_bit_cast_safe,
         .expand_array_splat,
         .expand_array_to_vector,
+        // Integer div_ceil is not selected directly; expand it to trunc-div +
+        // remainder adjustment, which the backend does lower.
+        .expand_div_ceil,
+        .expand_div_ceil_optimized,
+        // Expand packed loads/stores to plain load/shr/truncate (and
+        // load/mask/or/shl for stores). AArch64 is little-endian, matching this
+        // expansion's assumption. This keeps the backend off the >64-bit packed
+        // path (which otherwise pulls in unsupported non-power-of-two byte_swap
+        // via std readPackedInt for f80/f128).
+        .expand_packed_load,
+        .expand_packed_store,
     });
 }
 

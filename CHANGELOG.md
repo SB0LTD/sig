@@ -4,6 +4,22 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.5.1] — 2026-09-05 — Freestanding AArch64 Builds Projects Using f80/f128 compiler_rt
+Sig 0.5.1 fixes the self-hosted AArch64 back end so freestanding `aarch64-sb0`
+projects that pull in the soft-float `f80`/`f128` compiler_rt routines build
+end to end. 0.5.0 aborted compiler_rt sub-compilation on these targets.
+### Fixed
+- compiler_rt soft-float `f80`/`f128` ABI conversion no longer round-trips
+  through a packed struct, which forced a `>64`-bit packed memory load the
+  self-hosted AArch64 back end cannot lower. It now uses a scalar `u80`/`u128`
+  integer bitcast plus shifts (bit-identical, ordinary integer ops).
+- The self-hosted AArch64 back end now legalizes `div_ceil` (expanded to
+  truncating division plus a remainder adjustment) and packed loads/stores
+  (expanded to plain load/shift/truncate), so integer `div_ceil` and packed
+  integer access — reached via `std` `readPackedInt` for `f80`/`f128` — compile
+  instead of failing isel with "unimplemented div_ceil" / non-power-of-two
+  `byte_swap`.
+
 ## [0.5.0] — 2026-08-29 — Self-Hosted AArch64 Compiles the Whole Compiler for SB0; SB0K Kernel Images
 
 Sig 0.5.0 completes the self-hosted AArch64 back end far enough to compile the
