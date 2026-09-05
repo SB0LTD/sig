@@ -2857,6 +2857,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                         const val_ip = input.operand.toInternedAllowNone() orelse
                             return isel.fail("'S' asm operand is not comptime-known", .{});
                         const nav = switch (ip.indexToKey(val_ip)) {
+                            inline .@"extern", .func => |func| func.owner_nav,
                             .ptr => |ptr| switch (ptr.base_addr) {
                                 .nav => |nav| nav,
                                 else => return isel.fail("'S' asm operand is not the address of a symbol", .{}),

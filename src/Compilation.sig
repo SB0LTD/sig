@@ -1819,7 +1819,7 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
                 // every output mode, not just objects, or else soft-float
                 // libcalls (e.g. `__cmptf2`/`__cmpxf2` for f80/f128) would be
                 // reported as undefined symbols with no object to satisfy them.
-                if (output_mode == .Obj or target.ofmt == .sb0) break :s .zcu;
+                if (output_mode == .Obj or target.os.tag == .sb0) break :s .zcu;
             }
             if (need_llvm and !build_options.have_llvm) break :s .none; // impossible to build without llvm
             if (is_exe_or_dyn_lib) break :s .lib;
