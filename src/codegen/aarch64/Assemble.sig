@@ -3,6 +3,11 @@ operands: std.StringHashMapUnmanaged(Operand),
 
 pub const Operand = union(enum) {
     register: aarch64.encoding.Register,
+    /// An absolute symbolic address operand (the `"S"` inline-asm constraint).
+    /// Substituted as the bare symbol name into the instruction text, so
+    /// `bl %[sym]` becomes `bl <name>` and `adrp x0, %[sym]` becomes
+    /// `adrp x0, <name>`, which the symbol-branch / symbol-ref paths relocate.
+    symbol: []const u8,
 };
 
 pub fn nextInstruction(as: *Assemble) !?Instruction {
@@ -78,6 +83,21 @@ pub const SymbolBranch = struct {
     name: []const u8,
 };
 
+/// A PC-relative symbol address materialization: `adrp <reg>, <symbol>` (page)
+/// or `add <reg>, <reg>, :lo12:<symbol>` (page offset). The caller emits the
+/// placeholder instruction and a relocation against the named symbol; the
+/// relocation kind is inferred from the instruction (adrp -> page-hi21,
+/// add -> abs-lo12).
+pub const SymbolRef = struct {
+    pub const Part = enum { page, lo12 };
+    /// Which half of the address this line materializes.
+    part: Part,
+    /// Destination register (and source for the `add` low-12 form).
+    reg: aarch64.encoding.Register,
+    /// The referenced symbol name (borrowed from the asm source buffer).
+    name: []const u8,
+};
+
 /// One logical assembler line.
 pub const Line = union(enum) {
     /// A fully-encoded, position-independent instruction.
@@ -88,6 +108,8 @@ pub const Line = union(enum) {
     branch: LabelBranch,
     /// A branch to a named symbol, to be relocated by the caller.
     symbol_branch: SymbolBranch,
+    /// A PC-relative symbol address (`adrp`/`add :lo12:`), to be relocated by the caller.
+    symbol_ref: SymbolRef,
     /// End of source.
     end,
 };
@@ -292,6 +314,55 @@ pub fn nextLine(as: *Assemble) !Line {
         as.source = line_start;
     }
 
+    // `adrp <reg>, <symbol>` / `adr <reg>, <symbol>`: materialize the page (or
+    // full, for adr) address of a named symbol. Emitted by the caller as a
+    // placeholder `adrp`/`adr` plus a relocation. A numeric/label operand is
+    // left to the pattern assembler.
+    if (eqlIgnoreCase(mnemonic, "adrp") or eqlIgnoreCase(mnemonic, "adr")) {
+        var rbuf: [16]u8 = undefined;
+        const rtok = as.rawToken(&rbuf);
+        if (aarch64.encoding.Register.parse(rtok)) |reg| {
+            if (reg.format.general == .doubleword) {
+                const sym_tok = as.rawSourceToken();
+                if (as.resolveSymbolName(sym_tok)) |name| return .{ .symbol_ref = .{
+                    .part = .page,
+                    .reg = reg,
+                    .name = name,
+                } };
+            }
+        }
+        as.source = line_start;
+    }
+
+    // `add <reg>, <reg>, :lo12:<symbol>`: add the low-12 page offset of a named
+    // symbol. Recognized only in the `:lo12:` form; ordinary immediate/register
+    // adds fall through to the pattern assembler.
+    if (eqlIgnoreCase(mnemonic, "add")) {
+        var dbuf: [16]u8 = undefined;
+        const dtok = as.rawToken(&dbuf);
+        var nbuf: [16]u8 = undefined;
+        const ntok = as.rawToken(&nbuf);
+        if (aarch64.encoding.Register.parse(dtok)) |dreg| {
+            if (dreg.format.general == .doubleword and aarch64.encoding.Register.parse(ntok) != null) {
+                while (true) switch (as.source[0]) {
+                    ' ', '\t', '\r', ',' => as.source = as.source[1..],
+                    else => break,
+                };
+                const lo12_prefix = ":lo12:";
+                if (std.mem.startsWith(u8, std.mem.span(as.source), lo12_prefix)) {
+                    as.source = as.source[lo12_prefix.len..];
+                    const sym_tok = as.rawSourceToken();
+                    if (as.resolveSymbolName(sym_tok)) |name| return .{ .symbol_ref = .{
+                        .part = .lo12,
+                        .reg = dreg,
+                        .name = name,
+                    } };
+                }
+            }
+        }
+        as.source = line_start;
+    }
+
     const BranchShape = enum { none, b, bl, b_cond, reg_label, reg_bit_label };
     var shape: BranchShape = .none;
     var kind: LabelBranch.Kind = .b;
@@ -363,7 +434,7 @@ pub fn nextLine(as: *Assemble) !Line {
             ' ', '\t', '\r', ',' => as.source = as.source[1..],
             else => break,
         };
-        const target_src = as.source;
+        const label_probe = as.source;
         var tbuf: [64]u8 = undefined;
         const target = as.rawToken(&tbuf);
         if (parseLabelRef(target)) |ref| {
@@ -376,22 +447,17 @@ pub fn nextLine(as: *Assemble) !Line {
                 .cond = cond,
             } };
         }
-        // A plain `b <symbol>` / `bl <symbol>` whose target is a named symbol
-        // (an identifier, not a local-label reference or numeric displacement)
-        // is emitted as a relocated branch by the caller. Only `b`/`bl` support
+        // A plain `b <symbol>` / `bl <symbol>` whose target names a symbol —
+        // either a bare identifier or an `"S"` operand reference `%[name]` — is
+        // emitted as a relocated branch by the caller. Only `b`/`bl` support
         // symbol targets; conditional and register-carrying branches do not.
-        if ((kind == .b or kind == .bl) and target.len > 0 and
-            (std.ascii.isAlphabetic(target[0]) or target[0] == '_' or target[0] == '.'))
-        {
-            const is_symbol = for (target) |c| {
-                if (!isIdentByte(c)) break false;
-            } else true;
-            if (is_symbol) {
-                // The identifier token is a contiguous run of `target.len` bytes at
-                // the start of `target_src`; return it as a source-backed slice.
+        as.source = label_probe;
+        if (kind == .b or kind == .bl) {
+            const sym_tok = as.rawSourceToken();
+            if (as.resolveSymbolName(sym_tok)) |name| {
                 return .{ .symbol_branch = .{
                     .link = kind == .bl,
-                    .name = target_src[0..target.len],
+                    .name = name,
                 } };
             }
         }
@@ -569,6 +635,54 @@ fn toUpperEqlAssertUpper(lhs: []const u8, rhs: []const u8) bool {
     return true;
 }
 
+/// Read the next whitespace/comma-separated token as a raw slice into the
+/// persistent asm source (no copy), recognizing either a bare identifier or an
+/// operand reference `%[name]`. Advances `as.source` past the token. Returns an
+/// empty slice at end-of-operand. Used for symbol operands whose name must
+/// outlive a transient token buffer (for relocation emission).
+fn rawSourceToken(as: *Assemble) []const u8 {
+    while (true) switch (as.source[0]) {
+        ' ', '\t', '\r', ',' => as.source = as.source[1..],
+        else => break,
+    };
+    const start = as.source;
+    var n: usize = 0;
+    if (as.source[0] == '%' and as.source[1] == '[') {
+        n = 2;
+        while (as.source[n] != 0 and as.source[n] != ']') n += 1;
+        if (as.source[n] == ']') n += 1;
+    } else {
+        while (isIdentByte(as.source[n])) n += 1;
+    }
+    as.source = as.source[n..];
+    return start[0..n];
+}
+
+/// Resolve a symbol-operand token (from `rawSourceToken`) into a persistent
+/// symbol name. Accepts either a bare identifier (the token itself, backed by
+/// the asm source) or `%[name]` bound to a `.symbol` operand (the `"S"`
+/// constraint), returning the operand's own persistent name. Returns null
+/// otherwise.
+fn resolveSymbolName(as: *Assemble, tok: []const u8) ?[]const u8 {
+    if (tok.len == 0) return null;
+    if (tok[0] == '%') {
+        if (tok.len < 4 or tok[1] != '[' or tok[tok.len - 1] != ']') return null;
+        const op_name = tok[2 .. tok.len - 1];
+        const operand = as.operands.get(op_name) orelse return null;
+        return switch (operand) {
+            .symbol => |name| name,
+            .register => null,
+        };
+    }
+    if (std.ascii.isAlphabetic(tok[0]) or tok[0] == '_' or tok[0] == '.') {
+        for (tok) |c| {
+            if (!isIdentByte(c)) return null;
+        }
+        return tok;
+    }
+    return null;
+}
+
 const token_buf_len = "v31.b[15]".len;
 fn nextToken(as: *Assemble, buf: *[token_buf_len]u8, comptime opts: struct {
     operands: bool = false,
@@ -607,27 +721,39 @@ fn nextToken(as: *Assemble, buf: *[token_buf_len]u8, comptime opts: struct {
             assert(as.source[index] == ']');
             const modified_operand: Operand = if (std.mem.eql(u8, modifier, ""))
                 operand
-            else if (std.mem.eql(u8, modifier, "w")) switch (operand) {
-                .register => |reg| .{ .register = reg.alias.w() },
-            } else if (std.mem.eql(u8, modifier, "x")) switch (operand) {
-                .register => |reg| .{ .register = reg.alias.x() },
-            } else if (std.mem.eql(u8, modifier, "b")) switch (operand) {
-                .register => |reg| .{ .register = reg.alias.b() },
-            } else if (std.mem.eql(u8, modifier, "h")) switch (operand) {
-                .register => |reg| .{ .register = reg.alias.h() },
-            } else if (std.mem.eql(u8, modifier, "s")) switch (operand) {
-                .register => |reg| .{ .register = reg.alias.s() },
-            } else if (std.mem.eql(u8, modifier, "d")) switch (operand) {
-                .register => |reg| .{ .register = reg.alias.d() },
-            } else if (std.mem.eql(u8, modifier, "q")) switch (operand) {
-                .register => |reg| .{ .register = reg.alias.q() },
-            } else if (std.mem.eql(u8, modifier, "Z")) switch (operand) {
-                .register => |reg| .{ .register = reg.alias.z() },
-            } else continue :c invalid_syntax;
+            else switch (operand) {
+                // Only register operands accept a size modifier; a symbolic
+                // address operand has no register form to reinterpret.
+                .symbol => continue :c invalid_syntax,
+                .register => |reg| if (std.mem.eql(u8, modifier, "w"))
+                    .{ .register = reg.alias.w() }
+                else if (std.mem.eql(u8, modifier, "x"))
+                    .{ .register = reg.alias.x() }
+                else if (std.mem.eql(u8, modifier, "b"))
+                    .{ .register = reg.alias.b() }
+                else if (std.mem.eql(u8, modifier, "h"))
+                    .{ .register = reg.alias.h() }
+                else if (std.mem.eql(u8, modifier, "s"))
+                    .{ .register = reg.alias.s() }
+                else if (std.mem.eql(u8, modifier, "d"))
+                    .{ .register = reg.alias.d() }
+                else if (std.mem.eql(u8, modifier, "q"))
+                    .{ .register = reg.alias.q() }
+                else if (std.mem.eql(u8, modifier, "Z"))
+                    .{ .register = reg.alias.z() }
+                else
+                    continue :c invalid_syntax,
+            };
             switch (modified_operand) {
                 .register => |reg| {
                     as.source = as.source[index + 1 ..];
                     return std.mem.print(buf, "{f}", .{reg.fmt()}) catch unreachable;
+                },
+                .symbol => |name| {
+                    as.source = as.source[index + 1 ..];
+                    if (name.len > buf.len) return error.InvalidSyntax;
+                    @memcpy(buf[0..name.len], name);
+                    return buf[0..name.len];
                 },
             }
         } else continue :c invalid_syntax,

@@ -4,6 +4,29 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.5.3] — 2026-09-05 — Freestanding AArch64 Links Soft-Float and Symbol-Address Inline Asm
+Sig 0.5.3 lands the last pieces a real bare-metal `aarch64-sb0` program needs to
+link: PC-relative symbol-address inline assembly, the self-contained compiler_rt
+for the SB0 flat-image target, and the `"S"` inline-asm constraint as a true
+symbolic operand.
+### Fixed
+- The AArch64 inline assembler now accepts PC-relative symbol addressing:
+  `adrp <reg>, <symbol>`, `adr <reg>, <symbol>`, and `add <reg>, <reg>, :lo12:<symbol>`,
+  emitting the correct in-image relocations (page-hi21 / abs-lo12). Symbol
+  operands may be written literally or as an `"S"`-constrained `%[name]`
+  reference (e.g. `adrp x0, %[sym]`).
+- The `"S"` inline-asm constraint is now a symbolic-address operand: `%[name]`
+  substitutes the referenced symbol's name into the instruction text, so
+  `bl %[main]` lowers to a relocated branch and `adrp x0, %[main]` to a page
+  relocation, matching the GCC/Clang `"S"` semantics. Previously `"S"` was
+  rejected, then (0.5.2) mis-handled as a register.
+- compiler_rt is now injected directly into the compilation for the SB0
+  flat-image target for every output mode (not just objects). The SB0 linker
+  produces a single self-contained image and never merges a separate
+  compiler_rt object, so soft-float routines such as `__cmptf2`/`__cmpxf2`
+  (f80/f128 comparisons) are now present in the image instead of being reported
+  as undefined symbols.
+
 ## [0.5.2] — 2026-09-05 — Freestanding AArch64 Builds Bare-Metal Projects End To End
 Sig 0.5.2 lands the remaining self-hosted AArch64 back-end pieces a freestanding
 `aarch64-sb0` program actually needs: wide byte swaps, the `S` inline-assembly

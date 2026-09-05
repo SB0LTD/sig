@@ -2844,13 +2844,36 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             }),
                         } };
                     }
-                } else if (std.mem.eql(u8, constraint, "r") or std.mem.eql(u8, constraint, "S")) {
+                } else if (std.mem.eql(u8, constraint, "S")) {
                     // "S" is an absolute symbolic-address constraint: the operand
-                    // is the address of a symbol (e.g. `&func`), which must be
-                    // materialized into a general register. matReg already lowers
-                    // a pointer/address operand into a register, so "S" and "r"
-                    // share the same lowering here; the register holds the
-                    // symbol's address, which is exactly what "S" requires.
+                    // is the compile-time address of a symbol (e.g. `&func`).
+                    // Register it as a symbolic operand so `%[name]` substitutes
+                    // the bare symbol name into the instruction text — e.g.
+                    // `bl %[main]` -> `bl <name>` (a relocated branch) and
+                    // `adrp x0, %[main]` -> `adrp x0, <name>` (a page relocation).
+                    // The referenced value must be a comptime-known pointer to a
+                    // nav; otherwise there is no symbol to name.
+                    const sym_name: []const u8 = name: {
+                        const val_ip = input.operand.toInternedAllowNone() orelse
+                            return isel.fail("'S' asm operand is not comptime-known", .{});
+                        const nav = switch (ip.indexToKey(val_ip)) {
+                            .ptr => |ptr| switch (ptr.base_addr) {
+                                .nav => |nav| nav,
+                                else => return isel.fail("'S' asm operand is not the address of a symbol", .{}),
+                            },
+                            else => return isel.fail("'S' asm operand is not the address of a symbol", .{}),
+                        };
+                        break :name try gpa.dupe(u8, ip.getNav(nav).name.toSlice(ip));
+                    };
+                    // No register is materialized for a symbolic operand; the
+                    // finalize pass skips "S", so this slot is never read.
+                    input_mats[index] = undefined;
+                    if (!std.mem.eql(u8, name, "_")) {
+                        const operand_gop = try as.operands.getOrPut(gpa, name);
+                        if (operand_gop.found_existing) return isel.fail("duplicate input name: '{s}'", .{name});
+                        operand_gop.value_ptr.* = .{ .symbol = sym_name };
+                    }
+                } else if (std.mem.eql(u8, constraint, "r")) {
                     const input_vi = try isel.use(input.operand);
                     input_mats[index] = try input_vi.matReg(isel);
                     if (!std.mem.eql(u8, name, "_")) {
@@ -2941,6 +2964,12 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
             };
             var pending_symbols: [64]PendingSymbolBranch = undefined;
             var pending_symbols_len: usize = 0;
+            const PendingSymbolRef = struct {
+                slot: u32,
+                ref: codegen.aarch64.Assemble.SymbolRef,
+            };
+            var pending_refs: [64]PendingSymbolRef = undefined;
+            var pending_refs_len: usize = 0;
             while (true) {
                 const line = as.nextLine() catch |err| switch (err) {
                     error.InvalidSyntax => {
@@ -2976,6 +3005,22 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                         // after the block is reversed into final program order.
                         try isel.emit(if (sb.link) .bl(0) else .b(0));
                     },
+                    .symbol_ref => |sr| {
+                        if (pending_refs_len >= pending_refs.len)
+                            return isel.fail("too many symbol references in one asm block", .{});
+                        pending_refs[pending_refs_len] = .{
+                            .slot = @intCast(isel.instructions.items.len - asm_start),
+                            .ref = sr,
+                        };
+                        pending_refs_len += 1;
+                        // Emit the address-materialization placeholder now; the
+                        // relocation (adrp -> page-hi21, add -> abs-lo12) is added
+                        // after the block is reversed into final program order.
+                        try isel.emit(switch (sr.part) {
+                            .page => .adrp(sr.reg, 0),
+                            .lo12 => .add(sr.reg, sr.reg, .{ .immediate = 0 }),
+                        });
+                    },
                 }
             }
             // Resolve label branches in append (forward/source) space.
@@ -3010,6 +3055,18 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                 });
             }
 
+            // Emit relocations for `adrp <sym>` / `add ..., :lo12:<sym>` address
+            // materializations. The relocation kind is inferred at emit time from
+            // the instruction at the label (adrp -> page-hi21, add -> abs-lo12).
+            for (pending_refs[0..pending_refs_len]) |p| {
+                const final_index = asm_start + (asm_len - 1 - p.slot);
+                const name = try gpa.dupeSentinel(u8, p.ref.name, 0);
+                try isel.global_relocs.append(gpa, .{
+                    .name = name.ptr,
+                    .reloc = .{ .label = @intCast(final_index) },
+                });
+            }
+
             it = unwrapped_asm.iterateInputs();
             index = 0;
             while (it.next()) |input| : (index += 1) {
@@ -3020,6 +3077,9 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                     try input_mats[index].vi.liveOut(isel, input_mats[index].ra);
                 } else if (std.mem.eql(u8, constraint, "r")) {
                     try input_mats[index].finish(isel);
+                } else if (std.mem.eql(u8, constraint, "S")) {
+                    // Symbolic-address operand: no register was materialized;
+                    // the name is substituted textually and relocated.
                 } else if (std.mem.eql(u8, name, "_")) {
                     try input_mats[index].vi.mat(isel);
                 } else unreachable;

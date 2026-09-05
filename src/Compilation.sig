@@ -1812,7 +1812,14 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
                 .llvm_only => true,
             };
             if (have_zcu and (!need_llvm or use_llvm)) {
-                if (output_mode == .Obj) break :s .zcu;
+                // The SB0 flat-image linker is self-contained: `flush` lays out
+                // only the symbols of this one compilation and never merges a
+                // separate compiler_rt object. So compiler_rt must be injected
+                // into the main compilation (`_ = @import("compiler_rt")`) for
+                // every output mode, not just objects, or else soft-float
+                // libcalls (e.g. `__cmptf2`/`__cmpxf2` for f80/f128) would be
+                // reported as undefined symbols with no object to satisfy them.
+                if (output_mode == .Obj or target.ofmt == .sb0) break :s .zcu;
             }
             if (need_llvm and !build_options.have_llvm) break :s .none; // impossible to build without llvm
             if (is_exe_or_dyn_lib) break :s .lib;
