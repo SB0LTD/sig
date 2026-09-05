@@ -1,7 +1,7 @@
 const builtin = @import("builtin");
 const native_endian = builtin.cpu.arch.endian();
 
-const std = @import("../std.sig");
+const std = @import("../std.zig");
 const mem = std.mem;
 const elf = std.elf;
 const fs = std.fs;
@@ -10,11 +10,12 @@ const Target = std.Target;
 const posix = std.posix;
 const Io = std.Io;
 
-pub const NativePaths = @import("system/NativePaths.sig");
+pub const NativePaths = @import("system/NativePaths.zig");
 
-pub const windows = @import("system/windows.sig");
-pub const darwin = @import("system/darwin.sig");
-pub const linux = @import("system/linux.sig");
+pub const windows = @import("system/windows.zig");
+pub const darwin = @import("system/darwin.zig");
+pub const linux = @import("system/linux.zig");
+pub const freebsd = @import("system/freebsd.zig");
 
 pub const Executor = union(enum) {
     native,
@@ -463,20 +464,12 @@ pub fn resolveTargetQuery(io: Io, query: Target.Query) DetectError!Target {
         if (result.cpu.arch.isXtensa() and result.abi == .call0) {
             result.cpu.features.removeFeature(@backingInt(Target.xtensa.Feature.windowed));
         }
-
-        // The consolidated native SB0 target reserves x18 for kernel/platform use.
-        // This reservation is part of the SB0 ABI contract and is mandatory: it is
-        // force-enabled here even if the caller attempted to subtract the backend
-        // feature (e.g. via `-mcpu=baseline-reserve_x18`).
-        if (result.os.tag == .sb0 and result.cpu.arch == .aarch64) {
-            result.cpu.features.addFeature(@backingInt(Target.aarch64.Feature.reserve_x18));
-        }
     }
 
     // It's possible that we detect the native ABI, but fail to detect the OS version or were told
     // to use the default OS version range. In that case, while we can't determine the exact native
     // OS version, we do at least know that some ABIs require a particular OS version (by way of
-    // `std.sig.target.available_libcs`). So in this case, adjust the OS version to the minimum that
+    // `std.zig.target.available_libcs`). So in this case, adjust the OS version to the minimum that
     // we know is required.
     if (result.abi != query_abi and query.os_version_min == null) {
         const result_ver_range = &result.os.version_range;
@@ -545,12 +538,13 @@ fn detectNativeCpuAndFeatures(io: Io, cpu_arch: Target.Cpu.Arch, os: Target.Os, 
     // although it is a runtime value, is guaranteed to be one of the architectures in the set
     // of the respective switch prong.
     switch (builtin.cpu.arch) {
-        .loongarch32, .loongarch64 => return @import("system/loongarch.sig").detectNativeCpuAndFeatures(cpu_arch, os, query),
-        .x86_64, .x86 => return @import("system/x86.sig").detectNativeCpuAndFeatures(cpu_arch, os, query),
+        .loongarch32, .loongarch64 => return @import("system/loongarch.zig").detectNativeCpuAndFeatures(cpu_arch, os, query),
+        .x86_64, .x86 => return @import("system/x86.zig").detectNativeCpuAndFeatures(cpu_arch, os, query),
         else => {},
     }
 
     switch (builtin.os.tag) {
+        .freebsd => return freebsd.detectNativeCpuAndFeatures(),
         .linux => return linux.detectNativeCpuAndFeatures(io),
         .macos => return darwin.macos.detectNativeCpuAndFeatures(),
         .windows => return windows.detectNativeCpuAndFeatures(),
