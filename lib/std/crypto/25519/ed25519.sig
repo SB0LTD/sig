@@ -614,12 +614,12 @@ test "batch verification" {
         const sig2 = try key_pair.sign(&msg2, null);
         var signature_batch = [_]Ed25519.BatchElement{
             Ed25519.BatchElement{
-                .Sig = sig1,
+                .sig = sig1,
                 .msg = &msg1,
                 .public_key = key_pair.public_key,
             },
             Ed25519.BatchElement{
-                .Sig = sig2,
+                .sig = sig2,
                 .msg = &msg2,
                 .public_key = key_pair.public_key,
             },

@@ -476,7 +476,7 @@ pub fn resolveTargetQuery(io: Io, query: Target.Query) DetectError!Target {
     // It's possible that we detect the native ABI, but fail to detect the OS version or were told
     // to use the default OS version range. In that case, while we can't determine the exact native
     // OS version, we do at least know that some ABIs require a particular OS version (by way of
-    // `std.zig.target.available_libcs`). So in this case, adjust the OS version to the minimum that
+    // `std.sig.target.available_libcs`). So in this case, adjust the OS version to the minimum that
     // we know is required.
     if (result.abi != query_abi and query.os_version_min == null) {
         const result_ver_range = &result.os.version_range;

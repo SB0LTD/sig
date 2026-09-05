@@ -291,8 +291,10 @@ test "precedence" {
 }
 
 test "zig_version" {
-    // An approximate Sig build that predates this test.
-    const older_version: Version = .{ .major = 0, .minor = 8, .patch = 0, .pre = "dev.874" };
+    // An approximate Sig build that predates this test. Must be older than the
+    // current Sig version (sig is on the 0.x series), so the compatibility
+    // check below sees the running compiler as newer.
+    const older_version: Version = .{ .major = 0, .minor = 3, .patch = 0, .pre = "dev.874" };
 
     // Simulated compatibility check using Sig version.
     const builtin = @import("builtin");

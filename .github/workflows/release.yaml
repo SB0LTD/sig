@@ -273,7 +273,26 @@ jobs:
             --global-cache-dir /tmp/sig-release-global \
             -femit-bin=/tmp/release-aarch64.o
           file /tmp/release-aarch64.o | grep -q 'ARM aarch64'
+          # Standard-library regression gate (compile-only, works under qemu):
+          # the whole std must still compile. Catches std public-API breakage
+          # such as a removed/renamed namespace that leaves the library
+          # uncompilable — the class of regression the compiler/test_all.sig
+          # suite above does not cover.
+          $runner "$compiler" test lib/std/std.sig \
+            --Sig-lib-dir lib \
+            --test-no-exec \
+            --cache-dir /tmp/sig-stdcheck-local \
+            --global-cache-dir /tmp/sig-stdcheck-global \
+            --stack 33554432
           if [ '${{ matrix.platform }}' = x86_64-linux ]; then
+            # Language behavior regression suite (native run: compile+link+run
+            # the full behavior corpus). Gated to the native platform so it does
+            # not require a qemu round-trip.
+            "$compiler" test test/behavior.sig \
+              --Sig-lib-dir lib \
+              --cache-dir /tmp/sig-behavior-local \
+              --global-cache-dir /tmp/sig-behavior-global \
+              --stack 33554432
             bash ci/test-sb0-target.sh "$compiler" "$PWD"
             sb0_runner="sig-${VERSION}-aarch64-sb0-runner.sb0k"
             SB0_RUNNER_OUTPUT="$PWD/$sb0_runner" \

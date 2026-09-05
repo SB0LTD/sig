@@ -1,7 +1,7 @@
 const std = @import("std");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
-const Token = std.zig.Token;
+const Token = std.sig.Token;
 
 test "zig fmt: remove extra whitespace at start and end of file with comment between" {
     try testTransform(
@@ -7344,7 +7344,7 @@ test "ampersand" {
 test "Ast: pointer types with subexprs containing qualifiers" {
     var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
     const allocator = fixed_allocator.allocator();
-    var tree = try std.zig.Ast.parse(allocator, "**addrspace(*align(1)T)T", .{ .mode = .zon });
+    var tree = try std.sig.Ast.parse(allocator, "**addrspace(*align(1)T)T", .{ .mode = .zon });
     defer tree.deinit(allocator);
 
     const regular_ptr_node = tree.nodeData(.root).node;
@@ -7366,7 +7366,7 @@ fn testParse(io: Io, source: [:0]const u8, allocator: Allocator, anything_change
     defer io.unlockStderr();
     const writer = &stderr.file_writer.interface;
 
-    var tree = try std.zig.Ast.parse(allocator, source, .{});
+    var tree = try std.sig.Ast.parse(allocator, source, .{});
     defer tree.deinit(allocator);
 
     for (tree.errors) |parse_error| {
@@ -7406,7 +7406,7 @@ fn testTransformImpl(
     try std.testing.expectEqualStrings(expected_source, result_source);
     const changes_expected = source.ptr != expected_source.ptr;
     if (anything_changed != changes_expected) {
-        std.debug.print("std.zig.render returned {} instead of {}\n", .{ anything_changed, changes_expected });
+        std.debug.print("std.sig.render returned {} instead of {}\n", .{ anything_changed, changes_expected });
         return error.TestFailed;
     }
     try std.testing.expect(anything_changed == changes_expected);
@@ -7423,10 +7423,10 @@ fn testCanonical(source: [:0]const u8) !void {
     return testTransform(source, source);
 }
 
-const Error = std.zig.Ast.Error.Tag;
+const Error = std.sig.Ast.Error.Tag;
 
 fn testError(source: [:0]const u8, expected_errors: []const Error) !void {
-    var tree = try std.zig.Ast.parse(std.testing.allocator, source, .{});
+    var tree = try std.sig.Ast.parse(std.testing.allocator, source, .{});
     defer tree.deinit(std.testing.allocator);
 
     std.testing.expectEqual(expected_errors.len, tree.errors.len) catch |err| {
@@ -7443,10 +7443,10 @@ test "fuzz ast parse" {
 }
 
 fn fuzzTestOneParse(_: void, smith: *std.testing.Smith) !void {
-    const mode = smith.value(std.zig.Ast.Mode);
-    var tokens: std.zig.TokenSmith = .gen(smith);
+    const mode = smith.value(std.sig.Ast.Mode);
+    var tokens: std.sig.TokenSmith = .gen(smith);
     var fba: std.heap.FixedBufferAllocator = .init(&fixed_buffer_mem);
-    _ = std.zig.Ast.parseTokens(fba.allocator(), tokens.source(), tokens.list(), .{
+    _ = std.sig.Ast.parseTokens(fba.allocator(), tokens.source(), tokens.list(), .{
         .recover = false,
         .mode = mode,
     }) catch return;

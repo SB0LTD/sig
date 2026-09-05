@@ -107,6 +107,28 @@ release artifacts remain produced by Sig itself.
   multi-megabyte kernel image, not a tiny shell. All `SB0K` header-field
   assertions are retained.
 
+### Breaking
+- The standard-library compiler-frontend namespace has been renamed from
+  `std.zig` to `std.sig`, completing the sovereign rename in the public API.
+  There is **no `std.zig` compatibility alias** — `std.zig` is removed. Code
+  that used the tokenizer/parser/AST/ZIR surface must migrate:
+
+  | 0.4.x and earlier | 0.5.0+ |
+  | --- | --- |
+  | `std.zig.Tokenizer` | `std.sig.Tokenizer` |
+  | `std.zig.Token` | `std.sig.Token` |
+  | `std.zig.Ast` | `std.sig.Ast` |
+  | `std.zig.Zir` | `std.sig.Zir` |
+  | `std.zig.parse` / `std.zig.render` / `std.zig.fmt` | `std.sig.parse` / `std.sig.render` / `std.sig.fmt` |
+  | `std.zig.*` (any member) | `std.sig.*` |
+
+  Migration is a mechanical rename of `std.zig` to `std.sig` in your source.
+  Any project or tool that manipulates Sig source (formatters, linters, AST
+  tooling) built against 0.4.x will fail to compile on 0.5.0 with
+  `error: root source file struct 'std' has no member named 'zig'` until
+  updated. This is intentional: Sig's standard library is sovereign, and the
+  frontend namespace matches the language name.
+
 ## [0.4.2] — 2026-08-29 — spork8 Co-existence & Full Array Multiplication
 
 Sig 0.4.2 reconciles the upstream `spork8` raw-backend feature with the native

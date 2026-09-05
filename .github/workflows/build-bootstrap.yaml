@@ -212,6 +212,27 @@ jobs:
             --global-cache-dir /tmp/sig-bootstrap-global \
             -femit-bin=/tmp/bootstrap-aarch64.o
           file /tmp/bootstrap-aarch64.o | grep -q 'ARM aarch64'
+          # Language + standard-library regression gate. These corpora are the
+          # real developer-facing surface (the compiler/test_all.sig suite above
+          # only covers the native compiler tree). Running them here catches
+          # language codegen regressions and std public-API breakage (e.g. a
+          # std namespace rename that leaves the library uncompilable) BEFORE a
+          # release ships.
+          # 1) Whole standard library compiles (compile-only; catches std API
+          #    breakage such as a removed/renamed namespace).
+          build/zig2 test lib/std/std.sig \
+            --Sig-lib-dir lib \
+            --test-no-exec \
+            --cache-dir /tmp/sig-stdcheck-local \
+            --global-cache-dir /tmp/sig-stdcheck-global \
+            --stack 33554432
+          # 2) Language behavior regression suite (compiles, links, and runs the
+          #    full behavior corpus).
+          build/zig2 test test/behavior.sig \
+            --Sig-lib-dir lib \
+            --cache-dir /tmp/sig-behavior-local \
+            --global-cache-dir /tmp/sig-behavior-global \
+            --stack 33554432
           bash ci/test-sb0-target.sh "$PWD/build/zig2" "$PWD"
           bash ci/test-sb0-runner.sh "$PWD/build/zig2" "$PWD"
 
