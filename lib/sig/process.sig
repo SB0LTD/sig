@@ -710,7 +710,7 @@ fn spawnWindows(cmd: *const Command_Buffer, options: Spawn_Options) SigError!Chi
 
     // Convert to UTF-16 for CreateProcessW.
     var wide_cmdline: [MAX_CMDLINE_WIDE + 1]u16 = undefined;
-    const wide_len = os.utf8ToWide(cmdline_buf[0..cmdline_len], &wide_cmdline) orelse
+    const wide_len = os.utf8TextToWide(cmdline_buf[0..cmdline_len], &wide_cmdline) orelse
         return error.BufferTooSmall;
     _ = wide_len;
 
@@ -991,7 +991,7 @@ pub fn getenv(name: []const u8, buf: []u8) SigError!?[]const u8 {
     if (native_os == .windows) {
         // Convert name to UTF-16 for GetEnvironmentVariableW.
         var name_wide: [MAX_ENV_KEY_LEN + 1]u16 = undefined;
-        const name_wide_len = os.utf8ToWide(name, &name_wide) orelse return error.BufferTooSmall;
+        const name_wide_len = os.utf8TextToWide(name, &name_wide) orelse return error.BufferTooSmall;
         _ = name_wide_len;
 
         // Query the variable length first.

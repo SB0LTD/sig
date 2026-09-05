@@ -103,6 +103,12 @@ pub fn main(init: std.process.Init) !void {
 
     // argv[7..]: user arguments (step names, -D flags, -j, --verbose, etc.)
     while (args_it.next() catch sig_build.fatal(io, "argv decode error", .{})) |arg| {
+        if (sig_mem.eql(u8, arg, "--")) {
+            while (args_it.next() catch sig_build.fatal(io, "argv decode error", .{})) |value| {
+                config.run_args.push(value) catch sig_build.fatal(io, "run argument capacity exceeded", .{});
+            }
+            break;
+        }
         if (arg.len >= 2 and arg[0] == '-' and arg[1] == 'D') {
             sig_build.parseOption(&config.options, arg) catch {
                 sig_build.fatal(io, "too many -D options", .{});
@@ -192,6 +198,8 @@ pub fn main(init: std.process.Init) !void {
 
     ctx.options = config.options;
     ctx.io_ctx = io;
+
+    ctx.run_args = config.run_args;
 
     // Set compiler path from runner args so step functions can invoke the compiler.
     {

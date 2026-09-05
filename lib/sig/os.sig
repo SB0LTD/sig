@@ -642,6 +642,15 @@ pub const MAX_PATH_WIDE = 32768;
 /// Returns the number of u16 code units written (excluding null terminator),
 /// or null if the path is too long or contains invalid UTF-8.
 pub fn utf8ToWide(utf8: []const u8, out: []u16) ?usize {
+    return utf8ToWideMode(utf8, out, true);
+}
+
+/// Encode general text without filesystem path normalization.
+pub fn utf8TextToWide(utf8: []const u8, out: []u16) ?usize {
+    return utf8ToWideMode(utf8, out, false);
+}
+
+fn utf8ToWideMode(utf8: []const u8, out: []u16, normalize_path: bool) ?usize {
     var i: usize = 0;
     var o: usize = 0;
     while (i < utf8.len) {
@@ -676,7 +685,7 @@ pub fn utf8ToWide(utf8: []const u8, out: []u16) ?usize {
         i += seq_len;
 
         // Convert to path separators: '/' → '\' on Windows
-        if (codepoint == '/') codepoint = '\\';
+        if (normalize_path and codepoint == '/') codepoint = '\\';
 
         // Encode as UTF-16
         if (codepoint <= 0xFFFF) {
@@ -1651,4 +1660,15 @@ pub fn socketClose(sock: socket_t) void {
 pub fn htons(port: u16) u16 {
     // x86_64, aarch64 are all little-endian — always swap
     return (@as(u16, port >> 8)) | (@as(u16, port & 0xFF) << 8);
+}
+
+
+test "UTF16 process text preserves URLs while filesystem paths normalize" {
+    var out: [128]u16 = undefined;
+    const url = "https://example.test/a/b?q=1";
+    const len = utf8TextToWide(url, &out) orelse return error.TestUnexpectedResult;
+    if (len != url.len or out[len] != 0) return error.TestUnexpectedResult;
+    for (url, 0..) |c, i| if (out[i] != c) return error.TestUnexpectedResult;
+    _ = utf8ToWide("a/b", &out) orelse return error.TestUnexpectedResult;
+    if (out[1] != '\\') return error.TestUnexpectedResult;
 }

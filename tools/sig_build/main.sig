@@ -3262,6 +3262,7 @@ pub const Dependency = struct {
 /// The central struct passed to `build.sig`'s `build` function. All API
 /// methods operate on fixed-capacity internals — zero allocators.
 pub const Build_Context = struct {
+    run_args: Run_Args = .{},
     steps: Step_Registry = .{},
     modules: Module_Registry = .{},
     options: Option_Map = .{},
@@ -4275,7 +4276,7 @@ fn parseDependencies(source: []const u8, tokens: []sig_zon.Token, out: []Declare
 fn fetchUrl(url: []const u8, dest: []const u8, io: sig_io.Io) bool {
     var cmd: sig_process.Command_Buffer = .{};
     cmd.appendArg("curl") catch return false;
-    cmd.appendArg("-Ls") catch return false;
+    cmd.appendArg("-LsS") catch return false;
     cmd.appendArg("--fail") catch return false;
     cmd.appendArg("-o") catch return false;
     cmd.appendArg(dest) catch return false;
@@ -4283,7 +4284,11 @@ fn fetchUrl(url: []const u8, dest: []const u8, io: sig_io.Io) bool {
 
     var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
     var stderr_len: usize = 0;
-    const exit_code = runCommand(&cmd, &stderr_buf, &stderr_len, io) catch return false;
+    const exit_code = runCommand(&cmd, &stderr_buf, &stderr_len, io) catch |err| {
+        printMsg(io, "dependency helper could not start: {s}", .{@errorName(err)});
+        return false;
+    };
+    if (exit_code != 0) printMsg(io, "dependency helper exit {d}: {s}", .{exit_code, stderr_buf[0..stderr_len]});
     return exit_code == 0;
 }
 
@@ -4326,7 +4331,11 @@ fn extractTarball(tarball: []const u8, dest_dir: []const u8, io: sig_io.Io) bool
 
     var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;
     var stderr_len: usize = 0;
-    const exit_code = runCommand(&cmd, &stderr_buf, &stderr_len, io) catch return false;
+    const exit_code = runCommand(&cmd, &stderr_buf, &stderr_len, io) catch |err| {
+        printMsg(io, "dependency helper could not start: {s}", .{@errorName(err)});
+        return false;
+    };
+    if (exit_code != 0) printMsg(io, "dependency helper exit {d}: {s}", .{exit_code, stderr_buf[0..stderr_len]});
     return exit_code == 0;
 }
 
@@ -4741,7 +4750,21 @@ test "requested build steps own argument storage" {
     if (!sig_mem.eql(u8, "update-zig1", requested.get(0))) return error.TestUnexpectedResult;
 }
 
+pub const Run_Args = struct {
+    storage: [64][1024]u8 = undefined,
+    lengths: [64]usize = @splat(0),
+    count: usize = 0,
+    pub fn push(self: *Run_Args, arg: []const u8) SigError!void {
+        if (self.count >= self.storage.len or arg.len > self.storage[0].len) return error.CapacityExceeded;
+        @memcpy(self.storage[self.count][0..arg.len], arg);
+        self.lengths[self.count] = arg.len;
+        self.count += 1;
+    }
+    pub fn get(self: *const Run_Args, i: usize) []const u8 { return self.storage[i][0..self.lengths[i]]; }
+};
+
 pub const Cli_Config = struct {
+    run_args: Run_Args = .{},
     /// Requested step names copied out of the reusable process-argument
     /// iterator buffer. Borrowing those slices corrupts earlier names when a
     /// later argument is decoded.
@@ -5138,6 +5161,12 @@ pub fn main(init: std.process.Init) !void {
 
     // argv[7..]: user arguments (step names, -D flags, -j, --verbose, etc.)
     while (args_it.next() catch fatal(io, "argv decode error", .{})) |arg| {
+        if (sig_mem.eql(u8, arg, "--")) {
+            while (args_it.next() catch fatal(io, "argv decode error", .{})) |value| {
+                config.run_args.push(value) catch fatal(io, "run argument capacity exceeded", .{});
+            }
+            break;
+        }
         if (arg.len >= 2 and arg[0] == '-' and arg[1] == 'D') {
             // -Dname=value or -Dname (boolean shorthand)
             parseOption(&config.options, arg) catch {
@@ -5325,6 +5354,11 @@ pub fn main(init: std.process.Init) !void {
         host_cmd.appendArg(config.install_prefix[0..config.install_prefix_len]) catch {};
     }
 
+    if (config.run_args.count > 0) {
+        host_cmd.appendArg("--") catch fatal(io, "command capacity exceeded", .{});
+        for (0..config.run_args.count) |i| host_cmd.appendArg(config.run_args.get(i)) catch fatal(io, "command capacity exceeded", .{});
+    }
+
     if (config.verbose) {
         printMsg(io, "spawning build host: {s}", .{build_host_binary});
     }
@@ -5349,4 +5383,14 @@ pub fn main(init: std.process.Init) !void {
     }
 
     sig_process.exit(host_exit);
+}
+
+
+test "run arguments own storage and preserve empty values" {
+    var args: Run_Args = .{};
+    var input = [_]u8{ 'a', ' ', 'b' };
+    try args.push(&input);
+    try args.push("");
+    @memset(&input, 'x');
+    if (!sig_mem.eql(u8, args.get(0), "a b") or args.get(1).len != 0) return error.BufferTooSmall;
 }

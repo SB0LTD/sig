@@ -60,6 +60,7 @@ pub const Parse_Error = error{
     UnknownOption,
     /// Iterator returned a decode error.
     DecodeError,
+    TooManyRunArgs,
 };
 
 /// Parse the full argv into a Parse_Result.
@@ -151,6 +152,10 @@ pub fn parse(args_it: anytype) Parse_Error!Parse_Result {
 ///   - Positional step names (anything not starting with `-`)
 pub fn parseUserArgs(args_it: anytype, config: *Cli_Config) Parse_Error!void {
     while (args_it.next() catch return error.DecodeError) |arg| {
+        if (sig_mem.eql(u8, arg, "--")) {
+            while (args_it.next() catch return error.DecodeError) |value| config.run_args.push(value) catch return error.TooManyRunArgs;
+            break;
+        }
         if (arg.len >= 2 and arg[0] == '-' and arg[1] == 'D') {
             // -Dname=value or -Dname (boolean shorthand)
             sig_build.parseOption(&config.options, arg) catch {
