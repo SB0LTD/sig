@@ -188,6 +188,13 @@ pub const Feature = enum {
     /// Not compatible with `scalarize_div_ceil_optimized`.
     expand_div_ceil_optimized,
 
+    /// Replace a scalar integer `byte_swap` wider than 64 bits with a byte-wise reconstruction using
+    /// `shr`, `trunc` to `u8`, `int_cast`, `shl_exact`, and `bit_or`. Backends whose instruction
+    /// selection only reverses byte order for integers up to 64 bits enable this so that wide
+    /// (e.g. `u72`, `u120`, `u128`) `@byteSwap` — reached through `std.mem.readPackedInt`/`writeInt`
+    /// for the soft-float `f80`/`f128` routines — lowers to operations they already support.
+    expand_byte_swap,
+
     /// Replace `load` from a packed pointer with a non-packed `load`, `shr`, `truncate`.
     /// Currently assumes little endian and a specific integer layout where the lsb of every integer is the lsb of the
     /// first byte of memory until bit pointers know their backing type.
@@ -516,11 +523,25 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                     }
                 }
             },
+            .byte_swap => {
+                const ty_op = l.air_instructions.items(.data)[@backingInt(inst)].ty_op;
+                if (ty_op.ty.isVector(zcu)) {
+                    if (l.features.has(.scalarize_byte_swap)) {
+                        continue :inst l.replaceInst(inst, .block, try l.scalarizeBlockPayload(inst, .ty_op));
+                    }
+                } else if (l.features.has(.expand_byte_swap)) {
+                    // A byte swap operates on a byte-multiple integer; instruction selection on some
+                    // backends only reverses byte order up to 64 bits. Expand wider scalar swaps into
+                    // a byte-wise reconstruction that those backends can lower.
+                    if (ty_op.ty.isAbiInt(zcu) and ty_op.ty.intInfo(zcu).bits > 64) {
+                        continue :inst l.replaceInst(inst, .block, try l.byteSwapBlockPayload(inst));
+                    }
+                }
+            },
             inline .not,
             .clz,
             .ctz,
             .popcount,
-            .byte_swap,
             .bit_reverse,
             .int_cast,
             .ptr_cast,
@@ -2728,6 +2749,74 @@ fn divCeilBlockPayload(
 
         else => unreachable,
     }
+}
+
+fn byteSwapBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.Inst.Data {
+    const pt = l.pt;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+
+    const ty_op = l.air_instructions.items(.data)[@backingInt(orig_inst)].ty_op;
+    const res_ty = ty_op.ty;
+    const int_info = res_ty.intInfo(zcu);
+    // @byteSwap requires a byte-multiple integer width.
+    assert(int_info.bits % 8 == 0);
+    const nbytes: u16 = @intCast(int_info.bits / 8);
+
+    // Reconstruct the result byte by byte, in reverse order:
+    //   result = OR over i in [0, nbytes):
+    //     int_cast(res_ty, trunc(u8, operand >> (i*8))) << ((nbytes-1-i)*8)
+    //
+    // Every intermediate operation is either a shift, a truncation to u8, an int_cast,
+    // or a bit_or — all of which backends lower for wide integers without a native wide
+    // byte-reversal instruction. The operand is already an integer of `res_ty` (byte_swap
+    // preserves the type), so no leading bit_cast is required.
+
+    const u8_ty: Type = .u8;
+    // Shift amounts must be an unsigned integer wide enough to hold values up to
+    // bits-1; an unsigned integer of the same bit width as the operand always is.
+    const shift_ty = try pt.intType(.unsigned, int_info.bits);
+
+    // Per byte: shr, trunc, int_cast, shl_exact = 4 instructions. Plus (nbytes - 1)
+    // bit_or reductions and one terminating br.
+    const inst_count: usize = @as(usize, nbytes) * 4 + (nbytes - 1) + 1;
+    const inst_buf = try gpa.alloc(Air.Inst.Index, inst_count);
+    defer gpa.free(inst_buf);
+    try l.air_instructions.ensureUnusedCapacity(gpa, inst_count);
+
+    var main_block: Block = .init(inst_buf);
+
+    var acc: ?Air.Inst.Ref = null;
+    var i: u16 = 0;
+    while (i < nbytes) : (i += 1) {
+        const src_shift = @as(u64, i) * 8;
+        const dst_shift = @as(u64, nbytes - 1 - i) * 8;
+
+        var byte_ref = ty_op.operand;
+        if (src_shift != 0) {
+            byte_ref = main_block.addBinOp(l, .shr, byte_ref, try pt.intRef(shift_ty, src_shift)).toRef();
+        }
+        // Isolate the low byte.
+        byte_ref = main_block.addTyOp(l, .trunc, u8_ty, byte_ref).toRef();
+        // Widen back to the result type and move into its destination position.
+        var placed = main_block.addTyOp(l, .int_cast, res_ty, byte_ref).toRef();
+        if (dst_shift != 0) {
+            placed = main_block.addBinOp(l, .shl_exact, placed, try pt.intRef(shift_ty, dst_shift)).toRef();
+        }
+
+        acc = if (acc) |prev|
+            main_block.addBinOp(l, .bit_or, prev, placed).toRef()
+        else
+            placed;
+    }
+
+    main_block.addBr(l, orig_inst, acc.?);
+
+    _ = main_block.stealRemainingCapacity();
+    return .{ .ty_pl = .{
+        .ty = res_ty,
+        .payload = try l.addBlockBody(main_block.body()),
+    } };
 }
 
 fn packedLoadBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.Inst.Data {

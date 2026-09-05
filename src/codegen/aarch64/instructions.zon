@@ -834,6 +834,21 @@
         },
         .encode = .{ .dcps3, .imm },
     },
+    // C6.2.114 DMB
+    .{
+        .pattern = "DMB <option>",
+        .symbols = .{
+            .option = .{ .barrier = .{} },
+        },
+        .encode = .{ .dmb, .option },
+    },
+    .{
+        .pattern = "DMB #<imm>",
+        .symbols = .{
+            .imm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 4 } } },
+        },
+        .encode = .{ .dmb, .imm },
+    },
     // C6.2.116 DSB
     .{
         .pattern = "DSB <option>",

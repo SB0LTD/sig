@@ -4,6 +4,25 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.5.2] — 2026-09-05 — Freestanding AArch64 Builds Bare-Metal Projects End To End
+Sig 0.5.2 lands the remaining self-hosted AArch64 back-end pieces a freestanding
+`aarch64-sb0` program actually needs: wide byte swaps, the `S` inline-assembly
+constraint, and the `DMB` barrier. 0.5.1 fixed the compiler_rt trigger but the
+back end still rejected these when building a real bare-metal image.
+### Fixed
+- Scalar integer `@byteSwap` wider than 64 bits (e.g. `u72`, `u120`, reached via
+  `std.mem.readPackedIntBig`/`writePackedIntBig` for the `f80`/`f128` soft-float
+  routines) is now legalized into a byte-wise reconstruction
+  (`shr`/`trunc`/`int_cast`/`shl_exact`/`bit_or`) through a new `expand_byte_swap`
+  legalize feature, instead of failing instruction selection with
+  "too big byte_swap". Enabled for the AArch64 back end.
+- The AArch64 back end now accepts the `"S"` inline-assembly input constraint (an
+  absolute symbolic-address operand such as `&func`), materializing the symbol
+  address into a general register like `"r"`.
+- The AArch64 assembler can now encode `DMB <option>` / `DMB #imm` (e.g.
+  `dmb ish`); previously only `DSB` and `ISB` had assembler patterns even though
+  the `DMB` encoding already existed.
+
 ## [0.5.1] — 2026-09-05 — Freestanding AArch64 Builds Projects Using f80/f128 compiler_rt
 Sig 0.5.1 fixes the self-hosted AArch64 back end so freestanding `aarch64-sb0`
 projects that pull in the soft-float `f80`/`f128` compiler_rt routines build

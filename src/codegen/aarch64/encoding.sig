@@ -12367,6 +12367,14 @@ pub const Instruction = packed union {
             .dcps3 = .{ .imm16 = imm },
         } } };
     }
+    /// C6.2.114 DMB
+    pub fn dmb(option: BranchExceptionGeneratingSystem.Barriers.Option) Instruction {
+        return .{ .branch_exception_generating_system = .{ .barriers = .{
+            .dmb = .{
+                .CRm = option,
+            },
+        } } };
+    }
     /// C6.2.116 DSB
     pub fn dsb(option: BranchExceptionGeneratingSystem.Barriers.Option) Instruction {
         return .{ .branch_exception_generating_system = .{ .barriers = .{

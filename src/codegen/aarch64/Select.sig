@@ -2844,7 +2844,13 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             }),
                         } };
                     }
-                } else if (std.mem.eql(u8, constraint, "r")) {
+                } else if (std.mem.eql(u8, constraint, "r") or std.mem.eql(u8, constraint, "S")) {
+                    // "S" is an absolute symbolic-address constraint: the operand
+                    // is the address of a symbol (e.g. `&func`), which must be
+                    // materialized into a general register. matReg already lowers
+                    // a pointer/address operand into a register, so "S" and "r"
+                    // share the same lowering here; the register holds the
+                    // symbol's address, which is exactly what "S" requires.
                     const input_vi = try isel.use(input.operand);
                     input_mats[index] = try input_vi.matReg(isel);
                     if (!std.mem.eql(u8, name, "_")) {
