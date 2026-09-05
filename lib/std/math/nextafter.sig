@@ -1,4 +1,5 @@
-const std = @import("../std.sig");
+const builtin = @import("builtin");
+const std = @import("../std.zig");
 const math = std.math;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
@@ -143,6 +144,8 @@ test "int" {
 }
 
 test "float" {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isAarch64() and builtin.os.tag == .netbsd) return error.SkipZigTest; // https://codeberg.org/ziglang/zig/issues/36765
+
     @setEvalBranchQuota(4000);
 
     // normal -> normal
