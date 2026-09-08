@@ -149,9 +149,9 @@ else()
     set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.sig")
 endif()
 
-find_package(llvm 22)
-find_package(clang 22)
-find_package(lld 22)
+find_package(llvm 23)
+find_package(clang 23)
+find_package(lld 23)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)
@@ -177,7 +177,7 @@ endif()
 
 if (MSVC OR (WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "Clang"))
     if(NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
-        # Use static CRT (/MT) to match the LLVM 22 libs rebuilt with /MT.
+        # Use static CRT (/MT) to match the LLVM 23 libs rebuilt with /MT.
         set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded)
     endif()
 endif ()

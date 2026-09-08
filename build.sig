@@ -78,7 +78,7 @@ pub fn build(ctx: *sig_build.Build_Context) !void {
     // LLVM pipeline (conditional)
     if (enable_llvm) {
         const discover_cpp = try ctx.addStep("discover:cpp-compiler", "Find C++ compiler", &sig_build.discoverCppCompiler);
-        const discover_llvm = try ctx.addStep("discover:llvm", "Find LLVM 22.x", &sig_build.discoverLlvm);
+        const discover_llvm = try ctx.addStep("discover:llvm", "Find LLVM 23.x", &sig_build.discoverLlvm);
         try ctx.addDependency(discover_llvm, discover_cpp);
 
         const cpp_sources = [_]struct { path: []const u8, name: []const u8 }{

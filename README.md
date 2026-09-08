@@ -43,10 +43,10 @@ versions.
 
 | Platform | Backend | Download |
 |---|---|---|
-| x86_64-linux | Full LLVM 22.1.8 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-linux.tar.xz) |
-| aarch64-linux | Full LLVM 22.1.8 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-aarch64-linux.tar.xz) |
-| aarch64-macos | Full LLVM 22.1.8 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-aarch64-macos.tar.xz) |
-| x86_64-windows | Full LLVM 22.1.8 | [zip](https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-windows.zip) |
+| x86_64-linux | Full LLVM 23.1.1 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-linux.tar.xz) |
+| aarch64-linux | Full LLVM 23.1.1 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-aarch64-linux.tar.xz) |
+| aarch64-macos | Full LLVM 23.1.1 | [tar.xz](https://github.com/SB0LTD/sig/releases/latest/download/sig-aarch64-macos.tar.xz) |
+| x86_64-windows | Full LLVM 23.1.1 | [zip](https://github.com/SB0LTD/sig/releases/latest/download/sig-x86_64-windows.zip) |
 | aarch64-sb0 | Native allocator-free SB0K runner | [sb0k](https://github.com/SB0LTD/sig/releases/latest/download/sig-aarch64-sb0-runner.sb0k) |
 
 Every package contains the same full LLVM target set and the same Sig standard
@@ -112,7 +112,7 @@ The result: sig never drifts. You get upstream bug fixes, optimizations, and new
 | **Latest upstream commit** | [`a583d26e`](https://codeberg.org/ziglang/zig/commit/a583d26e7016a6111c2d1f9dbe34aeedf810c63f) |
 | **Last sync** | 2026-08-25 |
 | **Upstream** | [codeberg.org/ziglang/zig](https://codeberg.org/ziglang/zig) |
-| **Base version** | Zig 0.17.0-dev · LLVM 22.1.8 |
+| **Base version** | Zig 0.17.0-dev · LLVM 23.1.1 |
 | **Sync frequency** | Every commit (< 1 min latency) |
 
 ---

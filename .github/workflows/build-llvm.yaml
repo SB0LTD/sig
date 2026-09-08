@@ -14,7 +14,7 @@ on:
       artifact_tag:
         description: 'Immutable LLVM artifact tag'
         required: true
-        default: 'llvm-22.1.8-sig-0.3.1'
+        default: 'llvm-23.1.1-sig-0.4.0'
         type: string
       build_scope:
         description: 'Closure subset (non-all scopes resume an existing verified draft)'
@@ -40,9 +40,9 @@ permissions:
   contents: write
 
 env:
-  LLVM_TAG: llvmorg-22.1.8
-  LLVM_VERSION: 22.1.8
-  LLVM_SOURCE_COMMIT: ca7933e47d3a3451d81e72ac174dcb5aa28b59d1
+  LLVM_TAG: llvmorg-23.1.1
+  LLVM_VERSION: 23.1.1
+  LLVM_SOURCE_COMMIT: 6dfe1677ab8dffbc6ec13d53a1e0215d75147689
   ZLIB_SOURCE_COMMIT: 51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf
   ZSTD_SOURCE_COMMIT: 794ea1b0afca0f020f4e57b6732332231fb23c70
   ARTIFACT_TAG: ${{ inputs.artifact_tag }}
@@ -79,43 +79,43 @@ jobs:
           selected_archive=
           case "$build_scope" in
             all)
-              linux_matrix='{"include":[{"target":"native","artifact":"llvm-22-x86_64-linux-native.tar.xz"},{"target":"x86_64-linux-musl","artifact":"llvm-22-x86_64-linux.tar.xz"},{"target":"aarch64-linux-musl","artifact":"llvm-22-aarch64-linux.tar.xz"},{"target":"aarch64-macos-none","artifact":"llvm-22-aarch64-macos.tar.xz"},{"target":"x86_64-windows-gnu","artifact":"llvm-22-x86_64-windows.tar.xz"}]}'
-              native_matrix='{"include":[{"os":"windows-2022","target":"x86_64-windows-native","artifact":"llvm-22-x86_64-windows-native.tar.zst"},{"os":"macos-14","target":"aarch64-macos-native","artifact":"llvm-22-aarch64-macos-native.tar.zst"}]}'
+              linux_matrix='{"include":[{"target":"native","artifact":"llvm-23-x86_64-linux-native.tar.xz"},{"target":"x86_64-linux-musl","artifact":"llvm-23-x86_64-linux.tar.xz"},{"target":"aarch64-linux-musl","artifact":"llvm-23-aarch64-linux.tar.xz"},{"target":"aarch64-macos-none","artifact":"llvm-23-aarch64-macos.tar.xz"},{"target":"x86_64-windows-gnu","artifact":"llvm-23-x86_64-windows.tar.xz"}]}'
+              native_matrix='{"include":[{"os":"windows-2022","target":"x86_64-windows-native","artifact":"llvm-23-x86_64-windows-native.tar.zst"},{"os":"macos-14","target":"aarch64-macos-native","artifact":"llvm-23-aarch64-macos-native.tar.zst"}]}'
               ;;
             linux-native)
-              selected_archive=llvm-22-x86_64-linux-native.tar.xz
-              linux_matrix='{"include":[{"target":"native","artifact":"llvm-22-x86_64-linux-native.tar.xz"}]}'
+              selected_archive=llvm-23-x86_64-linux-native.tar.xz
+              linux_matrix='{"include":[{"target":"native","artifact":"llvm-23-x86_64-linux-native.tar.xz"}]}'
               native_matrix='{"include":[]}'
               ;;
             linux-x86_64)
-              selected_archive=llvm-22-x86_64-linux.tar.xz
-              linux_matrix='{"include":[{"target":"x86_64-linux-musl","artifact":"llvm-22-x86_64-linux.tar.xz"}]}'
+              selected_archive=llvm-23-x86_64-linux.tar.xz
+              linux_matrix='{"include":[{"target":"x86_64-linux-musl","artifact":"llvm-23-x86_64-linux.tar.xz"}]}'
               native_matrix='{"include":[]}'
               ;;
             linux-aarch64)
-              selected_archive=llvm-22-aarch64-linux.tar.xz
-              linux_matrix='{"include":[{"target":"aarch64-linux-musl","artifact":"llvm-22-aarch64-linux.tar.xz"}]}'
+              selected_archive=llvm-23-aarch64-linux.tar.xz
+              linux_matrix='{"include":[{"target":"aarch64-linux-musl","artifact":"llvm-23-aarch64-linux.tar.xz"}]}'
               native_matrix='{"include":[]}'
               ;;
             cross-macos)
-              selected_archive=llvm-22-aarch64-macos.tar.xz
-              linux_matrix='{"include":[{"target":"aarch64-macos-none","artifact":"llvm-22-aarch64-macos.tar.xz"}]}'
+              selected_archive=llvm-23-aarch64-macos.tar.xz
+              linux_matrix='{"include":[{"target":"aarch64-macos-none","artifact":"llvm-23-aarch64-macos.tar.xz"}]}'
               native_matrix='{"include":[]}'
               ;;
             cross-windows)
-              selected_archive=llvm-22-x86_64-windows.tar.xz
-              linux_matrix='{"include":[{"target":"x86_64-windows-gnu","artifact":"llvm-22-x86_64-windows.tar.xz"}]}'
+              selected_archive=llvm-23-x86_64-windows.tar.xz
+              linux_matrix='{"include":[{"target":"x86_64-windows-gnu","artifact":"llvm-23-x86_64-windows.tar.xz"}]}'
               native_matrix='{"include":[]}'
               ;;
             native-macos)
-              selected_archive=llvm-22-aarch64-macos-native.tar.zst
+              selected_archive=llvm-23-aarch64-macos-native.tar.zst
               linux_matrix='{"include":[]}'
-              native_matrix='{"include":[{"os":"macos-14","target":"aarch64-macos-native","artifact":"llvm-22-aarch64-macos-native.tar.zst"}]}'
+              native_matrix='{"include":[{"os":"macos-14","target":"aarch64-macos-native","artifact":"llvm-23-aarch64-macos-native.tar.zst"}]}'
               ;;
             native-windows)
-              selected_archive=llvm-22-x86_64-windows-native.tar.zst
+              selected_archive=llvm-23-x86_64-windows-native.tar.zst
               linux_matrix='{"include":[]}'
-              native_matrix='{"include":[{"os":"windows-2022","target":"x86_64-windows-native","artifact":"llvm-22-x86_64-windows-native.tar.zst"}]}'
+              native_matrix='{"include":[{"os":"windows-2022","target":"x86_64-windows-native","artifact":"llvm-23-x86_64-windows-native.tar.zst"}]}'
               ;;
             finalize-only)
               linux_matrix='{"include":[]}'
@@ -138,13 +138,13 @@ jobs:
             [[ "$release_source_commit" =~ ^[0-9a-f]{40}$ ]]
 
             expected=(
-              llvm-22-x86_64-linux-native.tar.xz
-              llvm-22-x86_64-linux.tar.xz
-              llvm-22-aarch64-linux.tar.xz
-              llvm-22-aarch64-macos.tar.xz
-              llvm-22-x86_64-windows.tar.xz
-              llvm-22-aarch64-macos-native.tar.zst
-              llvm-22-x86_64-windows-native.tar.zst
+              llvm-23-x86_64-linux-native.tar.xz
+              llvm-23-x86_64-linux.tar.xz
+              llvm-23-aarch64-linux.tar.xz
+              llvm-23-aarch64-macos.tar.xz
+              llvm-23-x86_64-windows.tar.xz
+              llvm-23-aarch64-macos-native.tar.zst
+              llvm-23-x86_64-windows-native.tar.zst
             )
             declare -A allowed=()
             for archive in "${expected[@]}"; do
@@ -440,7 +440,7 @@ jobs:
             -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
             -DLLVM_ENABLE_PROJECTS='clang;lld' \
             -DLLVM_TARGETS_TO_BUILD='AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SPIRV;SystemZ;VE;WebAssembly;X86;XCore' \
-            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD='ARC;CSKY;M68k;Xtensa' \
+            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD='ARC;CSKY;DirectX;M68k;Xtensa' \
             -DLLVM_ENABLE_TERMINFO=OFF \
             -DLLVM_ENABLE_LIBXML2=OFF \
             -DLLVM_ENABLE_ZLIB=FORCE_ON \
@@ -492,7 +492,7 @@ jobs:
         if: matrix.target == 'native'
         shell: bash
         run: |
-          git -C llvm-src apply "$GITHUB_WORKSPACE/ci/patches/llvm-22-portable-static-zstd.patch"
+          git -C llvm-src apply "$GITHUB_WORKSPACE/ci/patches/llvm-23-portable-static-zstd.patch"
           cmake -S llvm-src/llvm -B llvm-build -G Ninja \
             -DCMAKE_C_COMPILER=gcc \
             -DCMAKE_CXX_COMPILER=g++ \
@@ -504,7 +504,7 @@ jobs:
             -Dzstd_ROOT="$ZSTD_PREFIX" \
             -DLLVM_ENABLE_PROJECTS='clang;lld' \
             -DLLVM_TARGETS_TO_BUILD='AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SPIRV;SystemZ;VE;WebAssembly;X86;XCore' \
-            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD='ARC;CSKY;M68k;Xtensa' \
+            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD='ARC;CSKY;DirectX;M68k;Xtensa' \
             -DLLVM_ENABLE_TERMINFO=OFF \
             -DLLVM_ENABLE_LIBXML2=OFF \
             -DLLVM_ENABLE_ZLIB=FORCE_ON \
@@ -647,7 +647,7 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="$PWD/llvm-install" \
             -DLLVM_ENABLE_PROJECTS='clang;lld' \
             -DLLVM_TARGETS_TO_BUILD='AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SPIRV;SystemZ;VE;WebAssembly;X86;XCore' \
-            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD='ARC;CSKY;M68k;Xtensa' \
+            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD='ARC;CSKY;DirectX;M68k;Xtensa' \
             -DLLVM_ENABLE_TERMINFO=OFF \
             -DLLVM_ENABLE_LIBXML2=OFF \
             -DLLVM_ENABLE_ZLIB=OFF \
@@ -670,7 +670,7 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          cmake -S llvm-src\llvm -B llvm-build -G Ninja -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DCMAKE_INSTALL_PREFIX=%CD%\llvm-install -DLLVM_ENABLE_PROJECTS=clang;lld -DLLVM_TARGETS_TO_BUILD=AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SPIRV;SystemZ;VE;WebAssembly;X86;XCore -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=ARC;CSKY;M68k;Xtensa -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DBUILD_SHARED_LIBS=OFF -DLLVM_BUILD_LLVM_DYLIB=OFF -DLLVM_BUILD_TOOLS=ON -DCLANG_ENABLE_ARCMT=OFF -DCLANG_ENABLE_STATIC_ANALYZER=ON -DLLVM_ENABLE_BINDINGS=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF
+          cmake -S llvm-src\llvm -B llvm-build -G Ninja -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DCMAKE_INSTALL_PREFIX=%CD%\llvm-install -DLLVM_ENABLE_PROJECTS=clang;lld -DLLVM_TARGETS_TO_BUILD=AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SPIRV;SystemZ;VE;WebAssembly;X86;XCore -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=ARC;CSKY;DirectX;M68k;Xtensa -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DBUILD_SHARED_LIBS=OFF -DLLVM_BUILD_LLVM_DYLIB=OFF -DLLVM_BUILD_TOOLS=ON -DCLANG_ENABLE_ARCMT=OFF -DCLANG_ENABLE_STATIC_ANALYZER=ON -DLLVM_ENABLE_BINDINGS=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF
           ninja -C llvm-build install -j%NUMBER_OF_PROCESSORS%
 
       - name: Verify native Windows LLVM version
@@ -744,13 +744,13 @@ jobs:
         run: |
           set -euo pipefail
           expected=(
-            llvm-22-x86_64-linux-native.tar.xz
-            llvm-22-x86_64-linux.tar.xz
-            llvm-22-aarch64-linux.tar.xz
-            llvm-22-aarch64-macos.tar.xz
-            llvm-22-x86_64-windows.tar.xz
-            llvm-22-aarch64-macos-native.tar.zst
-            llvm-22-x86_64-windows-native.tar.zst
+            llvm-23-x86_64-linux-native.tar.xz
+            llvm-23-x86_64-linux.tar.xz
+            llvm-23-aarch64-linux.tar.xz
+            llvm-23-aarch64-macos.tar.xz
+            llvm-23-x86_64-windows.tar.xz
+            llvm-23-aarch64-macos-native.tar.zst
+            llvm-23-x86_64-windows-native.tar.zst
           )
           gh release download "${ARTIFACT_TAG}" --pattern '*.sha256' --dir checksums
           assets_json="$(gh release view "${ARTIFACT_TAG}" --json assets)"

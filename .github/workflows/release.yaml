@@ -28,12 +28,12 @@ on:
       bootstrap_tag:
         description: 'Verified bootstrap release tag'
         required: true
-        default: 'bootstrap-sig-v71'
+        default: 'bootstrap-sig-v72'
         type: string
       llvm_tag:
         description: 'Verified LLVM closure release tag'
         required: true
-        default: 'llvm-22.1.8-sig-0.3.1'
+        default: 'llvm-23.1.1-sig-0.4.0'
         type: string
 
 concurrency:
@@ -47,8 +47,8 @@ permissions:
   contents: write
 
 env:
-  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v71' }}
-  LLVM_ARTIFACT_TAG: ${{ github.event.client_payload.llvm_tag || inputs.llvm_tag || 'llvm-22.1.8-sig-0.3.1' }}
+  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v72' }}
+  LLVM_ARTIFACT_TAG: ${{ github.event.client_payload.llvm_tag || inputs.llvm_tag || 'llvm-23.1.1-sig-0.4.0' }}
 
 jobs:
   prepare:
@@ -137,8 +137,8 @@ jobs:
           jq -e \
             --arg tag "${LLVM_ARTIFACT_TAG}" \
             '.schema == "sb0.sig.llvm-release.v1" and
-             .tag == $tag and .llvm_version == "22.1.8" and
-             .llvm_source_commit == "ca7933e47d3a3451d81e72ac174dcb5aa28b59d1" and
+             .tag == $tag and .llvm_version == "23.1.1" and
+             .llvm_source_commit == "6dfe1677ab8dffbc6ec13d53a1e0215d75147689" and
              (.assets | length) == 21' \
             "$llvm_manifest" >/dev/null
           for name in \
@@ -153,10 +153,10 @@ jobs:
               "$bootstrap_manifest" >/dev/null
           done
           for name in \
-            llvm-22-x86_64-linux.tar.xz \
-            llvm-22-aarch64-linux.tar.xz \
-            llvm-22-aarch64-macos-native.tar.zst \
-            llvm-22-x86_64-windows.tar.xz; do
+            llvm-23-x86_64-linux.tar.xz \
+            llvm-23-aarch64-linux.tar.xz \
+            llvm-23-aarch64-macos-native.tar.zst \
+            llvm-23-x86_64-windows.tar.xz; do
             digest="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .digest' <<<"$llvm_assets")"
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
             jq -e --arg name "$name" --arg digest "$digest" \
@@ -174,12 +174,12 @@ jobs:
         include:
           - platform: x86_64-linux
             target: x86_64-linux-musl
-            llvm_archive: llvm-22-x86_64-linux.tar.xz
+            llvm_archive: llvm-23-x86_64-linux.tar.xz
             binary: sig
             qemu: ''
           - platform: aarch64-linux
             target: aarch64-linux-musl
-            llvm_archive: llvm-22-aarch64-linux.tar.xz
+            llvm_archive: llvm-23-aarch64-linux.tar.xz
             binary: sig
             qemu: qemu-aarch64
     env:
@@ -389,12 +389,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          archive=llvm-22-aarch64-macos-native.tar.zst
+          archive=llvm-23-aarch64-macos-native.tar.zst
           gh release download "${LLVM_ARTIFACT_TAG}" --pattern "$archive" --pattern "$archive.sha256" --dir /tmp/llvm-download
           (cd /tmp/llvm-download && shasum -a 256 -c "$archive.sha256")
           mkdir llvm-target
           zstd -d "/tmp/llvm-download/$archive" --stdout | tar -x -C llvm-target --strip-components=1
-          llvm-target/bin/llvm-config --version | grep -qx '22.1.8'
+          llvm-target/bin/llvm-config --version | grep -qx '23.1.1'
           echo "LLVM_PREFIX=$PWD/llvm-target" >> "$GITHUB_ENV"
 
       - name: Build full LLVM-backed macOS compiler
@@ -520,7 +520,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          archive=llvm-22-x86_64-windows.tar.xz
+          archive=llvm-23-x86_64-windows.tar.xz
           gh release download "${LLVM_ARTIFACT_TAG}" --pattern "$archive" --pattern "$archive.sha256" --dir /tmp/llvm-download
           (cd /tmp/llvm-download && sha256sum --check --strict "$archive.sha256")
           mkdir llvm-target

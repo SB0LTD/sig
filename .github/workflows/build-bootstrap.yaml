@@ -16,7 +16,7 @@ on:
       llvm_tag:
         description: 'Verified LLVM closure release tag'
         required: true
-        default: 'llvm-22.1.8-sig-0.3.1'
+        default: 'llvm-23.1.1-sig-0.4.0'
         type: string
       stage0_tag:
         description: 'Immutable published Sig bootstrap used as stage0'
@@ -128,17 +128,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          archive=llvm-22-x86_64-linux.tar.xz
+          archive=llvm-23-x86_64-linux.tar.xz
           gh release download "${LLVM_ARTIFACT_TAG}" --pattern "$archive" --pattern "$archive.sha256" --dir /tmp/llvm-download
           (cd /tmp/llvm-download && sha256sum --check --strict "$archive.sha256")
-          mkdir llvm-22
-          tar -xJf "/tmp/llvm-download/$archive" -C llvm-22 --strip-components=1
+          mkdir llvm-23
+          tar -xJf "/tmp/llvm-download/$archive" -C llvm-23 --strip-components=1
           # Target closures intentionally omit host executables such as
           # llvm-config. Prove the headers and static link closure consumed by
           # the self-hosted builder instead.
-          test -f llvm-22/include/llvm/Config/llvm-config.h
-          test -f llvm-22/lib/libLLVMCore.a
-          echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
+          test -f llvm-23/include/llvm/Config/llvm-config.h
+          test -f llvm-23/lib/libLLVMCore.a
+          echo "LLVM_PREFIX=$PWD/llvm-23" >> "$GITHUB_ENV"
 
       - name: Download and verify aarch64 Linux LLVM closure
         env:
@@ -146,14 +146,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          archive=llvm-22-aarch64-linux.tar.xz
+          archive=llvm-23-aarch64-linux.tar.xz
           gh release download "${LLVM_ARTIFACT_TAG}" --pattern "$archive" --pattern "$archive.sha256" --dir /tmp/llvm-aarch64-download
           (cd /tmp/llvm-aarch64-download && sha256sum --check --strict "$archive.sha256")
-          mkdir llvm-22-aarch64
-          tar -xJf "/tmp/llvm-aarch64-download/$archive" -C llvm-22-aarch64 --strip-components=1
-          test -f llvm-22-aarch64/include/llvm/Config/llvm-config.h
-          test -f llvm-22-aarch64/lib/libLLVMCore.a
-          echo "LLVM_AARCH64_PREFIX=$PWD/llvm-22-aarch64" >> "$GITHUB_ENV"
+          mkdir llvm-23-aarch64
+          tar -xJf "/tmp/llvm-aarch64-download/$archive" -C llvm-23-aarch64 --strip-components=1
+          test -f llvm-23-aarch64/include/llvm/Config/llvm-config.h
+          test -f llvm-23-aarch64/lib/libLLVMCore.a
+          echo "LLVM_AARCH64_PREFIX=$PWD/llvm-23-aarch64" >> "$GITHUB_ENV"
 
       - name: Download previous bootstrap for compilation
         env:
@@ -380,13 +380,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          archive=llvm-22-aarch64-macos-native.tar.zst
+          archive=llvm-23-aarch64-macos-native.tar.zst
           gh release download "${LLVM_ARTIFACT_TAG}" --pattern "$archive" --pattern "$archive.sha256" --dir /tmp/llvm-download
           (cd /tmp/llvm-download && shasum -a 256 -c "$archive.sha256")
-          mkdir llvm-22
-          zstd -d "/tmp/llvm-download/$archive" --stdout | tar -x -C llvm-22 --strip-components=1
-          llvm-22/bin/llvm-config --version | grep -qx '22.1.8'
-          echo "LLVM_PREFIX=$PWD/llvm-22" >> "$GITHUB_ENV"
+          mkdir llvm-23
+          zstd -d "/tmp/llvm-download/$archive" --stdout | tar -x -C llvm-23 --strip-components=1
+          llvm-23/bin/llvm-config --version | grep -qx '23.1.1'
+          echo "LLVM_PREFIX=$PWD/llvm-23" >> "$GITHUB_ENV"
 
       - name: Download previous bootstrap for macOS compilation
         env:
@@ -531,14 +531,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          archive=llvm-22-x86_64-windows.tar.xz
+          archive=llvm-23-x86_64-windows.tar.xz
           gh release download "${LLVM_ARTIFACT_TAG}" --pattern "$archive" --pattern "$archive.sha256" --dir /tmp/llvm-download
           (cd /tmp/llvm-download && sha256sum --check --strict "$archive.sha256")
-          mkdir llvm-22-windows
-          tar -xJf "/tmp/llvm-download/$archive" -C llvm-22-windows --strip-components=1
-          test -f llvm-22-windows/include/llvm/Config/llvm-config.h
-          test -f llvm-22-windows/lib/libLLVMCore.a
-          echo "LLVM_WINDOWS_PREFIX=$PWD/llvm-22-windows" >> "$GITHUB_ENV"
+          mkdir llvm-23-windows
+          tar -xJf "/tmp/llvm-download/$archive" -C llvm-23-windows --strip-components=1
+          test -f llvm-23-windows/include/llvm/Config/llvm-config.h
+          test -f llvm-23-windows/lib/libLLVMCore.a
+          echo "LLVM_WINDOWS_PREFIX=$PWD/llvm-23-windows" >> "$GITHUB_ENV"
 
       - name: Build Windows bootstrap with Sig
         shell: bash

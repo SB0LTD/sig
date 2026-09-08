@@ -25,11 +25,11 @@ graph compiles the compiler, installs the Sig library, and runs the canonical
 - Restored native `build.sig` dispatch and fixed subprocess output, error-pipe
   draining, Windows standard-handle inheritance, fixed-buffer formatting, and
   real compiler test execution.
-- Self-hosted Linux bootstrap builds use the portable LLVM 22.1.8 libc++ closure,
+- Self-hosted Linux bootstrap builds use the portable LLVM 23.1.1 libc++ closure,
   eliminating the mixed libstdc++/libc++ ABI failure in the abandoned 0.3.3
   bootstrap attempt.
-- The release remains on stable LLVM 22.1.8; LLVM 23 was still in release-candidate
-  status when 0.4.0 was cut.
+- Upgraded the complete seven-archive LLVM closure to stable LLVM 23.1.1 before
+  the final bootstrap and release cycle.
 
 ## [0.3.3] — 2026-08-26 — Pure .sig Bootstrap
 
