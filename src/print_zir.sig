@@ -2224,6 +2224,8 @@ const Writer = struct {
         defer self.parent_decl_node = prev_parent_decl_node;
         self.parent_decl_node = decl.src_node;
 
+        try stream.print(":{d}:{d} ", .{ decl.src_line + 1, decl.src_column + 1 });
+
         if (decl.is_pub) try stream.writeAll("pub ");
         switch (decl.linkage) {
             .normal => {},
@@ -2237,7 +2239,6 @@ const Writer = struct {
                 try stream.print("{s} '{s}'", .{ @tagName(decl.kind), self.code.nullTerminatedString(decl.name) });
             },
         }
-        try stream.print(":{d}:{d}", .{ decl.src_line + 1, decl.src_column + 1 });
 
         const src_hash = self.code.getAssociatedSrcHash(inst).?;
         try stream.print(" hash({x})", .{&src_hash});

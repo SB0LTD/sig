@@ -4,37 +4,37 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const Ast = std.sig.Ast;
-const AstGen = std.sig.AstGen;
+const Ast = std.zig.Ast;
+const AstGen = std.zig.AstGen;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Cache = std.Build.Cache;
 const log = std.log.scoped(.zcu);
 const mem = std.mem;
-const Zir = std.sig.Zir;
-const Zoir = std.sig.Zoir;
-const ZonGen = std.sig.ZonGen;
+const Zir = std.zig.Zir;
+const Zoir = std.zig.Zoir;
+const ZonGen = std.zig.ZonGen;
 const Io = std.Io;
 
-const Air = @import("../Air.sig");
-const Builtin = @import("../Builtin.sig");
+const Air = @import("../Air.zig");
+const Builtin = @import("../Builtin.zig");
 const build_options = @import("build_options");
 const builtin = @import("builtin");
-const dev = @import("../dev.sig");
-const InternPool = @import("../InternPool.sig");
+const dev = @import("../dev.zig");
+const InternPool = @import("../InternPool.zig");
 const AnalUnit = InternPool.AnalUnit;
-const Module = @import("../Module.sig");
-const Sema = @import("../Sema.sig");
-const target_util = @import("../target.sig");
-const tracy = @import("../tracy.sig");
+const Module = @import("../Module.zig");
+const Sema = @import("../Sema.zig");
+const target_util = @import("../target.zig");
+const tracy = @import("../tracy.zig");
 const trace = tracy.trace;
 const traceNamed = tracy.traceNamed;
-const Type = @import("../Type.sig");
-const Value = @import("../Value.sig");
-const Zcu = @import("../Zcu.sig");
-const Compilation = @import("../Compilation.sig");
-const codegen = @import("../codegen.sig");
-const crash_report = @import("../crash_report.sig");
+const Type = @import("../Type.zig");
+const Value = @import("../Value.zig");
+const Zcu = @import("../Zcu.zig");
+const Compilation = @import("../Compilation.zig");
+const codegen = @import("../codegen.zig");
+const crash_report = @import("../crash_report.zig");
 
 zcu: *Zcu,
 
@@ -382,24 +382,25 @@ fn workerUpdateFile(
     };
 
     switch (file.getMode()) {
-        .Sig => {}, // continue to logic below
+        .zig => {}, // continue to logic below
         .zon => return, // ZON can't import anything so we're done
     }
 
     // Discover all imports in the file. Imports of modules we ignore for now since we don't
     // know which module we're in, but imports of file paths might need us to queue up other
     // AstGen jobs.
-    const imports_index = file.zir.?.extra[@backingInt(Zir.ExtraIndex.imports)];
+    const zir = &file.zir.?;
+    const imports_index = zir.extra[@backingInt(Zir.ExtraIndex.imports)];
     if (imports_index != 0) {
-        const extra = file.zir.?.extraData(Zir.Inst.Imports, imports_index);
+        const extra = zir.extraData(Zir.Inst.Imports, imports_index);
         var import_i: u32 = 0;
         var extra_index = extra.end;
 
         while (import_i < extra.data.imports_len) : (import_i += 1) {
-            const item = file.zir.?.extraData(Zir.Inst.Imports.Item, extra_index);
+            const item = zir.extraData(Zir.Inst.Imports.Item, extra_index);
             extra_index = item.end;
 
-            const import_path = file.zir.?.nullTerminatedString(item.data.name);
+            const import_path = zir.nullTerminatedString(item.data.name);
 
             if (active.pt.discoverImport(file.path, import_path)) |res| switch (res) {
                 .module, .existing_file => {},
@@ -481,7 +482,7 @@ pub fn updateFile(
 
     const want_local_cache = switch (file.path.root) {
         .none, .local_cache, .build_root => true,
-        .global_cache, .sig_lib => false,
+        .global_cache, .zig_lib => false,
     };
 
     const hex_digest: Cache.HexDigest = d: {
@@ -650,9 +651,9 @@ pub fn updateFile(
 
         timer = comp.startTimer();
         switch (file.getMode()) {
-            .Sig => {
+            .zig => {
                 file.zir = try AstGen.generate(gpa, file.tree.?);
-                Zcu.saveZirCache(gpa, &cache_file_writer, stat, file.zir.?) catch |err| switch (err) {
+                Zcu.saveZirCache(gpa, &cache_file_writer, stat, &file.zir.?) catch |err| switch (err) {
                     error.OutOfMemory => |e| return e,
                     else => log.warn("unable to write cached ZIR code for {f} to {f}{s}: {t}", .{
                         file.path.fmt(comp), cache_directory, &hex_digest, err,
@@ -661,7 +662,7 @@ pub fn updateFile(
             },
             .zon => {
                 file.zoir = try ZonGen.generate(gpa, file.tree.?, .{});
-                Zcu.saveZoirCache(&cache_file_writer, stat, file.zoir.?) catch |err| {
+                Zcu.saveZoirCache(&cache_file_writer, stat, &file.zoir.?) catch |err| {
                     log.warn("unable to write cached ZOIR code for {f} to {f}{s}: {t}", .{
                         file.path.fmt(comp), cache_directory, &hex_digest, err,
                     });
@@ -693,13 +694,14 @@ pub fn updateFile(
     // Mark file successes/failures as needed.
 
     switch (file.getMode()) {
-        .Sig => {
-            if (file.zir.?.hasCompileErrors()) {
+        .zig => {
+            const zir = &file.zir.?;
+            if (zir.hasCompileErrors()) {
                 comp.mutex.lockUncancelable(io);
                 defer comp.mutex.unlock(io);
                 try zcu.failed_files.putNoClobber(gpa, file_index, null);
             }
-            if (file.zir.?.loweringFailed()) {
+            if (zir.loweringFailed()) {
                 file.status = .astgen_failure;
             } else {
                 file.status = .success;
@@ -737,7 +739,7 @@ fn loadZirZoirCache(
     const io = zcu.comp.io;
 
     const Header = switch (mode) {
-        .Sig => Zir.Header,
+        .zig => Zir.Header,
         .zon => Zoir.Header,
     };
 
@@ -765,7 +767,7 @@ fn loadZirZoirCache(
     }
 
     switch (mode) {
-        .Sig => file.zir = Zcu.loadZirCacheBody(gpa, header, cache_br) catch |err| switch (err) {
+        .zig => file.zir = Zcu.loadZirCacheBody(gpa, header, cache_br) catch |err| switch (err) {
             error.ReadFailed => return cache_fr.err.?,
             error.EndOfStream => return .truncated,
             else => |e| return e,
@@ -819,7 +821,7 @@ fn updateZirRefs(pt: Zcu.PerThread) (Io.Cancelable || Allocator.Error)!void {
             continue;
         }
         switch (file.getMode()) {
-            .Sig => {}, // logic below
+            .zig => {}, // logic below
             .zon => {
                 if (file.zoir_invalidated) {
                     try zcu.markDependeeOutdated(.not_marked_po, .{ .source_file = file_index });
@@ -829,14 +831,14 @@ fn updateZirRefs(pt: Zcu.PerThread) (Io.Cancelable || Allocator.Error)!void {
             },
         }
         const old_zir = file.prev_zir orelse continue;
-        const new_zir = file.zir.?;
+        const new_zir = &file.zir.?;
         const gop = try updated_files.getOrPut(gpa, file_index);
         assert(!gop.found_existing);
         gop.value_ptr.* = .{
             .file = file,
             .inst_map = .{},
         };
-        try Zcu.mapOldZirToNew(gpa, old_zir.*, new_zir, &gop.value_ptr.inst_map);
+        try Zcu.mapOldZirToNew(gpa, old_zir, new_zir, &gop.value_ptr.inst_map);
     }
 
     if (updated_files.count() == 0)
@@ -870,7 +872,7 @@ fn updateZirRefs(pt: Zcu.PerThread) (Io.Cancelable || Allocator.Error)!void {
             const old_tag = old_zir.instructions.items(.tag)[@backingInt(old_inst)];
             const old_data = old_zir.instructions.items(.data)[@backingInt(old_inst)];
 
-            const new_zir = file.zir.?;
+            const new_zir = &file.zir.?;
             const new_data = new_zir.instructions.items(.data)[@backingInt(new_inst)];
 
             debug_update_line_number: {
@@ -922,7 +924,7 @@ fn updateZirRefs(pt: Zcu.PerThread) (Io.Cancelable || Allocator.Error)!void {
 
             if (old_zir.getAssociatedSrcHash(old_inst)) |old_hash| hash_changed: {
                 if (new_zir.getAssociatedSrcHash(new_inst)) |new_hash| {
-                    if (std.sig.srcHashEql(old_hash, new_hash)) {
+                    if (std.zig.srcHashEql(old_hash, new_hash)) {
                         break :hash_changed;
                     }
                     log.debug("hash for (%{d} -> %{d}) changed: {x} -> {x}", .{
@@ -1039,7 +1041,7 @@ pub fn ensureFilePopulated(pt: Zcu.PerThread, file_index: Zcu.File.Index) (Alloc
     if (zcu.comp.time_report) |*tr| tr.stats.n_imported_files += 1;
 
     const file = zcu.fileByIndex(file_index);
-    assert(file.getMode() == .Sig);
+    assert(file.getMode() == .zig);
     const struct_decl = file.zir.?.getStructDecl(.main_struct_inst);
     const tracked_inst = try ip.trackZir(gpa, io, pt.tid, .{
         .file = file_index,
@@ -2379,7 +2381,7 @@ pub fn discoverImport(
     const io = comp.io;
     const gpa = comp.gpa;
 
-    if (Zcu.File.modeFromPath(import_string) == null) {
+    if (!mem.endsWith(u8, import_string, ".zig") and !mem.endsWith(u8, import_string, ".zon")) {
         return .module;
     }
 
@@ -2465,7 +2467,9 @@ pub fn doImport(
             };
         }
     }
-    if (Zcu.File.modeFromPath(import_string) == null) {
+    if (!std.mem.endsWith(u8, import_string, ".zig") and
+        !std.mem.endsWith(u8, import_string, ".zon"))
+    {
         return error.ModuleNotFound;
     }
     const path = try importer.path.upJoin(gpa, zcu.comp.dirs, import_string);
@@ -2632,13 +2636,13 @@ fn computeAliveFiles(pt: Zcu.PerThread) Allocator.Error!bool {
         try comp.appendFileSystemInput(file.path);
 
         switch (file.getMode()) {
-            .Sig => {}, // continue to logic below
+            .zig => {}, // continue to logic below
             .zon => continue, // ZON can't import anything
         }
 
         if (file.status != .success) continue; // ZIR not valid if there was a file failure
 
-        const zir = file.zir.?;
+        const zir = &file.zir.?;
         const imports_index = zir.extra[@backingInt(Zir.ExtraIndex.imports)];
         if (imports_index == 0) continue; // this Zig file has no imports
         const extra = zir.extraData(Zir.Inst.Imports, imports_index);
@@ -2653,7 +2657,13 @@ fn computeAliveFiles(pt: Zcu.PerThread) Allocator.Error!bool {
                 // We've not necessarily generated builtin modules yet, so `doImport` could fail. Instead,
                 // create the module here. Then, since we know that `builtin.zig` doesn't have an error and
                 // has no imports other than 'std', we can just continue onto the next import.
-                try pt.updateBuiltinModule(file.mod.?.getBuiltinOptions(comp.config));
+                const res = try pt.updateBuiltinModule(file.mod.?.getBuiltinOptions(comp.config));
+                const gop = zcu.alive_files.getOrPutAssumeCapacity(res.file);
+                if (!gop.found_existing) gop.value_ptr.* = .{ .import = .{
+                    .importer = file_idx,
+                    .tok = item.data.token,
+                    .module = res.module_root,
+                } };
                 continue;
             }
 
@@ -2752,20 +2762,26 @@ fn computeAliveFiles(pt: Zcu.PerThread) Allocator.Error!bool {
 /// up-to-date, setting a misc failure if updating it fails.
 /// Asserts that the imported `builtin.zig` has no ZIR errors, and that it has only one
 /// import, which is 'std'.
-pub fn updateBuiltinModule(pt: Zcu.PerThread, opts: Builtin) Allocator.Error!void {
+fn updateBuiltinModule(pt: Zcu.PerThread, opts: Builtin) Allocator.Error!struct {
+    file: Zcu.File.Index,
+    module_root: *Module,
+} {
     const zcu = pt.zcu;
     const comp = zcu.comp;
     const gpa = comp.gpa;
     const io = comp.io;
 
     const gop = try zcu.builtin_modules.getOrPut(gpa, opts.hash());
-    if (gop.found_existing) return; // the `File` is up-to-date
+    if (gop.found_existing) return .{ // the `File` is up-to-date
+        .file = zcu.module_roots.get(gop.value_ptr.*).?.unwrap().?,
+        .module_root = gop.value_ptr.*,
+    };
     errdefer _ = zcu.builtin_modules.pop();
 
     const mod: *Module = try .createBuiltin(comp.arena, opts, comp.dirs);
     assert(std.mem.eql(u8, &mod.getBuiltinOptions(comp.config).hash(), gop.key_ptr)); // builtin is its own builtin
 
-    const path = try mod.root.join(gpa, comp.dirs, "builtin.sig");
+    const path = try mod.root.join(gpa, comp.dirs, "builtin.zig");
     errdefer path.deinit(gpa);
 
     const file_gop = try zcu.import_table.getOrPutAdapted(gpa, path, Zcu.ImportTableAdapter{ .zcu = zcu });
@@ -2789,7 +2805,7 @@ pub fn updateBuiltinModule(pt: Zcu.PerThread, opts: Builtin) Allocator.Error!voi
         .zir = null,
         .zoir = null,
         .mod = mod,
-        .sub_file_path = "builtin.sig",
+        .sub_file_path = "builtin.zig",
         .module_changed = false,
         .prev_zir = null,
         .zoir_invalidated = false,
@@ -2807,15 +2823,16 @@ pub fn updateBuiltinModule(pt: Zcu.PerThread, opts: Builtin) Allocator.Error!voi
     try opts.populateFile(gpa, file);
 
     assert(file.status == .success);
-    assert(!file.zir.?.hasCompileErrors());
+    const zir = &file.zir.?;
+    assert(!zir.hasCompileErrors());
     {
         // Check that it has only one import, which is 'std'.
-        const imports_idx = file.zir.?.extra[@backingInt(Zir.ExtraIndex.imports)];
+        const imports_idx = zir.extra[@backingInt(Zir.ExtraIndex.imports)];
         assert(imports_idx != 0); // there is an import
-        const extra = file.zir.?.extraData(Zir.Inst.Imports, imports_idx);
+        const extra = zir.extraData(Zir.Inst.Imports, imports_idx);
         assert(extra.data.imports_len == 1); // there is exactly one import
-        const item = file.zir.?.extraData(Zir.Inst.Imports.Item, extra.end);
-        const import_path = file.zir.?.nullTerminatedString(item.data.name);
+        const item = zir.extraData(Zir.Inst.Imports.Item, extra.end);
+        const import_path = zir.nullTerminatedString(item.data.name);
         assert(mem.eql(u8, import_path, "std")); // the single import is of 'std'
     }
 
@@ -2824,6 +2841,10 @@ pub fn updateBuiltinModule(pt: Zcu.PerThread, opts: Builtin) Allocator.Error!voi
         "unable to write '{f}': {s}",
         .{ file.path.fmt(comp), @errorName(err) },
     );
+    return .{
+        .file = file_index,
+        .module_root = mod,
+    };
 }
 
 pub fn embedFile(
@@ -3135,7 +3156,7 @@ const ScanDeclIter = struct {
         const gpa = comp.gpa;
         const io = comp.io;
         const file = namespace.fileScope(zcu);
-        const zir = file.zir.?;
+        const zir = &file.zir.?;
         const ip = &zcu.intern_pool;
 
         const decl = zir.getDeclaration(decl_inst);
@@ -3569,12 +3590,12 @@ fn lockAndClearFileCompileError(pt: Zcu.PerThread, file_index: Zcu.File.Index, f
         .retryable_failure => true,
         .astgen_failure => true,
         .success => switch (file.getMode()) {
-            .Sig => has_error: {
-                const zir = file.zir orelse break :has_error false;
+            .zig => has_error: {
+                const zir = &(file.zir orelse break :has_error false);
                 break :has_error zir.hasCompileErrors();
             },
             .zon => has_error: {
-                const zoir = file.zoir orelse break :has_error false;
+                const zoir = &(file.zoir orelse break :has_error false);
                 break :has_error zoir.hasCompileErrors();
             },
         },
@@ -3812,7 +3833,7 @@ pub fn populateTestFunctions(pt: Zcu.PerThread) Allocator.Error!void {
         ip.resolveNav(io, test_fns_nav_index, new_resolved_test_fns);
     }
     // The linker thread is not running, so we actually need to dispatch this task directly.
-    @import("../link.sig").linkTestFunctionsNav(pt, test_fns_nav_index);
+    @import("../link.zig").linkTestFunctionsNav(pt, test_fns_nav_index);
 }
 
 /// Stores an error in `pt.zcu.failed_files` for this file, and sets the file
