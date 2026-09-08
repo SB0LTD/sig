@@ -33,7 +33,7 @@ on:
       llvm_tag:
         description: 'Verified LLVM closure release tag'
         required: true
-        default: 'llvm-23.1.1-sig-0.4.0'
+        default: 'llvm-23.1.1-sig-0.4.0.r2'
         type: string
 
 concurrency:
@@ -48,7 +48,7 @@ permissions:
 
 env:
   BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v72' }}
-  LLVM_ARTIFACT_TAG: ${{ github.event.client_payload.llvm_tag || inputs.llvm_tag || 'llvm-23.1.1-sig-0.4.0' }}
+  LLVM_ARTIFACT_TAG: ${{ github.event.client_payload.llvm_tag || inputs.llvm_tag || 'llvm-23.1.1-sig-0.4.0.r2' }}
 
 jobs:
   prepare:

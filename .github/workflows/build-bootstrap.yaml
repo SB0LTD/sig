@@ -16,7 +16,7 @@ on:
       llvm_tag:
         description: 'Verified LLVM closure release tag'
         required: true
-        default: 'llvm-23.1.1-sig-0.4.0'
+        default: 'llvm-23.1.1-sig-0.4.0.r2'
         type: string
       stage0_tag:
         description: 'Immutable published Sig bootstrap used as stage0'
