@@ -132,6 +132,12 @@ pub fn main(init: std.process.Init) !void {
                 @memcpy(config.self_test_compiler[0..value.len], value);
                 config.self_test_compiler_len = value.len;
             }
+        } else if (sig_mem.startsWith(u8, arg, "--self-test-runner=")) {
+            const value = sig_build.parseLongOptionValue(arg) orelse
+                sig_build.fatal(io, "--self-test-runner requires a path", .{});
+            if (value.len > sig_build.PATH_BUF_SIZE) sig_build.fatal(io, "--self-test-runner path too long", .{});
+            @memcpy(config.self_test_runner[0..value.len], value);
+            config.self_test_runner_len = value.len;
         } else if (sig_mem.eql(u8, arg, "--prefix")) {
             if (args_it.next() catch sig_build.fatal(io, "argv decode error", .{})) |value| {
                 if (value.len > sig_build.PATH_BUF_SIZE) sig_build.fatal(io, "--prefix path too long", .{});
@@ -467,13 +473,17 @@ pub fn main(init: std.process.Init) !void {
     }
 
     if (config.self_test) {
-        const self_path = runner_args.runner_binary[0..runner_args.runner_binary_len];
+        const self_path = if (config.self_test_runner_len > 0)
+            config.self_test_runner[0..config.self_test_runner_len]
+        else
+            runner_args.runner_binary[0..runner_args.runner_binary_len];
         const compiler = if (config.self_test_compiler_len > 0)
             config.self_test_compiler[0..config.self_test_compiler_len]
         else
             runner_args.compiler_path[0..runner_args.compiler_path_len];
 
-        if (!sig_build.verifySelfHosting(io, self_path, compiler)) {
+        const self_build_file = runner_args.build_file[0..runner_args.build_file_len];
+        if (!sig_build.verifySelfHosting(io, self_path, compiler, &runner_args, self_build_file)) {
             sig_process.exit(1);
         }
     }
