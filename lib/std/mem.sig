@@ -3,7 +3,7 @@ const mem = @This();
 const builtin = @import("builtin");
 const native_endian = builtin.cpu.arch.endian();
 
-const std = @import("std.sig");
+const std = @import("std.zig");
 const debug = std.debug;
 const assert = debug.assert;
 const math = std.math;
@@ -19,7 +19,7 @@ const AbsorbSentinel = std.meta.AbsorbSentinel;
 /// which need to be updated.
 pub const byte_size_in_bits = 8;
 
-pub const Allocator = @import("mem/Allocator.sig");
+pub const Allocator = @import("mem/Allocator.zig");
 
 /// Stored as a power-of-two.
 pub const Alignment = enum(math.Log2Int(usize)) {
@@ -269,7 +269,40 @@ pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
     }
 }
 
-/// Generally, Sig users are encouraged to explicitly initialize all fields of a struct explicitly rather than using this function.
+/// Copy `source` into `dest`, excluding the sentinel.
+///
+/// Asserts no overlap. Asserts `dest.len` greater or equal to source len. Returns number of elements copied,
+/// not counting the sentinel.
+pub fn copySentinel(comptime T: type, comptime s: T, dest: []T, source: [*:s]const T) usize {
+    const i = findSentinel(T, s, source);
+    @memcpy(dest[0..i], source[0..i]);
+    return i;
+}
+
+test copySentinel {
+    var dst: [11]u8 = @splat(0xff);
+    const n = copySentinel(u8, 0, &dst, "hello this\x00is my null-terminated string");
+    try testing.expectEqualStrings("hello this\xff", &dst);
+    try testing.expectEqual(n, 10);
+}
+
+/// Copy `source` into `dest`, including the sentinel.
+///
+/// Asserts no overlap. Asserts `dest.len` greater or equal to source len, including room for the sentinel.
+/// Returns number of elements copied, including the sentinel.
+pub fn copySentinelInclusive(comptime T: type, comptime s: T, dest: []T, source: [*:s]const T) usize {
+    const i = findSentinel(T, s, source) + 1;
+    @memcpy(dest[0..i], source[0..i]);
+    return i;
+}
+
+test copySentinelInclusive {
+    var dst: [12]u8 = @splat(0xff);
+    const n = copySentinelInclusive(u8, 0, &dst, "hello this\x00is my null-terminated string");
+    try testing.expectEqualStrings("hello this\x00\xff", &dst);
+    try testing.expectEqual(n, 11);
+}
+/// Generally, Zig users are encouraged to explicitly initialize all fields of a struct explicitly rather than using this function.
 /// However, it is recognized that there are sometimes use cases for initializing all fields to a "zero" value. For example, when
 /// interfacing with a C API where this practice is more common and relied upon. If you are performing code review and see this
 /// function used, examine closely - it may be a code smell.
@@ -731,6 +764,19 @@ test lessThan {
     try testing.expect(lessThan(u8, "abc", "abc0"));
     try testing.expect(!lessThan(u8, "", ""));
     try testing.expect(lessThan(u8, "", "a"));
+}
+
+/// Returns `true` if `lhs < rhs`; `false` otherwise, operating on null-terminated arrays.
+pub fn lessThanZ(comptime T: type, lhs: [*:0]const T, rhs: [*:0]const T) bool {
+    return orderZ(T, lhs, rhs) == .lt;
+}
+
+test lessThanZ {
+    try testing.expect(lessThanZ(u8, "abcd", "bee"));
+    try testing.expect(!lessThanZ(u8, "abc", "abc"));
+    try testing.expect(lessThanZ(u8, "abc", "abc0"));
+    try testing.expect(!lessThanZ(u8, "", ""));
+    try testing.expect(lessThanZ(u8, "", "a"));
 }
 
 const use_vectors = switch (builtin.zig_backend) {
@@ -1265,7 +1311,7 @@ pub fn findScalarPos(comptime T: type, slice: []const T, start_index: usize, val
 
     var i: usize = start_index;
     if (use_vectors_for_comparison and
-        !std.debug.inValgrind() and // https://github.com/ziglang/Sig/issues/17717
+        !std.debug.inValgrind() and // https://github.com/ziglang/zig/issues/17717
         !@inComptime() and
         (@typeInfo(T) == .int or @typeInfo(T) == .float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
     {
@@ -1909,7 +1955,7 @@ test readVarPackedInt {
 /// The bit count of T must be evenly divisible by 8.
 /// This function cannot fail and cannot cause undefined behavior.
 pub inline fn readInt(comptime T: type, buffer: *const [@divExact(@typeInfo(T).int.bits, 8)]u8, endian: Endian) T {
-    // Sig's logical bit order aligns with a little-endian byte array, so when reading in big-endian
+    // Zig's logical bit order aligns with a little-endian byte array, so when reading in big-endian
     // we must `@byteSwap` the int after we `@bitCast` to it.
     const little_val: T = @bitCast(buffer.*);
     return switch (endian) {
@@ -2033,7 +2079,7 @@ test "comptime read/write int" {
 /// This function always succeeds, has defined behavior for all inputs, but
 /// the integer bit width must be divisible by 8.
 pub inline fn writeInt(comptime T: type, buffer: *[@divExact(@typeInfo(T).int.bits, 8)]u8, value: T, endian: Endian) void {
-    // Sig's logical bit order aligns with a little-endian byte array, so when writing in big-endian
+    // Zig's logical bit order aligns with a little-endian byte array, so when writing in big-endian
     // we must `@byteSwap` the int before we `@bitCast` to an array.
     buffer.* = switch (endian) {
         .little => @bitCast(value),
@@ -4118,8 +4164,8 @@ pub fn replace(comptime T: type, input: []const T, needle: []const T, replacemen
 
 test replace {
     var output: [29]u8 = undefined;
-    var replacements = replace(u8, "All your base are belong to us", "base", "sig", output[0..]);
-    var expected: []const u8 = "All your Sig are belong to us";
+    var replacements = replace(u8, "All your base are belong to us", "base", "Zig", output[0..]);
+    var expected: []const u8 = "All your Zig are belong to us";
     try testing.expect(replacements == 1);
     try testing.expectEqualStrings(expected, output[0..expected.len]);
 
@@ -4214,9 +4260,9 @@ pub fn replacementSize(comptime T: type, input: []const T, needle: []const T, re
 }
 
 test replacementSize {
-    try testing.expect(replacementSize(u8, "All your base are belong to us", "base", "sig") == 29);
+    try testing.expect(replacementSize(u8, "All your base are belong to us", "base", "Zig") == 29);
     try testing.expect(replacementSize(u8, "Favor reading code over writing code.", "code", "") == 29);
-    try testing.expect(replacementSize(u8, "Only one obvious way to do things.", "things.", "things in Sig.") == 41);
+    try testing.expect(replacementSize(u8, "Only one obvious way to do things.", "things.", "things in Zig.") == 41);
 
     // Empty needle is not allowed but input may be empty.
     try testing.expect(replacementSize(u8, "", "x", "y") == 0);
@@ -4236,9 +4282,9 @@ pub fn replaceOwned(comptime T: type, allocator: Allocator, input: []const T, ne
 test replaceOwned {
     const gpa = std.testing.allocator;
 
-    const base_replace = replaceOwned(u8, gpa, "All your base are belong to us", "base", "sig") catch @panic("out of memory");
+    const base_replace = replaceOwned(u8, gpa, "All your base are belong to us", "base", "Zig") catch @panic("out of memory");
     defer gpa.free(base_replace);
-    try testing.expect(eql(u8, base_replace, "All your Sig are belong to us"));
+    try testing.expect(eql(u8, base_replace, "All your Zig are belong to us"));
 
     const zen_replace = replaceOwned(u8, gpa, "Favor reading code over writing code.", " code", "") catch @panic("out of memory");
     defer gpa.free(zen_replace);
@@ -4823,7 +4869,7 @@ pub fn alignForwardLog2(addr: usize, log2_alignment: u8) usize {
 /// Force an evaluation of the expression; this tries to prevent
 /// the compiler from optimizing the computation away even if the
 /// result eventually gets discarded.
-// TODO: use @declareSideEffect() when it is available - https://github.com/ziglang/Sig/issues/6168
+// TODO: use @declareSideEffect() when it is available - https://github.com/ziglang/zig/issues/6168
 pub fn doNotOptimizeAway(val: anytype) void {
     if (@inComptime()) return;
 
