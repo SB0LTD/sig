@@ -28,7 +28,7 @@ on:
       bootstrap_tag:
         description: 'Verified bootstrap release tag'
         required: true
-        default: 'bootstrap-sig-v59'
+        default: 'bootstrap-sig-v71'
         type: string
       llvm_tag:
         description: 'Verified LLVM closure release tag'
@@ -47,7 +47,7 @@ permissions:
   contents: write
 
 env:
-  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v59' }}
+  BOOTSTRAP_TAG: ${{ github.event.client_payload.bootstrap_tag || inputs.bootstrap_tag || 'bootstrap-sig-v71' }}
   LLVM_ARTIFACT_TAG: ${{ github.event.client_payload.llvm_tag || inputs.llvm_tag || 'llvm-22.1.8-sig-0.3.1' }}
 
 jobs:
@@ -548,7 +548,8 @@ jobs:
           archive="${root}.zip"
           mkdir -p "$root/bin" "$root/tools"
           cp stage3-out/bin/sig.exe "$root/bin/sig.exe"
-          ln "$root/bin/sig.exe" "$root/bin/Sig.exe"
+          # Ship one canonical Windows executable. NTFS resolves Sig.exe to
+          # sig.exe, while duplicate case-only archive entries are ambiguous.
           cp -r lib "$root/lib"
           cp -r tools/sig_build "$root/tools/sig_build"
           7z a -tzip -mx=9 "$archive" "$root"
@@ -568,7 +569,7 @@ jobs:
           sha256sum --check --strict "$archive.sha256"
           rm -rf /tmp/package-check
           7z x -o/tmp/package-check "$archive" >/dev/null
-          cmp "/tmp/package-check/$root/bin/sig.exe" "/tmp/package-check/$root/bin/Sig.exe"
+          test ! -e "/tmp/package-check/$root/bin/Sig.exe"
           test "$(od -An -tx1 -N2 "/tmp/package-check/$root/bin/sig.exe" | tr -d ' \n')" = 4d5a
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -606,26 +607,29 @@ jobs:
           if ($actual -ne $expected) { throw 'Windows release archive digest mismatch' }
           Expand-Archive -LiteralPath $archive -DestinationPath .windows-package
           $root = Resolve-Path ".windows-package\sig-${env:VERSION}-x86_64-windows"
-          $sig = Join-Path $root 'bin\sig.exe'
-          $Sig = Join-Path $root 'bin\Sig.exe'
+          $sigExe = (Resolve-Path (Join-Path $root 'bin\sig.exe')).Path
           $env:SIG_LIB_DIR = Join-Path $root 'lib'
-          if ((Get-FileHash $sig).Hash -ne (Get-FileHash $Sig).Hash) { throw 'sig.exe and Sig.exe differ' }
-          & $sig version | Tee-Object -Variable version
+          $aliasDir = Join-Path $root 'alias'
+          New-Item -ItemType Directory -Force $aliasDir | Out-Null
+          $sigAlias = Join-Path $aliasDir 'Sig.exe'
+          Copy-Item $sigExe $sigAlias -Force
+          if ((Get-FileHash $sigExe).Hash -ne (Get-FileHash $sigAlias).Hash) { throw 'sig.exe and Sig.exe differ' }
+          & $sigExe version | Tee-Object -Variable version
           if ($LASTEXITCODE -ne 0 -or ($version -join "`n") -notmatch "sig $([regex]::Escape($env:SIG_VERSION))") { throw 'Windows compiler version probe failed' }
-          & $Sig version | Tee-Object -Variable zigVersion
+          & $sigAlias version | Tee-Object -Variable zigVersion
           $zigText = ($zigVersion -join "`n")
           $zigBase = [regex]::Escape($env:ZIG_VERSION)
           if ($LASTEXITCODE -ne 0 -or $zigText -notmatch "^${zigBase}(?:[-+].*)?$" -or $zigText -match 'sig') { throw 'Windows compiler Sig alias version probe failed' }
-          & .\ci\prove-native-build.ps1 -Sig $sig -SigLibDir $env:SIG_LIB_DIR
-          & $sig ast-check compiler\core\target.sig
+          & .\ci\prove-native-build.ps1 -Sig $sigExe -SigLibDir $env:SIG_LIB_DIR
+          & $sigExe ast-check compiler\core\target.sig
           if ($LASTEXITCODE -ne 0) { throw 'strict .sig parse failed' }
-          & $sig test compiler\test_all.sig `
+          & $sigExe test compiler\test_all.sig `
             --Sig-lib-dir lib `
             --cache-dir "$env:RUNNER_TEMP\sig-tests-local" `
             --global-cache-dir "$env:RUNNER_TEMP\sig-tests-global" `
             --stack 33554432
           if ($LASTEXITCODE -ne 0) { throw 'native compiler test graph failed' }
-          & $sig build-obj compiler\core\target.sig `
+          & $sigExe build-obj compiler\core\target.sig `
             -target aarch64-freestanding-none `
             -mcpu=baseline `
             -OReleaseFast `
