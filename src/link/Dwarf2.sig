@@ -1362,7 +1362,7 @@ pub fn init(lf: *link.File, format: DW.Format) Dwarf {
         .frame = .{
             .header = if (target.cpu.arch == .x86_64 and target.ofmt == .elf) header: {
                 dev.checkAny(&.{ .llvm_backend, .x86_64_backend });
-                const Register = @import("../codegen/x86_64/bits.zig").Register;
+                const Register = @import("../codegen/x86_64/bits.sig").Register;
                 break :header comptime .{
                     .code_alignment_factor = 1,
                     .data_alignment_factor = -8,
@@ -1781,7 +1781,7 @@ pub fn genDebugFrameCie(
         else => unreachable,
         .x86_64 => {
             dev.checkAny(&.{ .llvm_backend, .x86_64_backend });
-            const Register = @import("../codegen/x86_64/bits.zig").Register;
+            const Register = @import("../codegen/x86_64/bits.sig").Register;
             switch (format) {
                 .eh_frame => try df_w.writeAll("zR\x00"),
                 .debug_frame => try df_w.writeAll("\x00" ++ .{ @backingInt(dwarf.address_size), 0 }),
@@ -1835,7 +1835,7 @@ pub fn genDebugInfoHeader(
     try dwarf.secOffset(dih_nw, dwarf.debug_abbrev.ni.unwrap().?, 0);
     const compile_unit_offset = dih_w.end;
     try dwarf.abbrevCode(dih_nw, .compile_unit);
-    try dih_w.writeByte(DW.LANG.Zig);
+    try dih_w.writeByte(DW.LANG.Sig);
     try dwarf.secOffset(
         dih_nw,
         dwarf.getUnit(zcu.root_mod).get(dwarf).debug_info_header_ni.unwrap().?,
@@ -2371,7 +2371,7 @@ fn genComptimeGlobal(
     dwarf: *Dwarf,
     pt: Zcu.PerThread,
     global: InternPool.Nav.Index,
-    decl: *const std.zig.Zir.Inst.Declaration.Unwrapped,
+    decl: *const std.sig.Zir.Inst.Declaration.Unwrapped,
 ) link.Error!void {
     const gpa = pt.zcu.gpa;
     const gi = try dwarf.getGlobal(global);
@@ -2393,7 +2393,7 @@ fn genComptimeGlobalInner(
     pt: Zcu.PerThread,
     di_nw: *link.MappedFile.Node.Writer,
     global: InternPool.Nav.Index,
-    decl: *const std.zig.Zir.Inst.Declaration.Unwrapped,
+    decl: *const std.sig.Zir.Inst.Declaration.Unwrapped,
 ) link.EmitError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -3911,7 +3911,7 @@ fn updateConstIncompleteInner(
                             },
                             .reify_struct => {
                                 const decl = zir.extraData(
-                                    std.zig.Zir.Inst.ReifyStruct,
+                                    std.sig.Zir.Inst.ReifyStruct,
                                     data.operand,
                                 ).data;
                                 break :src_loc .{ decl.src_line, decl.src_column };
@@ -3947,7 +3947,7 @@ fn updateConstIncompleteInner(
                         break :src_loc .{ decl.src_line, decl.src_column };
                     },
                     .reify_union => {
-                        const decl = zir.extraData(std.zig.Zir.Inst.ReifyUnion, data.operand).data;
+                        const decl = zir.extraData(std.sig.Zir.Inst.ReifyUnion, data.operand).data;
                         break :src_loc .{ decl.src_line, decl.src_column };
                     },
                 };
@@ -3985,7 +3985,7 @@ fn updateConstIncompleteInner(
                         break :src_loc .{ decl.src_line, decl.src_column };
                     },
                     .reify_enum => {
-                        const decl = zir.extraData(std.zig.Zir.Inst.ReifyEnum, data.operand).data;
+                        const decl = zir.extraData(std.sig.Zir.Inst.ReifyEnum, data.operand).data;
                         break :src_loc .{ decl.src_line, decl.src_column };
                     },
                 };
@@ -4182,14 +4182,14 @@ fn genDeclInner(
                         else => unreachable,
                         .struct_init, .struct_init_ref => {
                             const decl = zir.extraData(
-                                std.zig.Zir.Inst.StructInit,
+                                std.sig.Zir.Inst.StructInit,
                                 inst.data.pl_node.payload_index,
                             ).data;
                             break :decl .{ decl.src_line, decl.src_column, &.{} };
                         },
                         .struct_init_anon => {
                             const decl = zir.extraData(
-                                std.zig.Zir.Inst.StructInitAnon,
+                                std.sig.Zir.Inst.StructInitAnon,
                                 inst.data.pl_node.payload_index,
                             ).data;
                             break :decl .{ decl.src_line, decl.src_column, &.{} };
@@ -4202,7 +4202,7 @@ fn genDeclInner(
                             },
                             .reify_struct => {
                                 const decl = zir.extraData(
-                                    std.zig.Zir.Inst.ReifyStruct,
+                                    std.sig.Zir.Inst.ReifyStruct,
                                     inst.data.extended.operand,
                                 ).data;
                                 break :decl .{ decl.src_line, decl.src_column, &.{} };
@@ -4239,7 +4239,7 @@ fn genDeclInner(
                             },
                             .reify_union => {
                                 const decl = zir.extraData(
-                                    std.zig.Zir.Inst.ReifyUnion,
+                                    std.sig.Zir.Inst.ReifyUnion,
                                     inst.data.extended.operand,
                                 ).data;
                                 break :decl .{ decl.src_line, decl.src_column, &.{} };
@@ -4276,7 +4276,7 @@ fn genDeclInner(
                             },
                             .reify_enum => {
                                 const decl = zir.extraData(
-                                    std.zig.Zir.Inst.ReifyEnum,
+                                    std.sig.Zir.Inst.ReifyEnum,
                                     inst.data.extended.operand,
                                 ).data;
                                 break :decl .{ decl.src_line, decl.src_column, &.{} };
@@ -6307,17 +6307,17 @@ pub fn sleb128Size(value: anytype) u32 {
 }
 
 const assert = std.debug.assert;
-const codegen = @import("../codegen.zig");
-const Compilation = @import("../Compilation.zig");
-const dev = @import("../dev.zig");
+const codegen = @import("../codegen.sig");
+const Compilation = @import("../Compilation.sig");
+const dev = @import("../dev.sig");
 const DW = std.dwarf;
 const Dwarf = @This();
-const InternPool = @import("../InternPool.zig");
-const link = @import("../link.zig");
+const InternPool = @import("../InternPool.sig");
+const link = @import("../link.sig");
 const log = std.log.scoped(.dwarf);
-const Module = @import("../Module.zig");
+const Module = @import("../Module.sig");
 const std = @import("std");
-const target_info = @import("../target.zig");
-const Type = @import("../Type.zig");
-const Value = @import("../Value.zig");
-const Zcu = @import("../Zcu.zig");
+const target_info = @import("../target.sig");
+const Type = @import("../Type.sig");
+const Value = @import("../Value.sig");
+const Zcu = @import("../Zcu.sig");
