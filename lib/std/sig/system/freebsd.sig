@@ -27,7 +27,7 @@ pub fn detectNativeCpuAndFeatures() ?std.Target.Cpu {
                 getAArch64CpuFeature("ID_AA64MMFR2_EL1"),
             };
 
-            break :b @import("arm.zig").aarch64.detectNativeCpuAndFeatures(native_arch, registers);
+            break :b @import("arm.sig").aarch64.detectNativeCpuAndFeatures(native_arch, registers);
         },
         else => null,
     };
