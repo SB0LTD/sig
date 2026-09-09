@@ -3,7 +3,7 @@ const mem = @This();
 const builtin = @import("builtin");
 const native_endian = builtin.cpu.arch.endian();
 
-const std = @import("std.zig");
+const std = @import("std.sig");
 const debug = std.debug;
 const assert = debug.assert;
 const math = std.math;
@@ -19,7 +19,7 @@ const AbsorbSentinel = std.meta.AbsorbSentinel;
 /// which need to be updated.
 pub const byte_size_in_bits = 8;
 
-pub const Allocator = @import("mem/Allocator.zig");
+pub const Allocator = @import("mem/Allocator.sig");
 
 /// Stored as a power-of-two.
 pub const Alignment = enum(math.Log2Int(usize)) {
