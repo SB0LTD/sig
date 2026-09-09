@@ -291,7 +291,7 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
                 .{ .key = "CP 403A", .value_type = REG.ValueType.QWORD, .value_buf = @as(*[8]u8, @ptrCast(&registers[11])) },
             }) catch break :blk null;
 
-            break :blk @import("arm.zig").aarch64.detectNativeCpuAndFeatures(current_arch, registers);
+            break :blk @import("arm.sig").aarch64.detectNativeCpuAndFeatures(current_arch, registers);
         },
         else => null,
     };
