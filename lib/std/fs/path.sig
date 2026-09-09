@@ -15,7 +15,7 @@
 const builtin = @import("builtin");
 const native_os = builtin.target.os.tag;
 
-const std = @import("../std.zig");
+const std = @import("../std.sig");
 const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
