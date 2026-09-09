@@ -415,7 +415,7 @@ fn mainArgs(
         .std => {
             return jitCmd(gpa, arena, io, cmd_args, environ_map, .{
                 .cmd_name = "std",
-                .root_src_path = "std-docs.zig",
+                .root_src_path = "std-docs.sig",
                 .prepend_SIG_LIB_DIR_path = true,
                 .prepend_Sig_exe_path = true,
                 .prepend_global_cache_path = true,
@@ -4955,7 +4955,7 @@ pub fn translateC(
 ) !void {
     try jitCmdInner(gpa, arena, io, argv, environ_map, prog_node, thread_limit, .{
         .cmd_name = "translate-c",
-        .root_src_path = "translate-c/main.zig",
+        .root_src_path = "translate-c/main.sig",
         .depend_on_aro = true,
         .capture = capture,
     });
