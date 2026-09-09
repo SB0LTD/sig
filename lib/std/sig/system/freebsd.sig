@@ -44,7 +44,7 @@ const aarch64 = struct {
             aarch64.mrs("ID_AA64MMFR2_EL1"),
         };
 
-        return @import("arm.zig").aarch64.detectNativeCpuAndFeatures(arch, registers);
+        return @import("arm.sig").aarch64.detectNativeCpuAndFeatures(arch, registers);
     }
 };
 

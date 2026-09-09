@@ -65,7 +65,7 @@ const aarch64 = struct {
             value.aa64mmfr2,
         };
 
-        return @import("arm.zig").aarch64.detectNativeCpuAndFeatures(arch, registers);
+        return @import("arm.sig").aarch64.detectNativeCpuAndFeatures(arch, registers);
     }
 };
 

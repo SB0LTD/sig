@@ -57,7 +57,7 @@ const aarch64 = struct {
             sysctlReg(std.c.CPU.ID_AA64MMFR2) orelse return null,
         };
 
-        return @import("arm.zig").aarch64.detectNativeCpuAndFeatures(arch, registers);
+        return @import("arm.sig").aarch64.detectNativeCpuAndFeatures(arch, registers);
     }
 };
 
