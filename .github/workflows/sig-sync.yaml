@@ -125,20 +125,20 @@ jobs:
           git config user.name  "sig-sync[bot]"
           git config user.email "sig-sync@users.noreply.github.com"
 
-          # ── Resolve the immutable toolchain pair from one manifest ──
+          # - Resolve the immutable toolchain pair from one manifest -
           BOOTSTRAP_TAG=$(jq -er .bootstrap_tag tools/sig_sync/manifest.json)
           LLVM_ARTIFACT_TAG=$(jq -er .llvm_tag tools/sig_sync/manifest.json)
           [[ "$BOOTSTRAP_TAG" =~ ^bootstrap-sig-v[0-9]+$ ]]
           [[ "$LLVM_ARTIFACT_TAG" =~ ^llvm-[0-9]+\.[0-9]+\.[0-9]+-sig-[0-9]+\.[0-9]+\.[0-9]+$ ]]
           echo "Current toolchain: bootstrap=$BOOTSTRAP_TAG llvm=$LLVM_ARTIFACT_TAG"
 
-          # Files we own — on conflict, keep ours
+          # Files we own - on conflict, keep ours
           SIG_OWNED=(
             README.md CHANGELOG.md build.sig build.sig build_wasm.sig build_wasm.sig
             stage1/config.sig.in
             .gitignore bootstrap.ps1 CMakeLists.txt
           )
-          # Directories we own — on conflict, keep ours
+          # Directories we own - on conflict, keep ours
           SIG_OWNED_DIRS=(
             lib/sig/ tools/sig_sync/ tools/sig_sync_watcher/
             tools/setup-sig/ tools/upstream-watcher/ .github/workflows/
@@ -180,7 +180,7 @@ jobs:
             return 1
           }
 
-          # ── Bootstrap validation helper ─────────────────────────────
+          # - Bootstrap validation helper -
           # Downloads the bootstrap compiler and tries a minimal build
           # to detect lib incompatibilities (e.g. deleted musl sources).
           # Returns 0 if bootstrap is good, 1 if rebuild needed.
@@ -216,7 +216,7 @@ jobs:
               return 1
             }
 
-            # Try a minimal musl libc compilation probe — this catches stale
+            # Try a minimal musl libc compilation probe - this catches stale
             # musl sources (e.g. deleted .c files the compiler recipe still references).
             # We use build-obj with a trivial Sig file that links libc, which forces
             # the compiler to build musl from source. No @cImport (needs LLVM).
@@ -234,10 +234,10 @@ jobs:
               echo "Bootstrap probe (build-exe) failed:"
               cat "$TMPBOOT/probe.log"
               if grep -q "FileNotFound\|file_hash\|sub-compilation.*failed" "$TMPBOOT/probe.log"; then
-                echo "::warning::Bootstrap $TAG has stale lib references — rebuild needed"
+                echo "::warning::Bootstrap $TAG has stale lib references - rebuild needed"
                 RESULT=1
               else
-                echo "::warning::Bootstrap probe failed — rebuild required"
+                echo "::warning::Bootstrap probe failed - rebuild required"
                 cat "$TMPBOOT/probe.log"
                 RESULT=1
               fi
@@ -252,7 +252,7 @@ jobs:
                   >"$TMPBOOT/build_probe.log" 2>&1; then
                 echo "Bootstrap native build.sig proof failed:"
                 cat "$TMPBOOT/build_probe.log"
-                echo "::warning::Bootstrap $TAG can't execute native build.sig — rebuild needed"
+                echo "::warning::Bootstrap $TAG can't execute native build.sig - rebuild needed"
                 RESULT=1
               else
                 echo "Bootstrap $TAG native build.sig proof OK"
@@ -263,7 +263,7 @@ jobs:
             return $RESULT
           }
 
-          # ── Pre-flight: validate current bootstrap ──────────────────
+          # - Pre-flight: validate current bootstrap -
           NEED_REBUILD=false
 
           TOTAL=$(wc -l < /tmp/new_commits.txt)
@@ -273,11 +273,11 @@ jobs:
             IDX=$((IDX + 1))
             SHORT=$(git rev-parse --short=7 "$COMMIT")
             SUBJECT=$(git log -1 --format='%s' "$COMMIT")
-            echo "::group::[$IDX/$TOTAL] $SHORT — $SUBJECT"
+            echo "::group::[$IDX/$TOTAL] $SHORT - $SUBJECT"
 
             INTEGRATED=false
 
-            # ── Try cherry-pick first ─────────────────────────────────
+            # - Try cherry-pick first -
             PARENT_COUNT=$(($(git rev-list --parents -n 1 "$COMMIT" | awk '{print NF}') - 1))
             CHERRY_PICK_ARGS=("$COMMIT" --no-edit)
             if [ "$PARENT_COUNT" -gt 1 ]; then
@@ -292,7 +292,7 @@ jobs:
                 if resolve_conflicts; then
                   # Check if resolution resulted in an empty commit (all changes were in owned files)
                   if git diff --cached --quiet 2>/dev/null; then
-                    echo "Cherry-pick empty after conflict resolution — skipping"
+                    echo "Cherry-pick empty after conflict resolution - skipping"
                     git cherry-pick --skip 2>/dev/null || true
                     INTEGRATED=true
                   else
@@ -308,16 +308,16 @@ jobs:
               fi
             fi
 
-            # ── Fallback: merge ───────────────────────────────────────
+            # - Fallback: merge -
             if [ "$INTEGRATED" = "false" ]; then
-              if git merge "$COMMIT" --no-edit -m "sig-sync: merge upstream $SHORT — $SUBJECT" 2>/dev/null; then
+              if git merge "$COMMIT" --no-edit -m "sig-sync: merge upstream $SHORT - $SUBJECT" 2>/dev/null; then
                 echo "Clean merge (fallback)"
                 INTEGRATED=true
               else
                 if resolve_conflicts; then
                   # Check if resolution resulted in an empty commit
                   if git diff --cached --quiet 2>/dev/null; then
-                    echo "Merge empty after conflict resolution — skipping"
+                    echo "Merge empty after conflict resolution - skipping"
                     git merge --abort 2>/dev/null || true
                     INTEGRATED=true
                   else
@@ -327,15 +327,15 @@ jobs:
                   fi
                 else
                   git merge --abort 2>/dev/null || true
-                  echo "::error::Cannot integrate $SHORT — manual resolution needed"
+                  echo "::error::Cannot integrate $SHORT - manual resolution needed"
                   break
                 fi
               fi
             fi
 
-            # ── Post-integration: version sync, manifest, README, push
+            # - Post-integration: version sync, manifest, README, push
             if [ "$INTEGRATED" = "true" ]; then
-              # ── Sovereign normalization ───────────────────────────────
+              # - Sovereign normalization -
               # Upstream is Zig, so a cherry-pick can (re)introduce tracked
               # *.zig source files, @import("*.zig") references, AND reverted
               # sovereign identifiers (std.sig -> std.zig, Ast.Mode.Sig -> .zig,
@@ -347,7 +347,7 @@ jobs:
               # ci/normalize-sovereign.sh performs the mechanical, definition-
               # driven conversion (file renames, @import rewrites, and the
               # curated identifier NAME MAP scoped to the strict compiler tree)
-              # and then ALERTS — exits 3 — on any residual upstream `zig`
+              # and then ALERTS - exits 3 - on any residual upstream `zig`
               # identifier it cannot safely map, so a human converts the deeper
               # reversions by hand instead of the bot silently shipping broken
               # or non-sovereign source.
@@ -363,7 +363,7 @@ jobs:
               if [ "$NORM_RC" -eq 3 ]; then
                 # Deeper reversion the mechanical map can't resolve. Do NOT push a
                 # half-converted tree; surface it loudly for manual fix-forward.
-                echo "::error title=Sovereign reversion needs manual conversion::sig-sync auto-converted what it safely could, but residual upstream 'zig' identifiers remain. Convert them by hand — never revert the sync." >&2
+                echo "::error title=Sovereign reversion needs manual conversion::sig-sync auto-converted what it safely could, but residual upstream 'zig' identifiers remain. Convert them by hand - never revert the sync." >&2
                 # normalize-sovereign.sh writes the report to $RUNNER_TEMP (never
                 # inside the repo, so `git add -A` above cannot commit it).
                 residual_report="${RUNNER_TEMP:-/tmp}/sovereign-residual.txt"
@@ -392,7 +392,7 @@ jobs:
                 git diff --cached --quiet || git commit -m "sig-sync: bump zig_version to $ZIG_MAJOR.$ZIG_MINOR.$ZIG_PATCH"
               fi
 
-              # ── Check if this commit touches lib/ in ways that break bootstrap ──
+              # - Check if this commit touches lib/ in ways that break bootstrap -
               CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || true)
               TOUCHES_LIB=false
               if echo "$CHANGED_FILES" | grep -qE '^lib/(libc|std|compiler_rt|compiler)/'; then
@@ -405,18 +405,18 @@ jobs:
               NEEDS_ZIG1_REGEN=false
               if echo "$CHANGED_FILES" | grep -qE '^stage1/'; then
                 NEEDS_ZIG1_REGEN=true
-                echo "::warning::Commit touches stage1/ — zig1.wasm needs regeneration"
+                echo "::warning::Commit touches stage1/ - zig1.wasm needs regeneration"
               elif echo "$CHANGED_FILES" | grep -qE '^(lib/std/sig/(Zir|AstGen|Parse|tokenizer)\.sig|src/(Air|Sema|Zcu|InternPool|codegen|Type|Value)\.sig)'; then
                 NEEDS_ZIG1_REGEN=true
-                echo "::warning::Commit touches compiler internals — zig1.wasm needs regeneration"
+                echo "::warning::Commit touches compiler internals - zig1.wasm needs regeneration"
               fi
 
               # If this commit touches lib/ and we haven't validated yet, do it now
               if [ "$TOUCHES_LIB" = "true" ] && [ "$NEED_REBUILD" = "false" ]; then
-                echo "Commit touches lib/ — validating bootstrap..."
+                echo "Commit touches lib/ - validating bootstrap..."
                 if ! validate_bootstrap "$BOOTSTRAP_TAG"; then
                   NEED_REBUILD=true
-                  echo "::warning::Bootstrap stale after $SHORT — will regen + rebuild after sync"
+                  echo "::warning::Bootstrap stale after $SHORT - will regen + rebuild after sync"
                 fi
               fi
 
@@ -458,7 +458,7 @@ jobs:
           with open('README.md', 'r') as f: content = f.read()
           content = re.sub(r'\| \*\*Latest upstream commit\*\* \|[^|]*\|', f'| **Latest upstream commit** | [\`{short}\`](https://codeberg.org/ziglang/zig/commit/{commit}) |', content)
           content = re.sub(r'\| \*\*Last sync\*\* \|[^|]*\|', f'| **Last sync** | {date} |', content)
-          content = re.sub(r'\| \*\*Base version\*\* \|[^|]*\|', f'| **Base version** | Sig {Sig}-dev · LLVM 22.1.8 |', content)
+          content = re.sub(r'\| \*\*Base version\*\* \|[^|]*\|', f'| **Base version** | Sig {Sig}-dev - LLVM 22.1.8 |', content)
           with open('README.md', 'w') as f: f.write(content)
           PYEOF
               git add README.md
@@ -473,7 +473,7 @@ jobs:
             echo "::endgroup::"
           done < /tmp/new_commits.txt
 
-          # ── Regenerate zig1.wasm if compiler internals changed ──────
+          # - Regenerate zig1.wasm if compiler internals changed -
           REGEN_NEEDED=false
           if grep -q "ZIG1_REGEN_NEEDED=true" /tmp/sync_state.env 2>/dev/null; then
             REGEN_NEEDED=true
@@ -558,7 +558,7 @@ jobs:
               fi
               echo "Skipping existing immutable bootstrap identity $NEW_TAG"
             done
-            echo "::notice::Rebuilding bootstrap: $BOOTSTRAP_TAG → $NEW_TAG"
+            echo "::notice::Rebuilding bootstrap: $BOOTSTRAP_TAG - $NEW_TAG"
 
             PREVIOUS_BUILD_ID=$(gh run list \
               --workflow="build-bootstrap.yaml" \
@@ -644,7 +644,7 @@ jobs:
             git push origin HEAD:master
           fi
 
-          # ── Dispatch release ────────────────────────────────────────
+          # - Dispatch release -
           echo "Dispatching sig-release with bootstrap=$BOOTSTRAP_TAG..."
           gh api repos/${{ github.repository }}/dispatches \
             -f event_type=sig-release \
