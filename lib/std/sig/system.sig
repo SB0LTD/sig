@@ -466,12 +466,20 @@ pub fn resolveTargetQuery(io: Io, query: Target.Query) DetectError!Target {
         if (result.cpu.arch.isXtensa() and result.abi == .call0) {
             result.cpu.features.removeFeature(@backingInt(Target.xtensa.Feature.windowed));
         }
+
+        // The consolidated native SB0 target reserves x18 for kernel/platform use.
+        // This reservation is part of the SB0 ABI contract and is mandatory: it is
+        // force-enabled here even if the caller attempted to subtract the backend
+        // feature (e.g. via `-mcpu=baseline-reserve_x18`).
+        if (result.os.tag == .sb0 and result.cpu.arch == .aarch64) {
+            result.cpu.features.addFeature(@backingInt(Target.aarch64.Feature.reserve_x18));
+        }
     }
 
     // It's possible that we detect the native ABI, but fail to detect the OS version or were told
     // to use the default OS version range. In that case, while we can't determine the exact native
     // OS version, we do at least know that some ABIs require a particular OS version (by way of
-    // `std.zig.target.available_libcs`). So in this case, adjust the OS version to the minimum that
+    // `std.sig.target.available_libcs`). So in this case, adjust the OS version to the minimum that
     // we know is required.
     if (result.abi != query_abi and query.os_version_min == null) {
         const result_ver_range = &result.os.version_range;
