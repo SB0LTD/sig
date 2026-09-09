@@ -1,7 +1,7 @@
 //! Executable and Linkable Format.
 
 const builtin = @import("builtin");
-const std = @import("std.zig");
+const std = @import("std.sig");
 const Io = std.Io;
 const math = std.math;
 const mem = std.mem;

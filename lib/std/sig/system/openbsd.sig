@@ -144,7 +144,7 @@ const aarch64 = struct {
             return if (maybe_model) |m| m.toCpu(arch) else null;
         };
 
-        return @import("arm.zig").aarch64.detectNativeFeatures(arch, maybe_model orelse .generic(arch), registers);
+        return @import("arm.sig").aarch64.detectNativeFeatures(arch, maybe_model orelse .generic(arch), registers);
     }
 };
 

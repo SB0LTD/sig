@@ -64,7 +64,7 @@ const aarch64 = struct {
             mrs("ID_AA64MMFR2_EL1"),
         };
 
-        return @import("arm.zig").aarch64.detectNativeCpuAndFeatures(arch, registers);
+        return @import("arm.sig").aarch64.detectNativeCpuAndFeatures(arch, registers);
     }
 };
 
@@ -77,7 +77,7 @@ const arm = struct {
 
             have_fields: u8 = 0,
 
-            const cpu_models = @import("arm.zig").cpu_models;
+            const cpu_models = @import("arm.sig").cpu_models;
 
             fn lineHook(self: *Impl, key: []const u8, value: []const u8) !bool {
                 if (mem.eql(u8, key, "CPU implementer")) {
