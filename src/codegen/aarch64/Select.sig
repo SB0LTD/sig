@@ -25,6 +25,11 @@ uav_relocs: std.ArrayList(codegen.aarch64.Mir.Reloc.Uav),
 lazy_relocs: std.ArrayList(codegen.aarch64.Mir.Reloc.Lazy),
 global_relocs: std.ArrayList(codegen.aarch64.Mir.Reloc.Global),
 literal_relocs: std.ArrayList(codegen.aarch64.Mir.Reloc.Literal),
+/// Heap-owned global-reloc name strings (from inline-asm symbol branches and
+/// symbol-address materializations, duplicated to outlive the transient asm
+/// source buffer). Transferred to the `Mir` and freed by `Mir.deinit`; all
+/// other `global_relocs` names are static string literals and are not owned.
+owned_reloc_names: std.ArrayList([*:0]const u8),
 
 // Stack Frame
 returns: bool,
@@ -117,6 +122,7 @@ pub fn deinit(isel: *Select) void {
     isel.lazy_relocs.deinit(gpa);
     isel.global_relocs.deinit(gpa);
     isel.literal_relocs.deinit(gpa);
+    isel.owned_reloc_names.deinit(gpa);
 
     isel.live_values.deinit(gpa);
     isel.values.deinit(gpa);
@@ -2772,7 +2778,16 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                 .source = undefined,
                 .operands = .empty,
             };
-            defer as.operands.deinit(gpa);
+            defer {
+                // Free heap-owned `.symbol` operand names (duplicated for the
+                // `"S"` constraint) before releasing the map's own storage.
+                var op_it = as.operands.valueIterator();
+                while (op_it.next()) |op| switch (op.*) {
+                    .symbol => |s| gpa.free(s),
+                    else => {},
+                };
+                as.operands.deinit(gpa);
+            }
 
             var it = unwrapped_asm.iterateOutputs();
             while (it.next()) |output| {
@@ -3050,6 +3065,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
             for (pending_symbols[0..pending_symbols_len]) |p| {
                 const final_index = asm_start + (asm_len - 1 - p.slot);
                 const name = try gpa.dupeSentinel(u8, p.branch.name, 0);
+                try isel.owned_reloc_names.append(gpa, name.ptr);
                 try isel.global_relocs.append(gpa, .{
                     .name = name.ptr,
                     .reloc = .{ .label = @intCast(final_index) },
@@ -3062,6 +3078,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
             for (pending_refs[0..pending_refs_len]) |p| {
                 const final_index = asm_start + (asm_len - 1 - p.slot);
                 const name = try gpa.dupeSentinel(u8, p.ref.name, 0);
+                try isel.owned_reloc_names.append(gpa, name.ptr);
                 try isel.global_relocs.append(gpa, .{
                     .name = name.ptr,
                     .reloc = .{ .label = @intCast(final_index) },
@@ -10272,7 +10289,22 @@ pub const Value = struct {
                             const part_offset, const part_size = part_vi.position(isel);
                             const part_mat = try part_vi.matReg(isel);
                             try isel.emit(if (part_vi.isVector(isel)) emit: {
-                                assert(part_offset == 0 and part_size == vi_size);
+                                // A vector part that fully covers the value is a
+                                // whole-register move. A vector part that covers
+                                // only a sub-range (e.g. each 8-byte half of a
+                                // 16-byte f128 in a Q register) is inserted into
+                                // its lane with INS <Vd>.<T>[i], <Vn>.<T>[0].
+                                if (part_offset != 0 or part_size != vi_size) {
+                                    assert(part_size == 2 or part_size == 4 or part_size == 8);
+                                    assert(part_offset % part_size == 0);
+                                    const lane = @divExact(part_offset, part_size);
+                                    break :emit switch (part_size) {
+                                        else => unreachable,
+                                        2 => .ins(ra.@"h[]"(@intCast(lane)), part_mat.ra.@"h[]"(0)),
+                                        4 => .ins(ra.@"s[]"(@intCast(lane)), part_mat.ra.@"s[]"(0)),
+                                        8 => .ins(ra.@"d[]"(@intCast(lane)), part_mat.ra.@"d[]"(0)),
+                                    };
+                                }
                                 break :emit switch (vi_size) {
                                     else => unreachable,
                                     2 => if (isel.target.cpu.has(.aarch64, .fullfp16))
@@ -11171,6 +11203,37 @@ pub const Value = struct {
         vi: Value.Index,
         ra: Register.Alias,
 
+        /// Materialize a whole 128-bit integer constant into this value's
+        /// single vector (Q) register `mat.ra`, using the same 64-bit-halves
+        /// technique as the f128 float-constant path (INS via a temp GPR, with
+        /// `movi` fast paths for zero halves). Used when a >64-bit integer
+        /// constant is assigned a vector register rather than being split into
+        /// GPR-sized parts.
+        fn emitWideInt(mat: Value.Materialize, isel: *Select, bits: u128) codegen.Error!void {
+            const ra = mat.ra;
+            const hi64: u64 = @intCast(bits >> 64);
+            const lo64: u64 = @truncate(bits >> 0);
+            const temp_ra = try isel.allocIntReg();
+            defer isel.freeReg(temp_ra);
+            switch (hi64) {
+                0 => {},
+                else => {
+                    try isel.emit(.fmov(ra.@"d[]"(1), .{ .register = temp_ra.x() }));
+                    try isel.movImmediate(temp_ra.x(), hi64);
+                },
+            }
+            switch (lo64) {
+                0 => try isel.emit(.movi(switch (hi64) {
+                    else => ra.d(),
+                    0 => ra.@"2d"(),
+                }, 0b00000000, .replicate)),
+                else => {
+                    try isel.emit(.fmov(ra.d(), .{ .register = temp_ra.x() }));
+                    try isel.movImmediate(temp_ra.x(), lo64);
+                },
+            }
+        }
+
         fn finish(mat: Value.Materialize, isel: *Select) codegen.Error!void {
             const live_vi = isel.live_registers.getPtr(mat.ra);
             assert(live_vi.* == .allocating);
@@ -11299,18 +11362,38 @@ pub const Value = struct {
                                     } },
                                 },
                                 .int => |int| break :free switch (int.storage) {
-                                    .u64 => |imm| try isel.movImmediate(switch (size) {
-                                        else => unreachable,
+                                    .u64 => |imm| if (size > 8 and mat.ra.isVector())
+                                        // A wide value assigned a whole vector (Q) register.
+                                        break :free try mat.emitWideInt(isel, @as(u128, imm))
+                                    else try isel.movImmediate(switch (size) {
+                                        else => mat.ra.x(), // GPR-sized part of a wider value; `offset` selects the 8-byte chunk.
                                         1...4 => mat.ra.w(),
                                         5...8 => mat.ra.x(),
                                     }, @bitCast(std.math.shr(u64, imm, 8 * offset))),
-                                    .i64 => |imm| switch (size) {
-                                        else => unreachable,
+                                    .i64 => |imm| if (size > 8 and mat.ra.isVector())
+                                        break :free try mat.emitWideInt(isel, @as(u128, @bitCast(@as(i128, imm))))
+                                    else switch (size) {
+                                        else => try isel.movImmediate(mat.ra.x(), @bitCast(std.math.shr(i64, imm, 8 * offset))),
                                         1...4 => try isel.movImmediate(mat.ra.w(), @as(u32, @bitCast(@as(i32, @truncate(std.math.shr(i64, imm, 8 * offset)))))),
                                         5...8 => try isel.movImmediate(mat.ra.x(), @bitCast(std.math.shr(i64, imm, 8 * offset))),
                                     },
                                     .big_int => |big_int| {
-                                        assert(size == 8);
+                                        if (size > 8 and mat.ra.isVector()) {
+                                            // A wide (>64-bit, e.g. u128/i128) integer constant lands
+                                            // in a single vector (Q) register; materialize it the same
+                                            // way as an f128 constant: 64-bit halves via a temp GPR.
+                                            var bits: u128 = 0;
+                                            const limb_bits = @bitSizeOf(std.math.big.Limb);
+                                            const total_limbs = @divExact(128, limb_bits);
+                                            var li: usize = total_limbs;
+                                            for (0..total_limbs) |_| {
+                                                li -= 1;
+                                                bits <<= limb_bits;
+                                                if (li < big_int.limbs.len) bits |= big_int.limbs[li];
+                                            }
+                                            if (!big_int.positive) bits = -%bits;
+                                            break :free try mat.emitWideInt(isel, bits);
+                                        }
                                         var imm: u64 = 0;
                                         const limb_bits = @bitSizeOf(std.math.big.Limb);
                                         const limbs = @divExact(64, limb_bits);

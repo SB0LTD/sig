@@ -72,6 +72,7 @@ pub fn generate(
         .lazy_relocs = .empty,
         .global_relocs = .empty,
         .literal_relocs = .empty,
+        .owned_reloc_names = .empty,
 
         .returns = false,
         .va_list = undefined,
@@ -214,6 +215,7 @@ pub fn generate(
     try isel.lazy_relocs.shrinkToLen(gpa);
     try isel.global_relocs.shrinkToLen(gpa);
     try isel.literal_relocs.shrinkToLen(gpa);
+    try isel.owned_reloc_names.shrinkToLen(gpa);
 
     const instructions = isel.instructions.toOwnedSliceAssert();
 
@@ -227,6 +229,7 @@ pub fn generate(
         .lazy_relocs = isel.lazy_relocs.toOwnedSliceAssert(),
         .global_relocs = isel.global_relocs.toOwnedSliceAssert(),
         .literal_relocs = isel.literal_relocs.toOwnedSliceAssert(),
+        .owned_reloc_names = isel.owned_reloc_names.toOwnedSliceAssert(),
     };
 }
 

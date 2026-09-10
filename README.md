@@ -21,6 +21,40 @@
 
 ---
 
+## 0.5.4 — Freestanding AArch64 Emits and Links a Complete SB0 Image
+
+The self-hosted AArch64 back end and SB0 flat-image linker now take a real
+bare-metal `aarch64-sb0` program **all the way to a bootable image** — including
+the soft-float (`f80`/`f128`) `compiler_rt` routines and the compiler-synthesized
+memory intrinsics that any non-trivial program pulls in. 0.5.3 could compile
+those routines, but the linker failed to resolve them (`undefined SB0 symbol`
+plus cascading relocation overflows); 0.5.4 closes that gap end to end.
+
+```
+$ sig version
+sig 0.5.4 (zig 0.17.0)
+```
+
+What this unlocked, all with no LLVM/LLD:
+
+- The back end legalizes sub-range **vector-part copies** (e.g. the two 8-byte
+  halves of a 16-byte `f128` in a `Q` register) and materializes wide (>64-bit)
+  integer constants into vector registers — the last codegen gaps the soft-float
+  `compiler_rt` hit.
+- The SB0 linker resolves a definition **exported under several names**
+  (`compiler_rt`'s comparisons export one body as `__cmptf2`/`__eqtf2`/`__lttf2`/…)
+  and binds compiler-synthesized runtime libcalls (`memcpy`/`memset`/`memmove`)
+  to their `compiler_rt` bodies.
+- The SB0 linker evaluates the **linker script's location counter** to define
+  boundary symbols (`__stack_top`, `__bss_start`/`__bss_end`, …), so a
+  freestanding reset entry can reference them from inline asm.
+- The inline assembler accepts `//` line comments and encodes `b .` as a
+  self-branch.
+
+The result: the [`sls`](https://github.com/SB0LTD/sls) language server links to a
+valid `SB0K` image and boots under QEMU, serving LSP over the PL011 UART. See the
+[changelog](CHANGELOG.md) for the full 0.5.4 fix list.
+
 ## 0.5.0 — Self-Hosted AArch64 Compiles the Whole Compiler for SB0
 
 The self-hosted AArch64 back end is now complete enough to compile the **entire

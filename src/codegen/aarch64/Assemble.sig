@@ -119,6 +119,13 @@ fn skipSeparators(as: *Assemble) bool {
     while (true) switch (as.source[0]) {
         0 => return false,
         ' ', '\t', '\r', '\n', ';' => as.source = as.source[1..],
+        '/' => {
+            // GNU/LLVM-style `//` line comment: skip to end of line. A lone '/'
+            // (not part of `//`) is left for the caller to reject as usual.
+            if (as.source[1] != '/') return true;
+            as.source = as.source[2..];
+            while (as.source[0] != 0 and as.source[0] != '\n') as.source = as.source[1..];
+        },
         else => return true,
     };
 }
@@ -446,6 +453,16 @@ pub fn nextLine(as: *Assemble) !Line {
                 .bit = bit,
                 .cond = cond,
             } };
+        }
+        // `b .` / `bl .`: the target `.` is the location counter — a branch to
+        // the current instruction (the idiomatic bare-metal park loop). Encode
+        // it directly as a self-relative branch (displacement 0) rather than a
+        // reference to a symbol literally named ".".
+        if ((kind == .b or kind == .bl) and target.len == 1 and target[0] == '.') {
+            return .{ .instruction = if (kind == .bl)
+                aarch64.encoding.Instruction.bl(0)
+            else
+                aarch64.encoding.Instruction.b(0) };
         }
         // A plain `b <symbol>` / `bl <symbol>` whose target names a symbol —
         // either a bare identifier or an `"S"` operand reference `%[name]` — is

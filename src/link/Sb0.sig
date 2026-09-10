@@ -62,6 +62,13 @@ uavs: std.array_hash_map.Auto(InternPool.Index, SymIndex),
 /// Maps a global/extern symbol name (owned) to its symbol index. Used for
 /// references to named runtime symbols (`memcpy`, compiler-rt, panic handlers).
 globals: std.StringArrayHashMapUnmanaged(SymIndex),
+/// Maps every exported name (owned) to the *defining* symbol that carries the
+/// body. Unlike a symbol's single `extern_name`, this records ALL aliases of a
+/// definition — several `@export`s can target one function (e.g. compiler-rt's
+/// `__cmptf2`/`__eqtf2`/`__lttf2`/`__letf2` all alias one comparison routine).
+/// `flush` uses it to resolve name references that a single `extern_name`
+/// (which only remembers the last alias) would miss.
+export_defs: std.StringArrayHashMapUnmanaged(SymIndex),
 /// Maps a lazy symbol (compiler-generated code/data for a type) to its symbol
 /// index. Lazy bodies are generated during `flush` via `genPending`.
 lazy: std.array_hash_map.Auto(LazyKey, SymIndex),
@@ -240,6 +247,7 @@ fn create(
         .navs = .empty,
         .uavs = .empty,
         .globals = .empty,
+        .export_defs = .empty,
         .lazy = .empty,
         .pending_lazy = .empty,
         .relocs = .empty,
@@ -266,6 +274,8 @@ pub fn deinit(sb0: *Sb0) void {
     sb0.uavs.deinit(gpa);
     for (sb0.globals.keys()) |name| gpa.free(name);
     sb0.globals.deinit(gpa);
+    for (sb0.export_defs.keys()) |name| gpa.free(name);
+    sb0.export_defs.deinit(gpa);
     sb0.lazy.deinit(gpa);
     sb0.pending_lazy.deinit(gpa);
     sb0.relocs.deinit(gpa);
@@ -385,7 +395,6 @@ fn updateFuncInner(
     mir: *const codegen.AnyMir,
 ) Error!void {
     const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
     const func = zcu.funcInfo(func_index);
 
     const si = try sb0.navSymbol(func.owner_nav);
@@ -416,7 +425,6 @@ fn updateFuncInner(
     // Track the entry point: the first defined function becomes the entry
     // unless a more specific root is chosen later.
     if (sb0.entry_sym == .none) sb0.entry_sym = SymIndex.Optional.wrap(si);
-    _ = ip;
 }
 
 pub fn updateNav(
@@ -486,6 +494,16 @@ pub fn updateExports(
             .uav => |uav| try sb0.uavSymbolIndex(uav),
         };
         const name = exp.opts.name.toSlice(ip);
+
+        // Record this alias so `flush` can resolve every exported name to its
+        // defining symbol. A symbol's own `extern_name` only remembers the last
+        // alias, so a definition exported under several names (e.g. compiler-rt
+        // comparison routines) would otherwise be unresolvable by all but one.
+        {
+            const edg = try sb0.export_defs.getOrPut(gpa, name);
+            if (!edg.found_existing) edg.key_ptr.* = try gpa.dupe(u8, name);
+            edg.value_ptr.* = target_si;
+        }
 
         const gop = try sb0.globals.getOrPut(gpa, name);
         if (gop.found_existing) {
@@ -732,6 +750,376 @@ fn lazyForSymbol(sb0: *Sb0, si: SymIndex) ?link.File.LazySymbol {
     return null;
 }
 
+/// Evaluate the GNU-ld-style linker script's location counter and define any
+/// symbols it assigns (e.g. `__sb0_image_start`, `__bss_start`, `__bss_end`,
+/// `__stack_top`). Only the subset of ld syntax freestanding SB0 images use is
+/// supported:
+///
+///   * top-level and in-section symbol assignments: `SYM = <expr>;`
+///   * location-counter assignments: `. = <expr>;`, `. += <expr>;`
+///   * output sections: `.name [(NOLOAD)] : [ALIGN(n)] { ... }`
+///   * in-section data commands (`LONG`/`SHORT`/`QUAD`/`BYTE`) advance dot by
+///     4/2/8/1 bytes each
+///   * input-section directives (`*(...)`, `KEEP(*(...))`) in a loadable
+///     section consume the emitted content; `/DISCARD/` is ignored
+///
+/// The location counter is seeded by the script's own `. = <base>;`; the
+/// emitted code/data (which this linker pools contiguously from `base_vaddr`)
+/// is placed where the first loadable input-section directive appears, and
+/// `content_end` is `base_vaddr + total_code`.
+///
+/// Expressions support integer literals (hex `0x..` / decimal), `.` (dot),
+/// `ALIGN(<expr>)`, already-defined symbols, and `+`/`-`. This is a best-effort
+/// pass: a missing or unparsable script simply defines fewer symbols.
+fn defineLinkerScriptSymbols(
+    sb0: *Sb0,
+    arena: Allocator,
+    script_path: std.Build.Cache.Path,
+    content_end: u64,
+) !void {
+    const comp = sb0.base.comp;
+    const io = comp.io;
+    const gpa = comp.gpa;
+
+    const text = script_path.root_dir.handle.readFileAlloc(
+        io,
+        script_path.sub_path,
+        arena,
+        .limited(1 * 1024 * 1024),
+    ) catch return; // best-effort: a missing/unreadable script defines nothing
+
+    var defined = std.StringHashMap(u64).init(gpa);
+    defer defined.deinit();
+
+    var ev: ScriptEval = .{
+        .text = text,
+        .pos = 0,
+        .dot = 0,
+        .base_vaddr = sb0.base_vaddr,
+        .content_end = content_end,
+        .content_consumed = false,
+        .defined = &defined,
+    };
+    try ev.run();
+
+    // Apply resolved values to any referenced global of the same name.
+    for (sb0.globals.keys(), sb0.globals.values()) |name, gsi| {
+        if (defined.get(name)) |value| {
+            const gsym = gsi.ptr(sb0);
+            gsym.value = value;
+            gsym.defined = true;
+        }
+    }
+}
+
+/// Minimal recursive-descent evaluator for the linker-script subset above.
+const ScriptEval = struct {
+    text: []const u8,
+    pos: usize,
+    dot: u64,
+    base_vaddr: u64,
+    content_end: u64,
+    /// Whether the pooled emitted content has been placed by a loadable
+    /// input-section directive yet.
+    content_consumed: bool,
+    defined: *std.StringHashMap(u64),
+
+    fn run(ev: *ScriptEval) !void {
+        while (ev.peekToken()) |tok| {
+            if (std.mem.eql(u8, tok, "SECTIONS")) {
+                _ = ev.nextToken();
+                ev.expect("{");
+                try ev.parseSectionsBody();
+            } else if (std.mem.eql(u8, tok, "ENTRY") or std.mem.eql(u8, tok, "OUTPUT_ARCH") or std.mem.eql(u8, tok, "OUTPUT_FORMAT")) {
+                _ = ev.nextToken();
+                ev.skipParens();
+                _ = ev.consume(";");
+            } else if (std.mem.eql(u8, tok, ".")) {
+                _ = ev.nextToken();
+                try ev.parseDotAssign();
+            } else {
+                const save = ev.pos;
+                const name = ev.nextToken() orelse break;
+                if (ev.consume("=") or ev.consume("+=")) {
+                    const value = try ev.parseExpr();
+                    _ = ev.consume(";");
+                    try ev.define(name, value);
+                } else {
+                    ev.pos = save;
+                    _ = ev.nextToken(); // skip one token to make progress
+                }
+            }
+        }
+    }
+
+    fn parseSectionsBody(ev: *ScriptEval) !void {
+        while (ev.peekToken()) |tok| {
+            if (std.mem.eql(u8, tok, "}")) {
+                _ = ev.nextToken();
+                return;
+            }
+            if (std.mem.eql(u8, tok, ".")) {
+                _ = ev.nextToken();
+                try ev.parseDotAssign();
+                continue;
+            }
+            const save = ev.pos;
+            const name = ev.nextToken() orelse return;
+            if (ev.consume("=")) {
+                const value = try ev.parseExpr();
+                _ = ev.consume(";");
+                try ev.define(name, value);
+                continue;
+            }
+            const noload = std.mem.eql(u8, name, "/DISCARD/") or ev.headerIsNoload();
+            if (!ev.skipToColon()) {
+                ev.pos = save;
+                _ = ev.nextToken();
+                continue;
+            }
+            // Optional pre-brace ALIGN applies to dot before the body.
+            while (ev.peekToken()) |a| {
+                if (std.mem.eql(u8, a, "ALIGN")) {
+                    _ = ev.nextToken();
+                    const n = try ev.parseParenExpr();
+                    ev.dot = alignForward(ev.dot, n);
+                } else if (std.mem.eql(u8, a, "{")) {
+                    break;
+                } else {
+                    _ = ev.nextToken(); // skip AT(...), (NOLOAD) remnants, etc.
+                }
+            }
+            ev.expect("{");
+            try ev.parseSectionBody(noload);
+        }
+    }
+
+    fn parseSectionBody(ev: *ScriptEval, noload: bool) !void {
+        while (ev.peekToken()) |tok| {
+            if (std.mem.eql(u8, tok, "}")) {
+                _ = ev.nextToken();
+                return;
+            }
+            if (std.mem.eql(u8, tok, ".")) {
+                _ = ev.nextToken();
+                try ev.parseDotAssign();
+                continue;
+            }
+            if (std.mem.eql(u8, tok, "LONG")) {
+                _ = ev.nextToken();
+                ev.skipParens();
+                ev.dot += 4;
+                continue;
+            }
+            if (std.mem.eql(u8, tok, "SHORT")) {
+                _ = ev.nextToken();
+                ev.skipParens();
+                ev.dot += 2;
+                continue;
+            }
+            if (std.mem.eql(u8, tok, "QUAD")) {
+                _ = ev.nextToken();
+                ev.skipParens();
+                ev.dot += 8;
+                continue;
+            }
+            if (std.mem.eql(u8, tok, "BYTE")) {
+                _ = ev.nextToken();
+                ev.skipParens();
+                ev.dot += 1;
+                continue;
+            }
+            if (std.mem.eql(u8, tok, "KEEP") or std.mem.eql(u8, tok, "*")) {
+                // An input-section directive. In a loadable section it places
+                // the pooled emitted content (once); in NOLOAD it contributes
+                // no file bytes (its storage is already counted in the pool).
+                _ = ev.nextToken();
+                ev.skipParens();
+                if (!noload and !ev.content_consumed) {
+                    ev.dot = ev.content_end;
+                    ev.content_consumed = true;
+                }
+                continue;
+            }
+            const save = ev.pos;
+            const name = ev.nextToken() orelse return;
+            if (ev.consume("=")) {
+                const value = try ev.parseExpr();
+                _ = ev.consume(";");
+                try ev.define(name, value);
+            } else {
+                ev.pos = save;
+                _ = ev.nextToken();
+            }
+        }
+    }
+
+    fn parseDotAssign(ev: *ScriptEval) !void {
+        if (ev.consume("=")) {
+            ev.dot = try ev.parseExpr();
+        } else if (ev.consume("+=")) {
+            ev.dot += try ev.parseExpr();
+        }
+        _ = ev.consume(";");
+    }
+
+    fn define(ev: *ScriptEval, name: []const u8, value: u64) !void {
+        try ev.defined.put(name, value);
+    }
+
+    // ── Expression parsing: EXPR := TERM (('+'|'-') TERM)* ──
+    fn parseExpr(ev: *ScriptEval) (error{OutOfMemory})!u64 {
+        var acc = try ev.parseTerm();
+        while (ev.peekToken()) |op| {
+            if (std.mem.eql(u8, op, "+")) {
+                _ = ev.nextToken();
+                acc +%= try ev.parseTerm();
+            } else if (std.mem.eql(u8, op, "-")) {
+                _ = ev.nextToken();
+                acc -%= try ev.parseTerm();
+            } else break;
+        }
+        return acc;
+    }
+
+    fn parseTerm(ev: *ScriptEval) (error{OutOfMemory})!u64 {
+        const tok = ev.nextToken() orelse return 0;
+        if (std.mem.eql(u8, tok, ".")) return ev.dot;
+        if (std.mem.eql(u8, tok, "ALIGN")) {
+            const n = try ev.parseParenExpr();
+            return alignForward(ev.dot, n);
+        }
+        if (std.mem.eql(u8, tok, "(")) {
+            const v = try ev.parseExpr();
+            _ = ev.consume(")");
+            return v;
+        }
+        if (parseIntLiteral(tok)) |v| return v;
+        if (ev.defined.get(tok)) |v| return v;
+        return 0;
+    }
+
+    fn parseParenExpr(ev: *ScriptEval) (error{OutOfMemory})!u64 {
+        ev.expect("(");
+        const v = try ev.parseExpr();
+        _ = ev.consume(")");
+        return v;
+    }
+
+    // ── Token helpers ──
+    fn headerIsNoload(ev: *ScriptEval) bool {
+        const save = ev.pos;
+        defer ev.pos = save;
+        if (ev.consume("(")) {
+            const t = ev.nextToken() orelse return false;
+            return std.mem.eql(u8, t, "NOLOAD");
+        }
+        return false;
+    }
+
+    fn skipToColon(ev: *ScriptEval) bool {
+        while (ev.peekToken()) |t| {
+            if (std.mem.eql(u8, t, ":")) {
+                _ = ev.nextToken();
+                return true;
+            }
+            if (std.mem.eql(u8, t, "{") or std.mem.eql(u8, t, "}")) return false;
+            _ = ev.nextToken();
+        }
+        return false;
+    }
+
+    fn skipParens(ev: *ScriptEval) void {
+        if (!ev.consume("(")) return;
+        var depth: usize = 1;
+        while (depth > 0) {
+            const t = ev.nextToken() orelse return;
+            if (std.mem.eql(u8, t, "(")) depth += 1 else if (std.mem.eql(u8, t, ")")) depth -= 1;
+        }
+    }
+
+    fn expect(ev: *ScriptEval, s: []const u8) void {
+        _ = ev.consume(s);
+    }
+
+    fn consume(ev: *ScriptEval, s: []const u8) bool {
+        const save = ev.pos;
+        const t = ev.nextToken() orelse return false;
+        if (std.mem.eql(u8, t, s)) return true;
+        ev.pos = save;
+        return false;
+    }
+
+    fn peekToken(ev: *ScriptEval) ?[]const u8 {
+        const save = ev.pos;
+        defer ev.pos = save;
+        return ev.nextToken();
+    }
+
+    /// Tokenize: skip whitespace and `/* */` comments; return the next token,
+    /// which is either a run of identifier bytes (incl. `.`, `_`, `/`) or a
+    /// single punctuation/operator character (with `+=` recognized specially).
+    fn nextToken(ev: *ScriptEval) ?[]const u8 {
+        const t = ev.text;
+        var i = ev.pos;
+        while (i < t.len) {
+            const c = t[i];
+            if (c == ' ' or c == '\t' or c == '\r' or c == '\n') {
+                i += 1;
+                continue;
+            }
+            if (c == '/' and i + 1 < t.len and t[i + 1] == '*') {
+                i += 2;
+                while (i + 1 < t.len and !(t[i] == '*' and t[i + 1] == '/')) i += 1;
+                i = @min(i + 2, t.len);
+                continue;
+            }
+            break;
+        }
+        if (i >= t.len) {
+            ev.pos = i;
+            return null;
+        }
+        const start = i;
+        const c = t[i];
+        if (c == '+' and i + 1 < t.len and t[i + 1] == '=') {
+            ev.pos = i + 2;
+            return t[start .. i + 2];
+        }
+        if (isWordByte(c)) {
+            i += 1;
+            while (i < t.len and isWordByte(t[i])) i += 1;
+            ev.pos = i;
+            return t[start..i];
+        }
+        ev.pos = i + 1;
+        return t[start .. i + 1];
+    }
+
+    fn isWordByte(c: u8) bool {
+        return switch (c) {
+            '0'...'9', 'A'...'Z', 'a'...'z', '_', '.', '/' => true,
+            else => false,
+        };
+    }
+
+    fn parseIntLiteral(tok: []const u8) ?u64 {
+        if (tok.len == 0) return null;
+        if (tok.len > 2 and tok[0] == '0' and (tok[1] == 'x' or tok[1] == 'X')) {
+            return std.fmt.parseInt(u64, tok[2..], 16) catch null;
+        }
+        if (tok[0] >= '0' and tok[0] <= '9') {
+            return std.fmt.parseInt(u64, tok, 10) catch null;
+        }
+        return null;
+    }
+
+    fn alignForward(value: u64, alignment: u64) u64 {
+        if (alignment == 0) return value;
+        return std.mem.alignForward(u64, value, alignment);
+    }
+};
+
 fn flushInner(sb0: *Sb0, arena: Allocator, tid: Zcu.PerThread.Id) Error!void {
     const comp = sb0.base.comp;
     const diags = &comp.link_diags;
@@ -782,6 +1170,15 @@ fn flushInner(sb0: *Sb0, arena: Allocator, tid: Zcu.PerThread.Id) Error!void {
         total_code = @intCast(cursor - sb0.base_vaddr);
     }
 
+    // 0b2. Define any linker-script symbols (e.g. `__bss_start`, `__bss_end`,
+    //      `__stack_top`) by evaluating the script's location counter against
+    //      the just-computed image layout. Boundary symbols a freestanding
+    //      entry references (for the boot stack and BSS bounds) become concrete
+    //      addresses here, so their adrp/add_abs_lo12/abs64 relocations resolve.
+    if (sb0.options.linker_script) |script_path| {
+        try sb0.defineLinkerScriptSymbols(arena, script_path, cursor);
+    }
+
     // 0c. Now that definitions have final addresses, bind each referenced
     //     global/extern symbol (which has no body node of its own) to an
     //     in-image definition of the same name. A global left unresolved is a
@@ -789,11 +1186,50 @@ fn flushInner(sb0: *Sb0, arena: Allocator, tid: Zcu.PerThread.Id) Error!void {
     for (sb0.globals.keys(), sb0.globals.values()) |name, gsi| {
         const gsym = gsi.ptr(sb0);
         if (gsym.node != .none) continue; // this global is itself a definition
+        if (gsym.defined) continue; // already defined by the linker script
+        // Prefer the exact exported-alias mapping (handles a definition exported
+        // under several names), then fall back to an extern-name scan.
+        if (sb0.export_defs.get(name)) |def_si| {
+            const def = def_si.ptr(sb0);
+            if (def.node != .none) {
+                gsym.value = def.value;
+                gsym.defined = true;
+                continue;
+            }
+        }
         if (sb0.findDefinedByName(name)) |def_val| {
             gsym.value = def_val;
             gsym.defined = true;
         } else {
             diags.addError("undefined SB0 symbol: {s}", .{name});
+        }
+    }
+
+    // 0d. Bind undefined *nav* references to an exported definition of the same
+    //     name. A backend-synthesized runtime libcall (e.g. `memcpy`/`memset`/
+    //     `memmove` emitted for aggregate ops) references the runtime function
+    //     by its Nav, which is distinct from the Nav that actually carries the
+    //     body (e.g. `compiler_rt.memcpy.memcpySmall`, exported under the name
+    //     "memcpy"). Resolve such a reference through `export_defs`, keyed by
+    //     the referenced Nav's name.
+    if (sb0.export_defs.count() != 0) {
+        const zcu = comp.zcu.?;
+        const active = zcu.activate(tid);
+        defer active.deactivate();
+        const ip = &active.pt.zcu.intern_pool;
+        var it = sb0.navs.iterator();
+        while (it.next()) |entry| {
+            const nsi = entry.value_ptr.*;
+            const nsym = nsi.ptr(sb0);
+            if (nsym.node != .none or nsym.defined) continue;
+            const nav_name = ip.getNav(entry.key_ptr.*).name.toSlice(ip);
+            if (sb0.export_defs.get(nav_name)) |def_si| {
+                const def = def_si.ptr(sb0);
+                if (def.node != .none) {
+                    nsym.value = def.value;
+                    nsym.defined = true;
+                }
+            }
         }
     }
 
