@@ -13,7 +13,6 @@ pub const enable_tracy_allocation = false;
 pub const enable_tracy_callstack = false;
 pub const tracy_callstack_depth = 10;
 pub const value_tracing = false;
-pub const skip_non_native = false;
 pub const debug_gpa = false;
 pub const mem_leak_frames = 0;
 pub const dev = .full;
