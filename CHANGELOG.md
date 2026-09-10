@@ -4,6 +4,26 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.5.5] — 2026-09-10 — AArch64 Runtime-Indexed Element Address Fix
+Sig 0.5.5 fixes a self-hosted AArch64 back-end miscompile that corrupted the
+address of a runtime-indexed array element whose element type is large and not a
+power of two in size. Const-indexed accesses were unaffected, so the defect only
+surfaced with a runtime index into an array of big records — for example a
+fixed-slot document store (`[N]Document`, each slot ~128 KiB) in a language
+server: `store.open` appeared to succeed yet the document was written to the
+wrong address, so later lookups found nothing. Reproduced end to end as an
+`aarch64-sb0` LSP server returning an empty `documentSymbol` result under QEMU;
+after the fix the same image returns the expected symbols.
+### Fixed
+- The AArch64 element-pointer lowering (`elemPtr`) now materializes the element
+  size into its own register for the general (non-power-of-two) multiply. The
+  result register could alias the index register, and because instructions are
+  emitted in reverse the size was written into that shared register before the
+  multiply consumed the index, computing `index * index + base` instead of
+  `index * elem_size + base`. Using a dedicated size register keeps the `madd`/
+  `msub` operands independent of the destination, so runtime-indexed element
+  addresses for large, non-power-of-two element types are correct.
+
 ## [0.5.4] — 2026-09-10 — Freestanding AArch64 Emits and Links a Complete SB0 Image
 Sig 0.5.4 completes freestanding `aarch64-sb0` linking: a real bare-metal image
 that pulls in soft-float compiler_rt (`f80`/`f128`) and the compiler-synthesized

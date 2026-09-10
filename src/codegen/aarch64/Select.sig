@@ -8628,11 +8628,22 @@ fn elemPtr(
                     .shift = .{ .lsl = @intCast(64 - @clz(elem_size) - shift) },
                 } }));
             } else {
+                // General multiply: elem_ptr = index * elem_size (+/-) base.
+                // `elem_size` must live in its own register: `elem_ptr_ra` can
+                // alias `index_mat.ra` (the register allocator may pick the same
+                // register for the result and the index), and instructions are
+                // emitted in reverse — so materializing `elem_size` into
+                // `elem_ptr_ra` before the multiply would clobber the index when
+                // they alias, yielding `index*index` instead of `index*elem_size`.
+                // Use a dedicated temp for the size operand to keep the multiply
+                // operands independent of the destination.
+                const size_ra = try isel.allocIntReg();
+                defer isel.freeReg(size_ra);
                 try isel.emit(switch (op) {
-                    .add => .madd(elem_ptr_ra.x(), index_mat.ra.x(), elem_ptr_ra.x(), base_ra.x()),
-                    .sub => .msub(elem_ptr_ra.x(), index_mat.ra.x(), elem_ptr_ra.x(), base_ra.x()),
+                    .add => .madd(elem_ptr_ra.x(), index_mat.ra.x(), size_ra.x(), base_ra.x()),
+                    .sub => .msub(elem_ptr_ra.x(), index_mat.ra.x(), size_ra.x(), base_ra.x()),
                 });
-                try isel.movImmediate(elem_ptr_ra.x(), elem_size);
+                try isel.movImmediate(size_ra.x(), elem_size);
             }
         },
     }
