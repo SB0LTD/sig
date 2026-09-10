@@ -4,6 +4,42 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.5.4] — 2026-09-10 — Freestanding AArch64 Emits and Links a Complete SB0 Image
+Sig 0.5.4 completes freestanding `aarch64-sb0` linking: a real bare-metal image
+that pulls in soft-float compiler_rt (`f80`/`f128`) and the compiler-synthesized
+memory intrinsics now links end to end, boots under QEMU, and runs. 0.5.3 could
+compile these routines but the self-hosted SB0 flat-image linker failed to
+resolve them, producing `undefined SB0 symbol` and cascading relocation
+overflows.
+### Fixed
+- The self-hosted AArch64 back end now legalizes sub-range vector-part copies
+  (a vector value assembled from narrower parts, e.g. two 8-byte `D` halves of a
+  16-byte `f128` in a `Q` register) via lane `INS`, instead of asserting that a
+  vector part fully covers its value.
+- Wide (>64-bit) integer constants materialized into a vector register (reached
+  by `f80`/`f128` compiler_rt) are now emitted as 64-bit halves through a temp
+  GPR, mirroring the existing `f128` float-constant path, rather than hitting an
+  `unreachable` in the immediate-materialization switch.
+- The SB0 linker now resolves references to an exported definition even when the
+  definition is exported under several names (compiler_rt's comparison routines
+  export one body as `__cmptf2`/`__eqtf2`/`__lttf2`/… ); previously only the last
+  alias survived on a symbol's single `extern_name`, leaving the rest undefined.
+- The SB0 linker now binds compiler-synthesized runtime libcalls — `memcpy`,
+  `memset`, `memmove` emitted for aggregate copies/zeroing — to their exported
+  compiler_rt bodies (`memcpySmall`/`memsetSmall`/`memmoveSmall`), resolving the
+  distinct reference `Nav` to the defining `Nav` by name. Previously these were
+  `undefined SB0 symbol`s whose zero addresses overflowed the `bl` range.
+- The SB0 linker evaluates the linker script's location counter to define its
+  boundary symbols (`__sb0_image_start`, `__bss_start`, `__bss_end`,
+  `__stack_top`, `__sb0_file_end`), so a freestanding entry may reference them
+  from inline asm (`adrp x0, __stack_top`) and BSS-zeroing loops.
+- The AArch64 inline assembler now skips GNU/LLVM-style `//` line comments inside
+  an `asm` block, and encodes `b .` / `bl .` (branch to the current location) as
+  a self-relative branch rather than a reference to a symbol literally named `.`.
+- Fixed memory leaks in the AArch64 code path: inline-asm symbol-reloc names
+  (owned by the `Mir` and now freed in `Mir.deinit`) and the `"S"` operand's
+  duplicated symbol name (now freed with the assembler's operand map).
+
 ## [0.5.3] — 2026-09-05 — Freestanding AArch64 Links Soft-Float and Symbol-Address Inline Asm
 Sig 0.5.3 lands the last pieces a real bare-metal `aarch64-sb0` program needs to
 link: PC-relative symbol-address inline assembly, the self-contained compiler_rt

@@ -7,6 +7,10 @@ uav_relocs: []const Reloc.Uav,
 lazy_relocs: []const Reloc.Lazy,
 global_relocs: []const Reloc.Global,
 literal_relocs: []const Reloc.Literal,
+/// Heap-owned name strings referenced by some `global_relocs` (inline-asm
+/// symbol branches / symbol-address materializations). Freed by `deinit`.
+/// Other `global_relocs` names are static string literals and are not owned.
+owned_reloc_names: []const [*:0]const u8 = &.{},
 
 pub const Reloc = struct {
     label: u32,
@@ -47,6 +51,8 @@ pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     gpa.free(mir.lazy_relocs);
     gpa.free(mir.global_relocs);
     gpa.free(mir.literal_relocs);
+    for (mir.owned_reloc_names) |name| gpa.free(std.mem.span(name));
+    gpa.free(mir.owned_reloc_names);
     mir.* = undefined;
 }
 
