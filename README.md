@@ -21,6 +21,28 @@
 
 ---
 
+## 0.5.5 — AArch64 Runtime-Indexed Element Address Fix
+
+A self-hosted AArch64 back-end miscompile corrupted the address of a
+**runtime-indexed** array element whose element type is large and **not a power
+of two** in size. Const-indexed accesses were fine, so the bug only appeared with
+a runtime index into an array of big records.
+
+```
+$ sig version
+sig 0.5.5 (zig 0.17.0)
+```
+
+- `elemPtr` now materializes the element size into its **own** register for the
+  general multiply. The result register could alias the index register, and since
+  instructions emit in reverse the size overwrote the index before the multiply
+  ran — computing `index * index + base` instead of `index * elem_size + base`.
+
+Found via [`sls`](https://github.com/SB0LTD/sls): its fixed-slot document store
+(`[N]Document`, ~128 KiB per slot) silently dropped writes, so the `aarch64-sb0`
+image returned an empty `documentSymbol` under QEMU. With the fix the same image
+returns the expected symbols. See the [changelog](CHANGELOG.md) for details.
+
 ## 0.5.4 — Freestanding AArch64 Emits and Links a Complete SB0 Image
 
 The self-hosted AArch64 back end and SB0 flat-image linker now take a real
