@@ -642,6 +642,16 @@ pub const MAX_PATH_WIDE = 32768;
 /// Returns the number of u16 code units written (excluding null terminator),
 /// or null if the path is too long or contains invalid UTF-8.
 pub fn utf8ToWide(utf8: []const u8, out: []u16) ?usize {
+    const len = utf8ToWideText(utf8, out) orelse return null;
+    for (out[0..len]) |*unit| {
+        if (unit.* == '/') unit.* = '\\';
+    }
+    return len;
+}
+
+/// Convert text to null-terminated UTF-16 without interpreting path separators.
+/// Command lines and environment names are text; URLs must retain their '/'.
+pub fn utf8ToWideText(utf8: []const u8, out: []u16) ?usize {
     var i: usize = 0;
     var o: usize = 0;
     while (i < utf8.len) {
@@ -675,9 +685,6 @@ pub fn utf8ToWide(utf8: []const u8, out: []u16) ?usize {
 
         i += seq_len;
 
-        // Convert to path separators: '/' → '\' on Windows
-        if (codepoint == '/') codepoint = '\\';
-
         // Encode as UTF-16
         if (codepoint <= 0xFFFF) {
             if (o >= out.len) return null;
@@ -697,6 +704,30 @@ pub fn utf8ToWide(utf8: []const u8, out: []u16) ?usize {
     if (o >= out.len) return null;
     out[o] = 0;
     return o;
+}
+
+test "Windows text conversion preserves URLs while path conversion normalizes separators" {
+    const testing = @import("std").testing;
+    const text = "https://github.com/SB0LTD/zpm -Dpath=one/two";
+    var wide: [128]u16 = undefined;
+    var roundtrip: [128]u8 = undefined;
+    const len = utf8ToWideText(text, &wide) orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(@as(u16, 0), wide[len]);
+    const bytes = wideToUtf8(wide[0..len], &roundtrip) orelse return error.TestUnexpectedResult;
+    try testing.expectEqualStrings(text, roundtrip[0..bytes]);
+    const path_len = utf8ToWide("C:/one/two", &wide) orelse return error.TestUnexpectedResult;
+    const path_bytes = wideToUtf8(wide[0..path_len], &roundtrip) orelse return error.TestUnexpectedResult;
+    try testing.expectEqualStrings("C:\\one\\two", roundtrip[0..path_bytes]);
+}
+
+test "Windows text conversion retains non-BMP characters and enforces terminator capacity" {
+    const testing = @import("std").testing;
+    var wide: [4]u16 = undefined;
+    const len = utf8ToWideText("/\xf0\x9f\x8c\x8d", &wide) orelse return error.TestUnexpectedResult;
+    try testing.expectEqualSlices(u16, &.{ '/', 0xd83c, 0xdf0d, 0 }, &wide);
+    try testing.expectEqual(@as(usize, 3), len);
+    try testing.expect(utf8ToWideText("/\xf0\x9f\x8c\x8d", wide[0..3]) == null);
+    try testing.expect(utf8ToWideText("\xf0\x9f", &wide) == null);
 }
 
 /// Convert a UTF-16LE buffer to UTF-8. Returns the number of bytes written,
