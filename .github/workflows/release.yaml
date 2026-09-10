@@ -213,7 +213,11 @@ jobs:
           mkdir .bootstrap
           zstd -d "/tmp/bootstrap-download/$archive" --stdout | tar -x -C .bootstrap
           SIG="$PWD/.bootstrap/bootstrap-sig-x86_64-linux/bin/sig"
-          "$SIG" version | grep -q "sig ${SIG_VERSION}"
+          # The bootstrap is only the stage0 that compiles the current source; its
+          # own reported version need not equal the target release version (a prior
+          # release's compiler builds the next release's source fine). Verify only
+          # that it is a functioning Sig compiler reporting a valid semver.
+          "$SIG" version | grep -Eq "^sig [0-9]+\.[0-9]+\.[0-9]+ "
           echo "SIG=$SIG" >> "$GITHUB_ENV"
 
       - name: Download and verify target LLVM closure
@@ -406,7 +410,10 @@ jobs:
           mkdir .bootstrap
           zstd -d "/tmp/bootstrap-download/$archive" --stdout | tar -x -C .bootstrap
           SIG="$PWD/.bootstrap/bootstrap-sig-aarch64-macos/bin/sig"
-          "$SIG" version | grep -q "sig ${SIG_VERSION}"
+          # stage0 compiler only; its version need not match the target release
+          # (see the x86_64-linux job for the rationale). Verify it is a working
+          # Sig compiler reporting a valid semver.
+          "$SIG" version | grep -Eq "^sig [0-9]+\.[0-9]+\.[0-9]+ "
           echo "SIG=$SIG" >> "$GITHUB_ENV"
 
       - name: Download and verify native macOS LLVM closure
@@ -548,7 +555,10 @@ jobs:
           mkdir .bootstrap
           zstd -d "/tmp/bootstrap-download/$archive" --stdout | tar -x -C .bootstrap
           SIG="$PWD/.bootstrap/bootstrap-sig-x86_64-linux/bin/sig"
-          "$SIG" version | grep -q "sig ${SIG_VERSION}"
+          # stage0 compiler that produces the Windows binary; its version need not
+          # match the target release (see the x86_64-linux job). Verify it is a
+          # working Sig compiler reporting a valid semver.
+          "$SIG" version | grep -Eq "^sig [0-9]+\.[0-9]+\.[0-9]+ "
           echo "SIG=$SIG" >> "$GITHUB_ENV"
 
       - name: Download and verify Windows LLVM closure
