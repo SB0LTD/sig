@@ -1521,14 +1521,14 @@ fn applyReloc(sb0: *Sb0, image: []u8, reloc: Reloc, diags: anytype) Error!void {
         .branch26 => {
             const disp = target_vaddr - @as(i64, @intCast(site_vaddr));
             const disp28 = std.math.cast(i28, disp) orelse {
-                sb0.overflow(diags);
+                sb0.overflow(diags, reloc, site_vaddr, target_vaddr);
                 return;
             };
             aarch64.writeBranchImm(disp28, image[site_off..][0..4]);
         },
         .adr_prel_pg_hi21 => {
             const pages = aarch64.calcNumberOfPages(@intCast(site_vaddr), target_vaddr) catch {
-                sb0.overflow(diags);
+                sb0.overflow(diags, reloc, site_vaddr, target_vaddr);
                 return;
             };
             aarch64.writeAdrInst(pages, image[site_off..][0..4]);
@@ -1548,9 +1548,12 @@ fn applyReloc(sb0: *Sb0, image: []u8, reloc: Reloc, diags: anytype) Error!void {
     }
 }
 
-fn overflow(sb0: *Sb0, diags: anytype) void {
-    _ = sb0;
-    diags.addError("SB0 relocation overflow", .{});
+fn overflow(sb0: *Sb0, diags: anytype, reloc: Reloc, site_vaddr: u64, target_vaddr: i64) void {
+    const target = reloc.target.ptrConst(sb0);
+    const name = target.extern_name orelse "<local>";
+    diags.addError("SB0 relocation overflow: {t} to '{s}' (target=0x{x} defined={} site=0x{x})", .{
+        reloc.kind, name, @as(u64, @bitCast(target_vaddr)), target.defined, site_vaddr,
+    });
 }
 
 /// Virtual address of a node = base_vaddr + node file offset within the text
