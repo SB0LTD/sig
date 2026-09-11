@@ -3037,6 +3037,14 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             .lo12 => .add(sr.reg, sr.reg, .{ .immediate = 0 }),
                         });
                     },
+                    // Named label definitions and directives (`.global`, `.type`,
+                    // `.p2align`, ...) only occur in module-level global assembly,
+                    // which the SB0 linker assembles separately — they are not
+                    // valid inside a function-body `asm` block.
+                    .named_label_def, .directive => return isel.fail(
+                        "directive or named label not supported in function-level asm",
+                        .{},
+                    ),
                 }
             }
             // Resolve label branches in append (forward/source) space.

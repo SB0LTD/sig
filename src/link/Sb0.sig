@@ -766,7 +766,7 @@ fn assembleGlobalAsm(sb0: *Sb0, tid: Zcu.PerThread.Id) Error!void {
 
     for (zcu.global_assembly.values()) |source_raw| {
         // The assembler needs a NUL-sentinel source buffer.
-        const source = try gpa.dupeZ(u8, source_raw);
+        const source = try gpa.dupeSentinel(u8, source_raw, 0);
         defer gpa.free(source);
 
         // Assemble into a byte buffer, tracking named labels and `.global` names.
