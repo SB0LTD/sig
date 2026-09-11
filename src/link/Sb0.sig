@@ -1340,7 +1340,9 @@ fn flushInner(sb0: *Sb0, arena: Allocator, tid: Zcu.PerThread.Id) Error!void {
         // under several names), then fall back to an extern-name scan.
         if (sb0.export_defs.get(name)) |def_si| {
             const def = def_si.ptr(sb0);
-            if (def.node != .none) {
+            // A definition carries a body node, or (for a global-assembly label
+            // alias) is defined-by-value at an owner node's offset.
+            if (def.node != .none or def.defined) {
                 gsym.value = def.value;
                 gsym.defined = true;
                 continue;
@@ -1374,7 +1376,9 @@ fn flushInner(sb0: *Sb0, arena: Allocator, tid: Zcu.PerThread.Id) Error!void {
             const nav_name = ip.getNav(entry.key_ptr.*).name.toSlice(ip);
             if (sb0.export_defs.get(nav_name)) |def_si| {
                 const def = def_si.ptr(sb0);
-                if (def.node != .none) {
+                // Body-bearing definition, or a global-assembly label alias
+                // defined-by-value at its owner node's offset.
+                if (def.node != .none or def.defined) {
                     nsym.value = def.value;
                     nsym.defined = true;
                 }
