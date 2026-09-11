@@ -4,10 +4,12 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
-## [0.5.6] — 2026-09-10 — Inline-Asm Constant-Expression Immediates
-Sig 0.5.6 lets the AArch64 inline assembler evaluate constant expressions in
-`mov` immediates, the last piece a real freestanding `aarch64-sb0` program needs
-to assemble its startup sequence.
+## [0.5.6] — 2026-09-10 — Freestanding AArch64: Constant-Expression Immediates and Global Assembly
+Sig 0.5.6 completes the freestanding `aarch64-sb0` toolchain: the inline
+assembler evaluates constant expressions in `mov` immediates, and the SB0
+flat-image linker now emits and resolves symbols defined in module-level global
+assembly — the two remaining pieces a real bare-metal image needs to assemble
+its startup sequence and link its syscall trap stubs.
 ### Fixed
 - The AArch64 inline assembler now evaluates constant-expression immediates in
   `mov <reg>, #<expr>` — parentheses, shifts (`<<` `>>`), bitwise `| ^ &`,
@@ -16,6 +18,15 @@ to assemble its startup sequence.
   `_start`) now assembles instead of failing with "unable to assemble:
   '(3 << 20)'". Literal leaves still accept hex/binary/octal/decimal and
   character literals.
+- The SB0 flat-image linker now assembles module-level (file-scope) global
+  assembly blocks and registers the symbols they define. A `.global`-exported
+  function defined in a top-level `asm(...)` (e.g. a `svc #0` syscall trap stub)
+  is assembled into the image, given a real address, and bound by name, so a
+  `bl`/`adrp` to it resolves. Previously such a symbol was never emitted, so a
+  reference to it relocated against address 0 and the linker failed with "SB0
+  relocation overflow". The in-tree AArch64 assembler gained support for the
+  `.global`/`.globl`, `.p2align`/`.align`/`.balign`, and `.type` directives and
+  named (non-local) label definitions this requires.
 
 ## [0.5.5] — 2026-09-10 — AArch64 Runtime-Indexed Element Address Fix
 Sig 0.5.5 fixes a self-hosted AArch64 back-end miscompile that corrupted the

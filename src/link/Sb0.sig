@@ -38,6 +38,7 @@ const InternPool = @import("../InternPool.sig");
 const link = @import("../link.sig");
 const MappedFile = @import("MappedFile.sig");
 const aarch64 = @import("aarch64.sig");
+const Assemble = @import("../codegen/aarch64/Assemble.sig");
 const target_util = @import("../target.sig");
 const Type = @import("../Type.sig");
 const Zcu = @import("../Zcu.sig");
@@ -78,6 +79,10 @@ pending_lazy: std.ArrayList(SymIndex),
 relocs: std.ArrayList(Reloc),
 /// Symbol index of the program entry point (`_start`/root), or `.none`.
 entry_sym: SymIndex.Optional,
+/// Labels defined inside module-level global-assembly chunks. Each label's
+/// symbol shares the chunk's owner node; its final vaddr is `owner.value +
+/// offset`, fixed up after layout assigns the owner node's address.
+global_asm_labels: std.ArrayList(GlobalAsmLabel),
 /// Base virtual address of the text region. SB0X images are position-relative,
 /// but codegen requires a concrete base for absolute references.
 base_vaddr: u64,
@@ -175,6 +180,16 @@ const Reloc = struct {
     ldst_size_log2: u3 = 0,
 };
 
+/// A `.global` label defined inside a module-level global-assembly chunk. The
+/// label's own symbol has no node; it aliases the chunk `owner`'s node at byte
+/// `offset`. After layout assigns `owner.value`, the label symbol's `value` is
+/// set to `owner.value + offset` so references (`bl name`, `adrp name`) resolve.
+const GlobalAsmLabel = struct {
+    si: SymIndex,
+    owner: SymIndex,
+    offset: u64,
+};
+
 // ── Lifecycle ──
 
 pub fn open(
@@ -252,6 +267,7 @@ fn create(
         .pending_lazy = .empty,
         .relocs = .empty,
         .entry_sym = .none,
+        .global_asm_labels = .empty,
         .base_vaddr = 0,
         // A linker script signals a bootable/kernel artifact (see field docs);
         // its presence selects the SB0K container.
@@ -729,6 +745,124 @@ fn genPendingLazy(sb0: *Sb0, tid: Zcu.PerThread.Id) Error!void {
     }
 }
 
+/// Assemble the ZCU's module-level global-assembly chunks (file-scope `asm(...)`
+/// blocks, e.g. a `.global`-exported trap stub) into the image and register the
+/// symbols they define. LLVM/C hand this text to a real assembler; the SB0
+/// flat-image path must assemble it in-tree so its `.global` labels get a body
+/// and a vaddr, otherwise references (`bl name`) relocate against 0.
+///
+/// Each chunk becomes one owner node holding the assembled bytes. Every named
+/// label inside is recorded as an alias symbol at its byte offset (resolved to
+/// a concrete vaddr after layout) and, if `.global`, bound under its name via
+/// `globals`/`export_defs` so the existing reference-binding machinery resolves.
+fn assembleGlobalAsm(sb0: *Sb0, tid: Zcu.PerThread.Id) Error!void {
+    const comp = sb0.base.comp;
+    const gpa = comp.gpa;
+    const zcu = comp.zcu.?;
+    if (zcu.global_assembly.count() == 0) return;
+
+    const active = zcu.activate(tid);
+    defer active.deactivate();
+
+    for (zcu.global_assembly.values()) |source_raw| {
+        // The assembler needs a NUL-sentinel source buffer.
+        const source = try gpa.dupeZ(u8, source_raw);
+        defer gpa.free(source);
+
+        // Assemble into a byte buffer, tracking named labels and `.global` names.
+        var bytes: std.ArrayList(u8) = .empty;
+        defer bytes.deinit(gpa);
+        const Label = struct { name: []const u8, offset: u64, global: bool };
+        var labels: std.ArrayList(Label) = .empty;
+        defer labels.deinit(gpa);
+        var globals_set: std.StringArrayHashMapUnmanaged(void) = .empty;
+        defer globals_set.deinit(gpa);
+
+        var as: Assemble = .{ .source = source.ptr, .operands = .empty };
+        defer as.operands.deinit(gpa);
+        while (true) {
+            const line = as.nextLine() catch {
+                return sb0.base.comp.link_diags.fail("unable to assemble module-level asm", .{});
+            };
+            switch (line) {
+                .end => break,
+                .instruction => |inst| {
+                    var word: [4]u8 = undefined;
+                    inst.write(&word);
+                    try bytes.appendSlice(gpa, &word);
+                },
+                .named_label_def => |name| {
+                    try labels.append(gpa, .{ .name = name, .offset = bytes.items.len, .global = false });
+                },
+                .directive => |dir| switch (dir.kind) {
+                    .global => try globals_set.put(gpa, dir.name, {}),
+                    .p2align => {
+                        const al: u64 = @as(u64, 1) << @intCast(dir.arg);
+                        while (bytes.items.len % al != 0) try bytes.append(gpa, 0);
+                    },
+                    .balign => {
+                        const al = if (dir.arg == 0) 1 else dir.arg;
+                        while (bytes.items.len % al != 0) try bytes.append(gpa, 0);
+                    },
+                    .other => {},
+                },
+                // Local labels / branches inside a global chunk are uncommon
+                // (the SB0 trap stubs are straight-line). Reject anything that
+                // would need cross-symbol relocation rather than miscompile.
+                else => return sb0.base.comp.link_diags.fail(
+                    "unsupported construct in module-level asm (only directives, named labels, and straight-line instructions are supported)",
+                    .{},
+                ),
+            }
+        }
+        if (bytes.items.len == 0) continue;
+
+        // Mark which labels are `.global`.
+        for (labels.items) |*lbl| {
+            if (globals_set.contains(lbl.name)) lbl.global = true;
+        }
+
+        // Create the owner symbol/node and write the assembled bytes.
+        const owner = try sb0.newSymbol();
+        const ni = try sb0.ensureSymbolNode(owner, .@"4");
+        try ni.moved(gpa, &sb0.mf);
+        {
+            var nw: MappedFile.Node.Writer = undefined;
+            ni.writer(gpa, &sb0.mf, &nw);
+            defer nw.deinit();
+            nw.interface.writeAll(bytes.items) catch |err| switch (err) {
+                error.WriteFailed => return nw.err.?,
+            };
+            owner.ptr(sb0).size = nw.interface.end;
+        }
+        owner.ptr(sb0).defined = true;
+
+        // Register each `.global` label as a name-bound symbol at its offset.
+        for (labels.items) |lbl| {
+            if (!lbl.global) continue;
+            // Reuse the extern symbol a prior codegen reference already
+            // allocated under this name (that symbol is the relocation target),
+            // so binding its value resolves the reference. Otherwise allocate a
+            // fresh symbol and register the name.
+            const gop = try sb0.globals.getOrPut(gpa, lbl.name);
+            const label_si = if (gop.found_existing) gop.value_ptr.* else new: {
+                const owned = try gpa.dupe(u8, lbl.name);
+                const si = try sb0.newSymbol();
+                si.ptr(sb0).extern_name = owned;
+                gop.key_ptr.* = owned;
+                gop.value_ptr.* = si;
+                break :new si;
+            };
+            label_si.ptr(sb0).size = 0;
+            if (label_si.ptr(sb0).extern_name == null) label_si.ptr(sb0).extern_name = gop.key_ptr.*;
+            // The label's vaddr = owner.value + offset, fixed up after layout.
+            try sb0.global_asm_labels.append(gpa, .{ .si = label_si, .owner = owner, .offset = lbl.offset });
+            // Record the alias mapping for export-based nav resolution (0d).
+            try sb0.export_defs.put(gpa, gop.key_ptr.*, label_si);
+        }
+    }
+}
+
 /// Find a defined symbol whose extern name matches `name`, returning its vaddr.
 /// Used to bind a referenced global to an in-image definition of the same name.
 fn findDefinedByName(sb0: *Sb0, name: []const u8) ?u64 {
@@ -1129,6 +1263,12 @@ fn flushInner(sb0: *Sb0, arena: Allocator, tid: Zcu.PerThread.Id) Error!void {
     //    definitions already have their final in-image addresses.
     try sb0.genPendingLazy(tid);
 
+    // 0a. Assemble module-level global-assembly chunks (file-scope `asm(...)`
+    //     blocks) into image nodes and register the `.global` symbols they
+    //     define, so references like `bl zpmSb0Trap` resolve. Must run before
+    //     layout (step 1) so these nodes get vaddrs, and before binding (0c).
+    try sb0.assembleGlobalAsm(tid);
+
     // A fixed-layout SB0K kernel image is loaded at a known physical base with
     // the reset code immediately after the 64-byte header, so its symbols have
     // concrete run-time addresses: `preferred_physical_base + header + offset`.
@@ -1168,6 +1308,15 @@ fn flushInner(sb0: *Sb0, arena: Allocator, tid: Zcu.PerThread.Id) Error!void {
         sym.defined = true;
         cursor += sym.size;
         total_code = @intCast(cursor - sb0.base_vaddr);
+    }
+
+    // 1b. Resolve global-assembly label aliases now that their owner nodes have
+    //     addresses: each label sits at `owner.value + offset`.
+    for (sb0.global_asm_labels.items) |lbl| {
+        const owner = lbl.owner.ptr(sb0);
+        const alias = lbl.si.ptr(sb0);
+        alias.value = owner.value + lbl.offset;
+        alias.defined = true;
     }
 
     // 0b2. Define any linker-script symbols (e.g. `__bss_start`, `__bss_end`,

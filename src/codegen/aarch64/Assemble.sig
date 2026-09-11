@@ -110,8 +110,36 @@ pub const Line = union(enum) {
     symbol_branch: SymbolBranch,
     /// A PC-relative symbol address (`adrp`/`add :lo12:`), to be relocated by the caller.
     symbol_ref: SymbolRef,
+    /// A named (non-local) label definition `name:` — the target of a symbol.
+    /// Used by module-level global assembly to define exported functions/data.
+    named_label_def: []const u8,
+    /// An assembler directive (`.global`/`.globl`, `.type`, `.p2align`/`.align`,
+    /// `.balign`, etc.). Used by global-assembly chunks. Position/alignment
+    /// directives carry an argument; declaration directives carry a name.
+    directive: Directive,
     /// End of source.
     end,
+};
+
+/// A parsed assembler directive from a global-assembly chunk.
+pub const Directive = struct {
+    pub const Kind = enum {
+        /// `.global name` / `.globl name`: mark `name` as an exported symbol.
+        global,
+        /// `.p2align n` / `.align n` / `.balign n`: align the location counter.
+        /// `is_p2` distinguishes power-of-two (`.p2align`, `.align` on aarch64)
+        /// from byte alignment (`.balign`).
+        p2align,
+        balign,
+        /// Any other directive (`.type`, `.size`, `.section`, ...) — recorded
+        /// but not acted upon by the flat-image assembler.
+        other,
+    };
+    kind: Kind,
+    /// For `.global`: the symbol name. For `other`: empty.
+    name: []const u8 = "",
+    /// For `.p2align`/`.balign`: the alignment argument.
+    arg: u64 = 0,
 };
 
 /// Advance past run of separators/blank lines. Returns false at end of source.
@@ -134,6 +162,39 @@ fn isIdentByte(c: u8) bool {
     return switch (c) {
         '0'...'9', 'A'...'Z', 'a'...'z', '_', '.' => true,
         else => false,
+    };
+}
+
+/// First byte of a symbol name: a letter or underscore (not a digit or `.`, so
+/// this does not match local labels or directives).
+fn isSymbolStart(c: u8) bool {
+    return switch (c) {
+        'A'...'Z', 'a'...'z', '_' => true,
+        else => false,
+    };
+}
+
+/// True if `tok` is a plain symbol identifier: starts with a symbol-start byte
+/// and contains only identifier bytes excluding '.' (a symbol name, not a
+/// dotted/section token).
+fn isIdentToken(tok: []const u8) bool {
+    if (tok.len == 0 or !isSymbolStart(tok[0])) return false;
+    for (tok) |c| {
+        switch (c) {
+            '0'...'9', 'A'...'Z', 'a'...'z', '_' => {},
+            else => return false,
+        }
+    }
+    return true;
+}
+
+/// Advance `as.source` past the remainder of the current logical line, stopping
+/// at (but not consuming) the newline / `;` separator or end of input. Used to
+/// discard the tail of a directive line after its meaningful tokens.
+fn consumeToLineEnd(as: *Assemble) void {
+    while (true) switch (as.source[0]) {
+        0, '\n', ';' => return,
+        else => as.source = as.source[1..],
     };
 }
 
@@ -429,6 +490,49 @@ pub fn nextLine(as: *Assemble) !Line {
         const digit = as.source[0] - '0';
         as.source = as.source[2..];
         return .{ .label_def = digit };
+    }
+
+    // Assembler directive (`.global`, `.type`, `.p2align`, ...) used by
+    // module-level global-assembly chunks. A leading '.' that begins an
+    // identifier (not the bare `.` location counter, which only appears as a
+    // branch target) is a directive.
+    if (as.source[0] == '.' and (std.ascii.isAlphabetic(as.source[1]) or as.source[1] == '_')) {
+        var dbuf: [32]u8 = undefined;
+        const dtok = as.rawToken(&dbuf); // includes the leading '.'
+        if (eqlIgnoreCase(dtok, ".global") or eqlIgnoreCase(dtok, ".globl")) {
+            const name_src = as.source;
+            var nbuf: [128]u8 = undefined;
+            const name = as.rawToken(&nbuf);
+            if (name.len > 0 and isSymbolStart(name[0]) and isIdentToken(name)) {
+                as.consumeToLineEnd();
+                return .{ .directive = .{ .kind = .global, .name = name_src[0..name.len] } };
+            }
+            as.consumeToLineEnd();
+            return .{ .directive = .{ .kind = .other } };
+        }
+        if (eqlIgnoreCase(dtok, ".p2align") or eqlIgnoreCase(dtok, ".align") or eqlIgnoreCase(dtok, ".balign")) {
+            const kind: Directive.Kind = if (eqlIgnoreCase(dtok, ".balign")) .balign else .p2align;
+            var abuf: [32]u8 = undefined;
+            const atok = as.rawToken(&abuf);
+            const arg = std.fmt.parseInt(u64, atok, 0) catch 0;
+            as.consumeToLineEnd();
+            return .{ .directive = .{ .kind = kind, .arg = arg } };
+        }
+        // Any other directive (.type/.size/.section/...): record and skip.
+        as.consumeToLineEnd();
+        return .{ .directive = .{ .kind = .other } };
+    }
+
+    // Named (non-local) label definition `name:` — an identifier immediately
+    // followed by ':'. Used by global assembly to define exported symbols.
+    if (isSymbolStart(as.source[0])) {
+        var i: usize = 0;
+        while (isIdentByte(as.source[i])) i += 1;
+        if (i > 0 and as.source[i] == ':') {
+            const name = as.source[0..i];
+            as.source = as.source[i + 1 ..];
+            return .{ .named_label_def = name };
+        }
     }
 
     // Detect a branch mnemonic whose target is a local label. We read the first
