@@ -178,6 +178,146 @@ fn parseImmU64(tok: []const u8) ?u64 {
     return std.fmt.parseInt(u64, tok, 0) catch return null;
 }
 
+/// Evaluate a constant integer expression from `as.source`, advancing past it.
+/// Supports parentheses, bitwise `|` `^` `&`, shifts `<<` `>>`, `+` `-`, `*`,
+/// and unary `-`/`~`, over unsigned 64-bit wrapping arithmetic (matching
+/// assembler immediate evaluation). Returns null on malformed input; the caller
+/// resets `as.source` on failure. Used for `mov #<expr>` so forms like
+/// `#(3 << 20)` assemble like GNU as. Leaf literals reuse `parseImmU64`, so hex/
+/// bin/oct/decimal and character literals are all accepted.
+fn parseImmExpr(as: *Assemble) ?u64 {
+    const E = struct {
+        s: [*:0]const u8,
+        fn skipWs(e: *@This()) void {
+            while (e.s[0] == ' ' or e.s[0] == '\t' or e.s[0] == '\r') e.s = e.s[1..];
+        }
+        fn atEnd(e: *@This()) bool {
+            e.skipWs();
+            return switch (e.s[0]) {
+                0, '\n', ';', ',' => true,
+                else => false,
+            };
+        }
+        fn primary(e: *@This()) ?u64 {
+            e.skipWs();
+            if (e.s[0] == '(') {
+                e.s = e.s[1..];
+                const v = e.bitOr() orelse return null;
+                e.skipWs();
+                if (e.s[0] != ')') return null;
+                e.s = e.s[1..];
+                return v;
+            }
+            if (e.s[0] == '-') {
+                e.s = e.s[1..];
+                return 0 -% (e.primary() orelse return null);
+            }
+            if (e.s[0] == '~') {
+                e.s = e.s[1..];
+                return ~(e.primary() orelse return null);
+            }
+            // Character literal leaf (`'S'`, `'\n'`): consume through the closing quote.
+            if (e.s[0] == '\'') {
+                var n: usize = 1;
+                while (e.s[n] != 0 and e.s[n] != '\'') {
+                    if (e.s[n] == '\\' and e.s[n + 1] != 0) n += 1;
+                    n += 1;
+                }
+                if (e.s[n] != '\'') return null;
+                n += 1; // include closing quote
+                const lit = e.s[0..n];
+                e.s = e.s[n..];
+                return parseImmU64(lit);
+            }
+            // Numeric literal leaf: a maximal run of identifier bytes
+            // (digits/letters/underscore, e.g. `0x1f`, `0b101`, `42`).
+            const start = e.s;
+            var n: usize = 0;
+            while (isIdentByte(e.s[n])) n += 1;
+            if (n == 0) return null;
+            e.s = e.s[n..];
+            return parseImmU64(start[0..n]);
+        }
+        fn mul(e: *@This()) ?u64 {
+            var acc = e.primary() orelse return null;
+            while (true) {
+                e.skipWs();
+                if (e.s[0] == '*') {
+                    e.s = e.s[1..];
+                    acc = acc *% (e.primary() orelse return null);
+                } else return acc;
+            }
+        }
+        fn add(e: *@This()) ?u64 {
+            var acc = e.mul() orelse return null;
+            while (true) {
+                e.skipWs();
+                switch (e.s[0]) {
+                    '+' => {
+                        e.s = e.s[1..];
+                        acc = acc +% (e.mul() orelse return null);
+                    },
+                    '-' => {
+                        e.s = e.s[1..];
+                        acc = acc -% (e.mul() orelse return null);
+                    },
+                    else => return acc,
+                }
+            }
+        }
+        fn shift(e: *@This()) ?u64 {
+            var acc = e.add() orelse return null;
+            while (true) {
+                e.skipWs();
+                if (e.s[0] == '<' and e.s[1] == '<') {
+                    e.s = e.s[2..];
+                    const rhs = e.add() orelse return null;
+                    acc = if (rhs >= 64) 0 else acc << @intCast(rhs);
+                } else if (e.s[0] == '>' and e.s[1] == '>') {
+                    e.s = e.s[2..];
+                    const rhs = e.add() orelse return null;
+                    acc = if (rhs >= 64) 0 else acc >> @intCast(rhs);
+                } else return acc;
+            }
+        }
+        fn bitAnd(e: *@This()) ?u64 {
+            var acc = e.shift() orelse return null;
+            while (true) {
+                e.skipWs();
+                if (e.s[0] == '&') {
+                    e.s = e.s[1..];
+                    acc &= e.shift() orelse return null;
+                } else return acc;
+            }
+        }
+        fn bitXor(e: *@This()) ?u64 {
+            var acc = e.bitAnd() orelse return null;
+            while (true) {
+                e.skipWs();
+                if (e.s[0] == '^') {
+                    e.s = e.s[1..];
+                    acc ^= e.bitAnd() orelse return null;
+                } else return acc;
+            }
+        }
+        fn bitOr(e: *@This()) ?u64 {
+            var acc = e.bitXor() orelse return null;
+            while (true) {
+                e.skipWs();
+                if (e.s[0] == '|') {
+                    e.s = e.s[1..];
+                    acc |= e.bitXor() orelse return null;
+                } else return acc;
+            }
+        }
+    };
+    var e: E = .{ .s = as.source };
+    const v = e.bitOr() orelse return null;
+    if (!e.atEnd()) return null; // trailing garbage: not a pure immediate expression
+    as.source = e.s;
+    return v;
+}
+
 /// Encode `mov <reg>, #<imm>` as a single move-wide instruction when the
 /// immediate fits one `movz` (a 16-bit part shifted by 0/16/32/48) or one
 /// `movn` (the same for the bitwise complement). Returns null if the immediate
@@ -307,13 +447,22 @@ pub fn nextLine(as: *Assemble) !Line {
     if (eqlIgnoreCase(mnemonic, "mov")) {
         var rbuf: [16]u8 = undefined;
         const rtok = as.rawToken(&rbuf);
-        var ibuf: [24]u8 = undefined;
-        const itok = as.rawToken(&ibuf);
         if (aarch64.encoding.Register.parse(rtok)) |reg| {
-            if (reg.format == .general and itok.len > 0 and itok[0] == '#') {
-                if (parseImmU64(itok[1..])) |imm| {
-                    if (encodeMovWide(reg, imm)) |inst| {
-                        return .{ .instruction = inst };
+            if (reg.format == .general) {
+                // Skip separators, then require a `#`-prefixed immediate, which
+                // may be a constant expression such as `#(3 << 20)`. The whole
+                // rest of the operand is evaluated so parenthesized/shifted forms
+                // assemble like GNU as.
+                while (true) switch (as.source[0]) {
+                    ' ', '\t', '\r', ',' => as.source = as.source[1..],
+                    else => break,
+                };
+                if (as.source[0] == '#') {
+                    as.source = as.source[1..];
+                    if (parseImmExpr(as)) |imm| {
+                        if (encodeMovWide(reg, imm)) |inst| {
+                            return .{ .instruction = inst };
+                        }
                     }
                 }
             }
@@ -4097,6 +4246,40 @@ test "nextLine expands mov reg,#imm to a single movz/movn" {
         instWord((try as.nextLine()).instruction),
     );
     try std.testing.expectEqual(Line.end, try as.nextLine());
+
+    // Constant-expression immediates must be evaluated (parentheses, shifts,
+    // bitwise ops, arithmetic, unary ~) like GNU as, producing the same
+    // move-wide as the equivalent literal.
+    var expr_as: Assemble = .{
+        .source =
+        \\mov x1, #(3 << 20)
+        \\mov w2, #(1 | 2 | 4)
+        \\mov x3, #(0x10 * 4 + 1)
+        \\mov x4, #(~0 & 0xffff)
+        ,
+        .operands = .empty,
+    };
+    // (3 << 20) == 0x300000 == 0x30 << 16
+    try std.testing.expectEqual(
+        instWord(Instruction.movz(R.parse("x1").?, 0x30, .{ .lsl = Hw.@"16" })),
+        instWord((try expr_as.nextLine()).instruction),
+    );
+    // (1 | 2 | 4) == 7
+    try std.testing.expectEqual(
+        instWord(Instruction.movz(R.parse("w2").?, 7, .{ .lsl = Hw.@"0" })),
+        instWord((try expr_as.nextLine()).instruction),
+    );
+    // (0x10 * 4 + 1) == 0x41
+    try std.testing.expectEqual(
+        instWord(Instruction.movz(R.parse("x3").?, 0x41, .{ .lsl = Hw.@"0" })),
+        instWord((try expr_as.nextLine()).instruction),
+    );
+    // (~0 & 0xffff) == 0xffff
+    try std.testing.expectEqual(
+        instWord(Instruction.movz(R.parse("x4").?, 0xffff, .{ .lsl = Hw.@"0" })),
+        instWord((try expr_as.nextLine()).instruction),
+    );
+    try std.testing.expectEqual(Line.end, try expr_as.nextLine());
 }
 
 test "encodeMovWide picks the right single move-wide" {

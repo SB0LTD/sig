@@ -4,6 +4,19 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.5.6] — 2026-09-10 — Inline-Asm Constant-Expression Immediates
+Sig 0.5.6 lets the AArch64 inline assembler evaluate constant expressions in
+`mov` immediates, the last piece a real freestanding `aarch64-sb0` program needs
+to assemble its startup sequence.
+### Fixed
+- The AArch64 inline assembler now evaluates constant-expression immediates in
+  `mov <reg>, #<expr>` — parentheses, shifts (`<<` `>>`), bitwise `| ^ &`,
+  arithmetic (`+ - *`), and unary `- ~` over 64-bit wrapping math — matching GNU
+  as. For example `mov x1, #(3 << 20)` (setting `cpacr_el1` in a bare-metal
+  `_start`) now assembles instead of failing with "unable to assemble:
+  '(3 << 20)'". Literal leaves still accept hex/binary/octal/decimal and
+  character literals.
+
 ## [0.5.5] — 2026-09-10 — AArch64 Runtime-Indexed Element Address Fix
 Sig 0.5.5 fixes a self-hosted AArch64 back-end miscompile that corrupted the
 address of a runtime-indexed array element whose element type is large and not a
