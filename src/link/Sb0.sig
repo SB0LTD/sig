@@ -821,8 +821,6 @@ fn assembleGlobalAsm(sb0: *Sb0, tid: Zcu.PerThread.Id) Error!void {
         for (labels.items) |*lbl| {
             if (globals_set.contains(lbl.name)) lbl.global = true;
         }
-        log.err("SB0 global-asm chunk: {d} bytes, {d} labels, {d} globals", .{ bytes.items.len, labels.items.len, globals_set.count() });
-        for (labels.items) |lbl| log.err("  label '{s}' off={d} global={}", .{ lbl.name, lbl.offset, lbl.global });
 
         // Create the owner symbol/node and write the assembled bytes.
         const owner = try sb0.newSymbol();
@@ -1376,7 +1374,6 @@ fn flushInner(sb0: *Sb0, arena: Allocator, tid: Zcu.PerThread.Id) Error!void {
             const nsym = nsi.ptr(sb0);
             if (nsym.node != .none or nsym.defined) continue;
             const nav_name = ip.getNav(entry.key_ptr.*).name.toSlice(ip);
-            log.err("SB0 0d nav '{s}' export_defs_hit={}", .{ nav_name, sb0.export_defs.get(nav_name) != null });
             if (sb0.export_defs.get(nav_name)) |def_si| {
                 const def = def_si.ptr(sb0);
                 // Body-bearing definition, or a global-assembly label alias

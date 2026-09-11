@@ -500,6 +500,13 @@ pub fn nextLine(as: *Assemble) !Line {
         var dbuf: [32]u8 = undefined;
         const dtok = as.rawToken(&dbuf); // includes the leading '.'
         if (eqlIgnoreCase(dtok, ".global") or eqlIgnoreCase(dtok, ".globl")) {
+            // Skip separators so the source-backed name slice starts exactly at
+            // the identifier (rawToken also skips leading separators, which
+            // would otherwise offset name_src from the returned token).
+            while (true) switch (as.source[0]) {
+                ' ', '\t', '\r', ',' => as.source = as.source[1..],
+                else => break,
+            };
             const name_src = as.source;
             var nbuf: [128]u8 = undefined;
             const name = as.rawToken(&nbuf);
