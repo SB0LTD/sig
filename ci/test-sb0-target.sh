@@ -150,4 +150,65 @@ expect_failure "Sb0 targets are served by the self-hosted backend" \
   "${common[@]}" -target aarch64-sb0 -fllvm \
   --cache-dir "$TMP/negative-fllvm" -femit-bin="$TMP/negative-fllvm.bin"
 
+echo "sb0-target: negatives passed, compiling two-segment (data+bss) probe..."
+
+# A userspace app with mutable data + a large zero-init (BSS) buffer must emit
+# TWO SB0X segments: a read-execute segment (code/rodata) and a SEPARATE
+# read-write segment (data + bss). The BSS tail must be mem-only — its bytes
+# must NOT be stored in the file — so a 1 MiB zero buffer costs ~0 image bytes
+# and the process can legally write its own globals under SB0 page permissions.
+test -f "$ROOT/test/sb0_data_segment_probe.sig"
+"$SIG" build-exe "$ROOT/test/sb0_data_segment_probe.sig" \
+  -target aarch64-sb0 \
+  -ofmt=raw \
+  -fno-llvm \
+  -fno-compiler-rt \
+  -OReleaseSmall \
+  -fno-stack-check \
+  -fno-stack-protector \
+  -fno-unwind-tables \
+  -fstrip \
+  --Sig-lib-dir "$ROOT/lib" \
+  --cache-dir "$TMP/data-seg-cache" \
+  --global-cache-dir "$TMP/global-cache" \
+  -femit-bin="$TMP/sb0-data-seg.bin"
+echo "sb0-target: two-segment probe compiled OK"
+
+read_u16_le() {
+  local bytes val=0 shift=0 b
+  bytes="$(od -An -tu1 -j"$2" -N2 "$1")"
+  for b in $bytes; do val=$(( val + (b << shift) )); shift=$(( shift + 8 )); done
+  printf '%s\n' "$val"
+}
+
+ds_magic="$(od -An -tx1 -N4 "$TMP/sb0-data-seg.bin" | tr -d ' \n')"
+ds_segcount="$(read_u16_le "$TMP/sb0-data-seg.bin" 16)"
+ds_size="$(wc -c < "$TMP/sb0-data-seg.bin" | tr -d ' ')"
+# Segment descriptors start at offset 64; each is 40 bytes. Fields (LE):
+#   +0 file_offset(u64) +8 vaddr_offset(u64) +16 file_size(u64)
+#   +24 mem_size(u64)   +32 flags(u32)
+seg0_flags="$(od -An -tx1 -j$((64 + 32)) -N4 "$TMP/sb0-data-seg.bin" | tr -d ' \n')"
+seg1_off=$((64 + 40))
+seg1_vaddr="$(read_u64_le "$TMP/sb0-data-seg.bin" $((seg1_off + 8)))"
+seg1_file="$(read_u64_le "$TMP/sb0-data-seg.bin" $((seg1_off + 16)))"
+seg1_mem="$(read_u64_le "$TMP/sb0-data-seg.bin" $((seg1_off + 24)))"
+seg1_flags="$(od -An -tx1 -j$((seg1_off + 32)) -N4 "$TMP/sb0-data-seg.bin" | tr -d ' \n')"
+echo "sb0-target: two-segment magic=$ds_magic segs=$ds_segcount size=$ds_size"
+echo "sb0-target:   seg0 flags=$seg0_flags | seg1 vaddr=$seg1_vaddr file=$seg1_file mem=$seg1_mem flags=$seg1_flags"
+
+# Magic and exactly two segments.
+test "$ds_magic" = 53423058
+test "$ds_segcount" = 2
+# seg0 is read-execute (flags 0b101 = 5 → LE u32 "05000000").
+test "$seg0_flags" = "05000000"
+# seg1 is read-write (flags 0b011 = 3 → LE u32 "03000000").
+test "$seg1_flags" = "03000000"
+# seg1 carries the 1 MiB BSS in mem_size but NOT in file_size.
+test "$seg1_mem" -ge 1048576
+test "$seg1_file" -lt "$seg1_mem"
+# The whole image must be far smaller than the 1 MiB BSS it maps — proof the
+# zero buffer is not materialized on disk. (Generous ceiling: 256 KiB.)
+test "$ds_size" -lt 262144
+echo "sb0-target: two-segment RX/RW + NOLOAD-BSS assertions passed"
+
 echo "aarch64-sb0 target contract passed: $SIG"
