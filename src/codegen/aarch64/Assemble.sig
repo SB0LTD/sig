@@ -630,6 +630,71 @@ pub fn nextLine(as: *Assemble) !Line {
         as.source = line_start;
     }
 
+    // `cmp <Rn>, <Rm>` / `cmp <Rn>, #<imm>` (and `cmn`) are the flag-setting
+    // aliases of `subs`/`adds` with the zero register as destination:
+    //   cmp Rn, op  ==  subs zr, Rn, op
+    //   cmn Rn, op  ==  adds zr, Rn, op
+    // Handle them here so hand-written SB0 asm (e.g. the ABI conformance probe)
+    // assembles natively. The register form and the immediate form are covered;
+    // an immediate that needs the LSL #12 form (a multiple of 4096 up to
+    // 0xfff000, e.g. `cmp w9, #4096`) is auto-encoded, matching GNU as. Anything
+    // outside these forms falls through to the pattern assembler.
+    if (eqlIgnoreCase(mnemonic, "cmp") or eqlIgnoreCase(mnemonic, "cmn")) {
+        const is_cmn = eqlIgnoreCase(mnemonic, "cmn");
+        var nbuf: [16]u8 = undefined;
+        const ntok = as.rawToken(&nbuf);
+        if (aarch64.encoding.Register.parse(ntok)) |nreg| {
+            if (nreg.format == .general) {
+                const zr = switch (nreg.format.general) {
+                    .word => aarch64.encoding.wzr,
+                    .doubleword => aarch64.encoding.xzr,
+                };
+                // Skip separators to the second operand.
+                while (true) switch (as.source[0]) {
+                    ' ', '\t', '\r', ',' => as.source = as.source[1..],
+                    else => break,
+                };
+                if (as.source[0] == '#') {
+                    as.source = as.source[1..];
+                    if (parseImmExpr(as)) |imm| {
+                        if (imm <= 0xfff) {
+                            const f = .{ .immediate = @as(u12, @intCast(imm)) };
+                            const inst = if (is_cmn)
+                                aarch64.encoding.adds(zr, nreg, f)
+                            else
+                                aarch64.encoding.subs(zr, nreg, f);
+                            return .{ .instruction = inst };
+                        } else if (imm & 0xfff == 0 and (imm >> 12) <= 0xfff) {
+                            const f = .{ .shifted_immediate = .{
+                                .immediate = @as(u12, @intCast(imm >> 12)),
+                                .lsl = .@"12",
+                            } };
+                            const inst = if (is_cmn)
+                                aarch64.encoding.adds(zr, nreg, f)
+                            else
+                                aarch64.encoding.subs(zr, nreg, f);
+                            return .{ .instruction = inst };
+                        }
+                    }
+                } else {
+                    var mbuf: [16]u8 = undefined;
+                    const mtok = as.rawToken(&mbuf);
+                    if (aarch64.encoding.Register.parse(mtok)) |mreg| {
+                        if (mreg.format == .general and mreg.format.general == nreg.format.general) {
+                            const f = .{ .register = mreg };
+                            const inst = if (is_cmn)
+                                aarch64.encoding.adds(zr, nreg, f)
+                            else
+                                aarch64.encoding.subs(zr, nreg, f);
+                            return .{ .instruction = inst };
+                        }
+                    }
+                }
+            }
+        }
+        as.source = line_start;
+    }
+
     const BranchShape = enum { none, b, bl, b_cond, reg_label, reg_bit_label };
     var shape: BranchShape = .none;
     var kind: LabelBranch.Kind = .b;
@@ -1304,7 +1369,29 @@ const SymbolSpec = union(enum) {
     }
 };
 
-test "add sub" {
+test "cmp cmn aliases" {
+    // cmp/cmn are the flag-setting aliases of subs/adds with the zero register
+    // as destination. All operand forms hand-written SB0 asm uses must assemble:
+    // register, 12-bit immediate, and the LSL #12 immediate (e.g. #4096).
+    var as: Assemble = .{
+        .source =
+        \\ cmp w9, w10
+        \\ cmp x0, x19
+        \\ cmp w9, #1
+        \\ cmp w9, #512
+        \\ cmp x0, #0x2a
+        \\ cmp w9, #4096
+        \\ cmn w0, w1
+        \\ cmn x2, x3
+        \\ cmn x4, #16
+        ,
+    };
+    var count: usize = 0;
+    while (try as.nextInstruction()) |_| : (count += 1) {}
+    try std.testing.expectEqual(@as(usize, 9), count);
+}
+
+test "add sub cmp regression" {
     var as: Assemble = .{
         .source =
         \\ adc w0, w0, w1
