@@ -657,22 +657,20 @@ pub fn nextLine(as: *Assemble) !Line {
                 if (as.source[0] == '#') {
                     as.source = as.source[1..];
                     if (parseImmExpr(as)) |imm| {
+                        // Pass the union literal directly to subs/adds so it
+                        // coerces to the `form` parameter type (binding it to a
+                        // `const` first infers a struct type that won't coerce).
                         if (imm <= 0xfff) {
-                            const f = .{ .immediate = @as(u12, @intCast(imm)) };
                             const inst = if (is_cmn)
-                                aarch64.encoding.Instruction.adds(zr, nreg, f)
+                                aarch64.encoding.Instruction.adds(zr, nreg, .{ .immediate = @as(u12, @intCast(imm)) })
                             else
-                                aarch64.encoding.Instruction.subs(zr, nreg, f);
+                                aarch64.encoding.Instruction.subs(zr, nreg, .{ .immediate = @as(u12, @intCast(imm)) });
                             return .{ .instruction = inst };
                         } else if (imm & 0xfff == 0 and (imm >> 12) <= 0xfff) {
-                            const f = .{ .shifted_immediate = .{
-                                .immediate = @as(u12, @intCast(imm >> 12)),
-                                .lsl = .@"12",
-                            } };
                             const inst = if (is_cmn)
-                                aarch64.encoding.Instruction.adds(zr, nreg, f)
+                                aarch64.encoding.Instruction.adds(zr, nreg, .{ .shifted_immediate = .{ .immediate = @as(u12, @intCast(imm >> 12)), .lsl = .@"12" } })
                             else
-                                aarch64.encoding.Instruction.subs(zr, nreg, f);
+                                aarch64.encoding.Instruction.subs(zr, nreg, .{ .shifted_immediate = .{ .immediate = @as(u12, @intCast(imm >> 12)), .lsl = .@"12" } });
                             return .{ .instruction = inst };
                         }
                     }
@@ -681,11 +679,10 @@ pub fn nextLine(as: *Assemble) !Line {
                     const mtok = as.rawToken(&mbuf);
                     if (aarch64.encoding.Register.parse(mtok)) |mreg| {
                         if (mreg.format == .general and mreg.format.general == nreg.format.general) {
-                            const f = .{ .register = mreg };
                             const inst = if (is_cmn)
-                                aarch64.encoding.Instruction.adds(zr, nreg, f)
+                                aarch64.encoding.Instruction.adds(zr, nreg, .{ .register = mreg })
                             else
-                                aarch64.encoding.Instruction.subs(zr, nreg, f);
+                                aarch64.encoding.Instruction.subs(zr, nreg, .{ .register = mreg });
                             return .{ .instruction = inst };
                         }
                     }
