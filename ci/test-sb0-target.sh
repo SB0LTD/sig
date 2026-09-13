@@ -50,9 +50,12 @@ echo "sb0-target: codegen probe compiled OK"
 #   offset 4  : format_version (u8) == 1
 #   offset 8  : entry_offset (u64 LE) — the entry point's offset within the
 #               segment's virtual address space
-#   offset 104: start of the RX code payload (payloadOffset(1) == 64+40)
+#   offset 64 : segment 0 descriptor; its file_offset (+0, u64) is where the RX
+#               code payload begins — payloadOffset(1)==104 for a single-segment
+#               image, or payloadOffset(2)==144 when the program also has a
+#               writable data segment. We read it rather than assume.
 # The `1: wfe; b 1b` self-loop of the entry function is the 8 bytes
-# 5f2003d5 ffffff17, located at file offset 104 + entry_offset.
+# 5f2003d5 ffffff17, located at file offset seg0.file_offset + entry_offset.
 
 # Read a little-endian u64 from a file at a byte offset (prints a decimal value).
 read_u64_le() {
@@ -70,7 +73,12 @@ read_u64_le() {
 codegen_magic="$(od -An -tx1 -N4 "$TMP/sb0-codegen.bin" | tr -d ' \n')"
 codegen_fmtver="$(od -An -tx1 -j4 -N1 "$TMP/sb0-codegen.bin" | tr -d ' \n')"
 codegen_entry="$(read_u64_le "$TMP/sb0-codegen.bin" 8)"
-codegen_code_off=$(( 104 + codegen_entry ))
+# The entry code lives in segment 0 (RX). Read segment 0's file_offset from its
+# descriptor (starts at byte 64; field +0 is file_offset) rather than assuming a
+# single-segment payload offset — an image with writable data has two segments,
+# so the payload begins after 2 descriptors (144), not 1 (104).
+codegen_seg0_off="$(read_u64_le "$TMP/sb0-codegen.bin" 64)"
+codegen_code_off=$(( codegen_seg0_off + codegen_entry ))
 codegen_code8="$(od -An -tx1 -j"$codegen_code_off" -N8 "$TMP/sb0-codegen.bin" | tr -d ' \n')"
 codegen_size="$(wc -c < "$TMP/sb0-codegen.bin" | tr -d ' ')"
 echo "sb0-target: codegen probe magic=$codegen_magic fmtver=$codegen_fmtver entry=$codegen_entry code8@$codegen_code_off=$codegen_code8 size=$codegen_size"
@@ -103,7 +111,8 @@ echo "sb0-target: custom-entry probe compiled OK"
 custom_magic="$(od -An -tx1 -N4 "$TMP/sb0-custom-entry.bin" | tr -d ' \n')"
 custom_fmtver="$(od -An -tx1 -j4 -N1 "$TMP/sb0-custom-entry.bin" | tr -d ' \n')"
 custom_entry="$(read_u64_le "$TMP/sb0-custom-entry.bin" 8)"
-custom_code_off=$(( 104 + custom_entry ))
+custom_seg0_off="$(read_u64_le "$TMP/sb0-custom-entry.bin" 64)"
+custom_code_off=$(( custom_seg0_off + custom_entry ))
 custom_code8="$(od -An -tx1 -j"$custom_code_off" -N8 "$TMP/sb0-custom-entry.bin" | tr -d ' \n')"
 echo "sb0-target: custom-entry magic=$custom_magic fmtver=$custom_fmtver entry=$custom_entry code8@$custom_code_off=$custom_code8"
 test "$custom_magic" = 53423058
