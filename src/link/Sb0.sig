@@ -134,6 +134,23 @@ const LazyKey = struct {
     ty: InternPool.Index,
 };
 
+/// Placement class for a symbol's bytes. Drives the SB0X two-segment split:
+/// `code`+`rodata` land in the read-execute segment; `data`+`bss` land in the
+/// read-write segment, with `bss` (zero-initialized) contributing to the RW
+/// segment's mem_size but NOT its file_size (so a large zero buffer costs no
+/// image bytes). The SB0K kernel path ignores this and emits one flat blob.
+const SymKind = enum {
+    code,
+    rodata,
+    data,
+    bss,
+
+    /// True for the read-execute segment (code + read-only data).
+    fn isRx(k: SymKind) bool {
+        return k == .code or k == .rodata;
+    }
+};
+
 const Symbol = struct {
     /// The MappedFile node holding this symbol's bytes, or `.none` if undefined
     /// / not yet emitted.
@@ -146,6 +163,9 @@ const Symbol = struct {
     defined: bool = false,
     /// Alignment requirement.
     alignment: Alignment = .@"4",
+    /// Placement class (RX code/rodata vs RW data/bss). Defaults to `code`;
+    /// each update path sets it when the body is emitted.
+    kind: SymKind = .code,
     /// For an extern/global symbol, its name (borrowed from `globals` key);
     /// `null` for local/nav/uav/lazy symbols.
     extern_name: ?[]const u8 = null,
@@ -436,6 +456,7 @@ fn updateFuncInner(
         };
         si.ptr(sb0).size = nw.interface.end;
         si.ptr(sb0).defined = true;
+        si.ptr(sb0).kind = .code;
     }
 
     // Track the entry point: the first defined function becomes the entry
@@ -486,8 +507,30 @@ fn updateNavInner(
         error.WriteFailed => return nw.err.?,
         else => |e| return e,
     };
-    si.ptr(sb0).size = nw.interface.end;
+    const size = nw.interface.end;
+    si.ptr(sb0).size = size;
     si.ptr(sb0).defined = true;
+    // Navs are data (never executed), so they belong in the read-write
+    // segment. A body that is entirely zero is zero-initialized data (`.bss`):
+    // it contributes to the segment's mem_size but not its file bytes, so a
+    // large zero buffer (e.g. an app's capture arena) costs nothing on disk.
+    // Anything with a non-zero byte is initialized `.data`. Classifying data as
+    // RW (rather than the previous blanket RX) is what lets a userspace process
+    // legally write its own globals under the SB0 per-segment page permissions.
+    {
+        const ni2 = si.ptr(sb0).node.unwrap().?;
+        const bytes = ni2.sliceConst(&sb0.mf);
+        const n: usize = @intCast(size);
+        var all_zero = true;
+        var bi: usize = 0;
+        while (bi < n) : (bi += 1) {
+            if (bytes[bi] != 0) {
+                all_zero = false;
+                break;
+            }
+        }
+        si.ptr(sb0).kind = if (n != 0 and all_zero) .bss else .data;
+    }
 }
 
 pub fn updateExports(
@@ -617,6 +660,8 @@ fn lowerUavBody(sb0: *Sb0, pt: Zcu.PerThread, uav_val: InternPool.Index, si: Sym
     };
     si.ptr(sb0).size = nw.interface.end;
     si.ptr(sb0).defined = true;
+    // Anonymous constants (UAVs) are immutable data → read-only, RX segment.
+    si.ptr(sb0).kind = .rodata;
 }
 
 /// Codegen-facing relocation hook (parity with `Elf2.addReloc`). The concrete
@@ -742,6 +787,9 @@ fn genPendingLazy(sb0: *Sb0, tid: Zcu.PerThread.Id) Error!void {
         };
         si.ptr(sb0).size = nw.interface.end;
         si.ptr(sb0).defined = true;
+        // Lazy bodies are compiler-generated code or read-only helper tables;
+        // both are safe in the read-execute segment.
+        si.ptr(sb0).kind = .code;
     }
 }
 
@@ -1281,14 +1329,20 @@ fn flushInner(sb0: *Sb0, arena: Allocator, tid: Zcu.PerThread.Id) Error!void {
     }
 
     // 1. Assign monotonic vaddrs to every body-bearing symbol (one with an
-    //    emitted node), within the text region starting at base_vaddr. The
-    //    entry symbol is placed FIRST so it sits at segment offset 0 (file
-    //    offset payloadOffset(1)); the SB0X loader and the SB0 ABI expect the
-    //    reset/entry vector at the start of the RX segment, and tooling reads
-    //    the entry bytes at that fixed offset.
+    //    emitted node). SB0X userspace images use TWO regions so the process
+    //    gets correct page permissions and zero-cost BSS:
+    //      • RX region (read+execute): entry first, then all code/rodata.
+    //      • RW region (read+write): data, then bss (zero-initialized).
+    //    The RW region begins on the next page boundary after the RX region so
+    //    the loader can map each with distinct permissions. The entry symbol is
+    //    placed FIRST so it sits at RX offset 0 (the SB0 ABI/loader expect the
+    //    reset/entry vector at the start of the RX segment). Kernel (SB0K)
+    //    images stay a single flat blob, so everything goes in one region.
+    const split = !sb0.kernel;
     var cursor: u64 = sb0.base_vaddr;
-    var total_code: usize = 0;
     const entry_si = sb0.entry_sym.unwrap();
+
+    // Pass A — RX region: entry first, then code/rodata (all syms when !split).
     if (entry_si) |esi| {
         const sym = esi.ptr(sb0);
         if (sym.node != .none) {
@@ -1296,19 +1350,51 @@ fn flushInner(sb0: *Sb0, arena: Allocator, tid: Zcu.PerThread.Id) Error!void {
             sym.value = cursor;
             sym.defined = true;
             cursor += sym.size;
-            total_code = @intCast(cursor - sb0.base_vaddr);
         }
     }
     for (sb0.syms.items, 0..) |*sym, i| {
         if (i == 0) continue; // null symbol
         if (sym.node == .none) continue; // extern/unresolved: no body to place
-        if (entry_si) |esi| if (@intFromEnum(esi) == i) continue; // already placed first
+        if (entry_si) |esi| if (@intFromEnum(esi) == i) continue; // placed first
+        if (split and !sym.kind.isRx()) continue; // RW syms placed in pass B
         cursor = sym.alignment.forward(cursor);
         sym.value = cursor;
         sym.defined = true;
         cursor += sym.size;
-        total_code = @intCast(cursor - sb0.base_vaddr);
     }
+    const rx_size: u64 = cursor - sb0.base_vaddr;
+
+    // Pass B — RW region (SB0X only): initialized data first, then zero-init
+    // bss. Anchored at the next page after RX so the two segments never share a
+    // page. `rw_data_end` marks the end of file-backed (initialized) RW bytes;
+    // everything after it up to `cursor` is bss (mem_size only, no file bytes).
+    var rw_vaddr: u64 = 0;
+    var rw_data_end: u64 = 0;
+    if (split) {
+        cursor = Sb0Format.alignForward(sb0.base_vaddr + rx_size, Sb0Format.SB0X_PAGE_SIZE);
+        rw_vaddr = cursor;
+        for (sb0.syms.items, 0..) |*sym, i| {
+            if (i == 0 or sym.node == .none or sym.kind != .data) continue;
+            cursor = sym.alignment.forward(cursor);
+            sym.value = cursor;
+            sym.defined = true;
+            cursor += sym.size;
+        }
+        rw_data_end = cursor;
+        for (sb0.syms.items, 0..) |*sym, i| {
+            if (i == 0 or sym.node == .none or sym.kind != .bss) continue;
+            cursor = sym.alignment.forward(cursor);
+            sym.value = cursor;
+            sym.defined = true;
+            cursor += sym.size;
+        }
+    }
+    // Total span of the linearised image buffer (RX + gap + RW data + bss),
+    // relative to base_vaddr. `applyReloc` and linearization index by
+    // `value - base_vaddr`, so the buffer must cover the whole vaddr span.
+    const total_code: usize = @intCast(cursor - sb0.base_vaddr);
+    const rw_data_size: u64 = if (split and rw_data_end > rw_vaddr) rw_data_end - rw_vaddr else 0;
+    const rw_mem_size: u64 = if (split and cursor > rw_vaddr) cursor - rw_vaddr else 0;
 
     // 1b. Resolve global-assembly label aliases now that their owner nodes have
     //     addresses: each label sits at `owner.value + offset`.
@@ -1388,7 +1474,7 @@ fn flushInner(sb0: *Sb0, arena: Allocator, tid: Zcu.PerThread.Id) Error!void {
 
     if (total_code == 0) {
         // Nothing to emit: produce an empty output rather than an invalid image.
-        return sb0.writeImage(arena, &.{}, 0);
+        return sb0.writeImage(arena, &.{}, 0, .{});
     }
 
     // 2. Gather the linearised code image from the body-bearing nodes.
@@ -1414,7 +1500,13 @@ fn flushInner(sb0: *Sb0, arena: Allocator, tid: Zcu.PerThread.Id) Error!void {
     else
         0;
 
-    try sb0.writeImage(arena, image, entry_offset);
+    try sb0.writeImage(arena, image, entry_offset, .{
+        .split = split,
+        .rx_size = rx_size,
+        .rw_vaddr = rw_vaddr - sb0.base_vaddr,
+        .rw_file_size = rw_data_size,
+        .rw_mem_size = rw_mem_size,
+    });
 
     // Optional: emit a textual assembly listing (`-femit-asm`). The listing is
     // rendered from the fully-relocated linearised image so it reflects the exact
@@ -1580,7 +1672,25 @@ fn nodeVAddr(sb0: *Sb0, ni: MappedFile.Node.Index) u64 {
 ///     by the reset/entry code (which the linker placed first, so the entry is
 ///     at image offset `SB0K_HEADER_SIZE`). There is no segment table; the whole
 ///     file is the load image. `entry_offset`/`total_image_bytes` are absolute.
-fn writeImage(sb0: *Sb0, arena: Allocator, code: []const u8, entry_offset: u64) Error!void {
+/// Describes the two-region layout of an SB0X image so `writeImage` can emit a
+/// read-execute segment and a read-write segment. All offsets are relative to
+/// the start of the linearised `code` buffer (i.e. relative to base_vaddr).
+const SplitLayout = struct {
+    /// When false (or for kernel images) `writeImage` emits the legacy single
+    /// RX segment covering the whole buffer.
+    split: bool = false,
+    /// Byte length of the RX region (code + rodata), unpadded.
+    rx_size: u64 = 0,
+    /// Offset of the RW region within `code` (page-aligned after RX).
+    rw_vaddr: u64 = 0,
+    /// File-backed (initialized) RW bytes = `.data`. The bss tail beyond this
+    /// is mem-only and never written to the file.
+    rw_file_size: u64 = 0,
+    /// Total RW memory size (data + bss), unpadded.
+    rw_mem_size: u64 = 0,
+};
+
+fn writeImage(sb0: *Sb0, arena: Allocator, code: []const u8, entry_offset: u64, layout: SplitLayout) Error!void {
     const comp = sb0.base.comp;
     const io = comp.io;
     const diags = &comp.link_diags;
@@ -1599,7 +1709,54 @@ fn writeImage(sb0: *Sb0, arena: Allocator, code: []const u8, entry_offset: u64) 
         });
         if (code.len != 0) @memcpy(out[header..][0..code.len], code);
         break :out out;
+    } else if (layout.split and layout.rw_mem_size != 0) out: {
+        // Two-segment SB0X: RX (code+rodata) then RW (data+bss). The RW segment
+        // stores only its initialized (.data) bytes on disk; its bss tail is
+        // mem_size-only, so a large zero buffer costs no file bytes.
+        const page = Sb0Format.SB0X_PAGE_SIZE;
+        const meta = Sb0Format.payloadOffset(2);
+        const rx_file: usize = @intCast(layout.rx_size);
+        const rw_file: usize = @intCast(layout.rw_file_size);
+        const rx_mem = Sb0Format.alignForward(layout.rx_size, page);
+        const rw_mem = Sb0Format.alignForward(layout.rw_mem_size, page);
+        // On-disk: [meta][rx bytes][rw data bytes]. Segment file_offsets are
+        // page-independent (the loader copies file_size bytes to vaddr_offset).
+        const rx_file_off = meta;
+        const rw_file_off = meta + rx_file;
+        const total = rw_file_off + rw_file;
+        const out = try arena.alloc(u8, total);
+        _ = Sb0Format.encodeHeader(out, .{
+            .entry_offset = entry_offset,
+            .segment_count = 2,
+            .image_size = layout.rw_vaddr + rw_mem,
+            .stack_size = sb0.base.stack_size,
+        });
+        _ = Sb0Format.encodeSegment(out[Sb0Format.SB0X_HEADER_SIZE..], .{
+            .file_offset = @intCast(rx_file_off),
+            .vaddr_offset = 0,
+            .file_size = layout.rx_size,
+            .mem_size = rx_mem,
+            .flags = Sb0Format.SEG_RX,
+        });
+        _ = Sb0Format.encodeSegment(out[Sb0Format.SB0X_HEADER_SIZE + Sb0Format.SB0X_SEGMENT_SIZE ..], .{
+            .file_offset = @intCast(rw_file_off),
+            .vaddr_offset = layout.rw_vaddr,
+            .file_size = layout.rw_file_size,
+            .mem_size = rw_mem,
+            .flags = Sb0Format.SEG_RW,
+        });
+        // RX bytes are the first rx_file bytes of the linearised buffer; the RW
+        // data bytes are at rw_vaddr..rw_vaddr+rw_file (the page gap and bss
+        // tail in `code` are not written to the file).
+        if (rx_file != 0) @memcpy(out[rx_file_off..][0..rx_file], code[0..rx_file]);
+        if (rw_file != 0) {
+            const rw_src: usize = @intCast(layout.rw_vaddr);
+            @memcpy(out[rw_file_off..][0..rw_file], code[rw_src..][0..rw_file]);
+        }
+        break :out out;
     } else out: {
+        // Single RX segment: code-only image (no writable data), or a non-split
+        // build. The whole buffer is the RX segment.
         const total = Sb0Format.payloadOffset(1) + code.len;
         const out = try arena.alloc(u8, total);
         _ = Sb0Format.encodeHeader(out, .{
