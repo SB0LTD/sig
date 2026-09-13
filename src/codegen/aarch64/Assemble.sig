@@ -646,8 +646,8 @@ pub fn nextLine(as: *Assemble) !Line {
         if (aarch64.encoding.Register.parse(ntok)) |nreg| {
             if (nreg.format == .general) {
                 const zr = switch (nreg.format.general) {
-                    .word => aarch64.encoding.wzr,
-                    .doubleword => aarch64.encoding.xzr,
+                    .word => aarch64.encoding.Register.wzr,
+                    .doubleword => aarch64.encoding.Register.xzr,
                 };
                 // Skip separators to the second operand.
                 while (true) switch (as.source[0]) {
