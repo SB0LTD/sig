@@ -660,9 +660,9 @@ pub fn nextLine(as: *Assemble) !Line {
                         if (imm <= 0xfff) {
                             const f = .{ .immediate = @as(u12, @intCast(imm)) };
                             const inst = if (is_cmn)
-                                aarch64.encoding.adds(zr, nreg, f)
+                                aarch64.encoding.Instruction.adds(zr, nreg, f)
                             else
-                                aarch64.encoding.subs(zr, nreg, f);
+                                aarch64.encoding.Instruction.subs(zr, nreg, f);
                             return .{ .instruction = inst };
                         } else if (imm & 0xfff == 0 and (imm >> 12) <= 0xfff) {
                             const f = .{ .shifted_immediate = .{
@@ -670,9 +670,9 @@ pub fn nextLine(as: *Assemble) !Line {
                                 .lsl = .@"12",
                             } };
                             const inst = if (is_cmn)
-                                aarch64.encoding.adds(zr, nreg, f)
+                                aarch64.encoding.Instruction.adds(zr, nreg, f)
                             else
-                                aarch64.encoding.subs(zr, nreg, f);
+                                aarch64.encoding.Instruction.subs(zr, nreg, f);
                             return .{ .instruction = inst };
                         }
                     }
@@ -683,9 +683,9 @@ pub fn nextLine(as: *Assemble) !Line {
                         if (mreg.format == .general and mreg.format.general == nreg.format.general) {
                             const f = .{ .register = mreg };
                             const inst = if (is_cmn)
-                                aarch64.encoding.adds(zr, nreg, f)
+                                aarch64.encoding.Instruction.adds(zr, nreg, f)
                             else
-                                aarch64.encoding.subs(zr, nreg, f);
+                                aarch64.encoding.Instruction.subs(zr, nreg, f);
                             return .{ .instruction = inst };
                         }
                     }
