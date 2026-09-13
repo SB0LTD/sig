@@ -21,6 +21,31 @@
 
 ---
 
+## 0.5.7 — Native SB0X Userspace: Two-Segment Images and `cmp`/`cmn`
+
+`sig build-exe -target aarch64-sb0` (no linker script) now emits a proper
+**two-segment** SB0X userspace image — a read-execute segment (code/rodata) and
+a separate read-write segment (data + BSS) — so a native SB0 application can
+write its own globals and a large zero-initialized buffer costs **no** image
+bytes (the BSS tail is `mem_size`-only).
+
+```
+$ sig version
+sig 0.5.7 (zig 0.17.0)
+```
+
+- The SB0 flat-image linker classifies symbols by kind (code / rodata / data /
+  bss), places a read-execute region then a page-aligned read-write region, and
+  writes only initialized bytes to the file. Kernel (SB0K) images are unchanged.
+- The inline assembler now handles `cmp`/`cmn` (aliases of `subs`/`adds` with the
+  zero register) in register, 12-bit immediate, and `LSL #12` immediate forms,
+  so hand-written SB0 startup/ABI asm assembles natively.
+
+Found via the SB0/Nexus userspace apps ([`sls`](https://github.com/SB0LTD/sls),
+[`stools`](https://github.com/SB0LTD/stools)): each ships a native `*.sb0x`
+loaded at runtime by the generic Nexus kernel. See the
+[changelog](CHANGELOG.md) for 0.5.7 and 0.5.6 details.
+
 ## 0.5.5 — AArch64 Runtime-Indexed Element Address Fix
 
 A self-hosted AArch64 back-end miscompile corrupted the address of a
