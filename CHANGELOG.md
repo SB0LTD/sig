@@ -4,6 +4,29 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.5.7] — 2026-09-13 — Native SB0X Userspace: Two-Segment Images and `cmp`/`cmn`
+Sig 0.5.7 makes `sig build-exe -target aarch64-sb0` (no linker script) emit a
+proper multi-segment SB0X userspace image directly, so native SB0 applications
+that hold writable state — and large zero-initialized buffers — run correctly
+and stay small. It also fills two inline-assembler gaps that real hand-written
+SB0 startup/ABI code hits.
+### Added
+- The SB0 flat-image linker now emits a **two-segment** SB0X userspace image: a
+  read-execute segment (code + read-only data) and a separate read-write
+  segment (mutable data + BSS). Previously everything was pooled into a single
+  read-execute segment, so a userspace process could not write its own globals
+  (the pages were read-only) and a large zero-initialized buffer was
+  materialized as literal zero bytes in the file. Symbols are classified by kind
+  (code / rodata / data / bss); the read-write segment's BSS tail is
+  `mem_size`-only (`file_size < mem_size`), so, e.g., an 8 MiB capture buffer or
+  document store costs no image bytes. Kernel (SB0K) images are unchanged.
+### Fixed
+- The AArch64 inline assembler now assembles `cmp`/`cmn` — the flag-setting
+  aliases of `subs`/`adds` with the zero register as destination — in the
+  register, 12-bit immediate, and `LSL #12` immediate forms (e.g. `cmp w9, w10`,
+  `cmp x0, #0x2a`, `cmp w9, #4096`). Hand-written SB0 asm such as the ABI
+  conformance probe previously failed with "unable to assemble: 'cmp w9, w10'".
+
 ## [0.5.6] — 2026-09-10 — Freestanding AArch64: Constant-Expression Immediates and Global Assembly
 Sig 0.5.6 completes the freestanding `aarch64-sb0` toolchain: the inline
 assembler evaluates constant expressions in `mov` immediates, and the SB0
