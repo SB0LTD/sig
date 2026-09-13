@@ -17,7 +17,9 @@ var counter: u64 = 0x1122334455667788;
 
 // A large zero-initialized buffer → BSS. It must contribute to the RW segment's
 // mem_size but NOT its file_size, so the image stays tiny despite the 1 MiB.
-var scratch: [1024 * 1024]u8 = undefined;
+// The initializer MUST be explicit zeros (not `undefined`): the SB0 linker
+// classifies a nav as `.bss` only when its emitted body is entirely zero.
+var scratch: [1024 * 1024]u8 = [_]u8{0} ** (1024 * 1024);
 
 // Touch both globals from Sig so the backend emits real nav relocations (which
 // the SB0 linker resolves) -- referencing them by name in raw asm would not
