@@ -462,6 +462,25 @@
             .amount = .amount,
         } } },
     },
+    // C6.2.11 AND (immediate)
+    .{
+        .pattern = "AND <Wd|WSP>, <Wn>, #<imm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .general = .word }, .allow_sp = true } },
+            .Wn = .{ .reg = .{ .format = .{ .general = .word } } },
+            .imm = .{ .logical_imm = .{ .size = .word } },
+        },
+        .encode = .{ .@"and", .Wd, .Wn, .{ .immediate = .imm } },
+    },
+    .{
+        .pattern = "AND <Xd|SP>, <Xn>, #<imm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword } } },
+            .imm = .{ .logical_imm = .{ .size = .doubleword } },
+        },
+        .encode = .{ .@"and", .Xd, .Xn, .{ .immediate = .imm } },
+    },
     .{
         .pattern = "AND <Xd>, <Xn>, <Xm>",
         .symbols = .{
@@ -1094,6 +1113,46 @@
         },
         .encode = .{ .ldp, .Xt1, .Xt2, .{ .signed_offset = .{ .base = .Xn, .offset = .imm } } },
     },
+    // C7.2.219 LDP (SIMD&FP) — 128-bit quad register pair.
+    .{
+        .pattern = "LDP <Qt1>, <Qt2>, [<Xn|SP>]",
+        .symbols = .{
+            .Qt1 = .{ .reg = .{ .format = .{ .scalar = .quad } } },
+            .Qt2 = .{ .reg = .{ .format = .{ .scalar = .quad } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+        },
+        .encode = .{ .ldp, .Qt1, .Qt2, .{ .base = .Xn } },
+    },
+    .{
+        .pattern = "LDP <Qt1>, <Qt2>, [<Xn|SP>, #<imm>]",
+        .symbols = .{
+            .Qt1 = .{ .reg = .{ .format = .{ .scalar = .quad } } },
+            .Qt2 = .{ .reg = .{ .format = .{ .scalar = .quad } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 10 }, .multiple_of = 16 } },
+        },
+        .encode = .{ .ldp, .Qt1, .Qt2, .{ .signed_offset = .{ .base = .Xn, .offset = .imm } } },
+    },
+    .{
+        .pattern = "LDP <Qt1>, <Qt2>, [<Xn|SP>], #<imm>",
+        .symbols = .{
+            .Qt1 = .{ .reg = .{ .format = .{ .scalar = .quad } } },
+            .Qt2 = .{ .reg = .{ .format = .{ .scalar = .quad } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 10 }, .multiple_of = 16 } },
+        },
+        .encode = .{ .ldp, .Qt1, .Qt2, .{ .post_index = .{ .base = .Xn, .index = .imm } } },
+    },
+    .{
+        .pattern = "LDP <Qt1>, <Qt2>, [<Xn|SP>, #<imm>]!",
+        .symbols = .{
+            .Qt1 = .{ .reg = .{ .format = .{ .scalar = .quad } } },
+            .Qt2 = .{ .reg = .{ .format = .{ .scalar = .quad } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 10 }, .multiple_of = 16 } },
+        },
+        .encode = .{ .ldp, .Qt1, .Qt2, .{ .pre_index = .{ .base = .Xn, .index = .imm } } },
+    },
     // C6.2.166 LDR (immediate)
     .{
         .pattern = "LDR <Wt>, [<Xn|SP>], #<simm>",
@@ -1221,6 +1280,25 @@
             .Xm = .{ .reg = .{ .format = .{ .general = .doubleword } } },
         },
         .encode = .{ .lsrv, .Xd, .Xn, .Xm },
+    },
+    // C6.2.215 LSR (immediate) — alias of UBFM Wd, Wn, #shift, #31/#63.
+    .{
+        .pattern = "LSR <Wd>, <Wn>, #<shift>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .general = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .general = .word } } },
+            .shift = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 } } },
+        },
+        .encode = .{ .ubfm, .Wd, .Wn, .{ .N = .word, .immr = .shift, .imms = 31 } },
+    },
+    .{
+        .pattern = "LSR <Xd>, <Xn>, #<shift>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .general = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword } } },
+            .shift = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 } } },
+        },
+        .encode = .{ .ubfm, .Xd, .Xn, .{ .N = .doubleword, .immr = .shift, .imms = 63 } },
     },
     // C6.2.217 LSRV
     .{
@@ -1975,6 +2053,46 @@
         },
         .encode = .{ .stp, .Xt1, .Xt2, .{ .signed_offset = .{ .base = .Xn, .offset = .imm } } },
     },
+    // C7.2.332 STP (SIMD&FP) — 128-bit quad register pair.
+    .{
+        .pattern = "STP <Qt1>, <Qt2>, [<Xn|SP>]",
+        .symbols = .{
+            .Qt1 = .{ .reg = .{ .format = .{ .scalar = .quad } } },
+            .Qt2 = .{ .reg = .{ .format = .{ .scalar = .quad } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+        },
+        .encode = .{ .stp, .Qt1, .Qt2, .{ .base = .Xn } },
+    },
+    .{
+        .pattern = "STP <Qt1>, <Qt2>, [<Xn|SP>, #<imm>]",
+        .symbols = .{
+            .Qt1 = .{ .reg = .{ .format = .{ .scalar = .quad } } },
+            .Qt2 = .{ .reg = .{ .format = .{ .scalar = .quad } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 10 }, .multiple_of = 16 } },
+        },
+        .encode = .{ .stp, .Qt1, .Qt2, .{ .signed_offset = .{ .base = .Xn, .offset = .imm } } },
+    },
+    .{
+        .pattern = "STP <Qt1>, <Qt2>, [<Xn|SP>], #<imm>",
+        .symbols = .{
+            .Qt1 = .{ .reg = .{ .format = .{ .scalar = .quad } } },
+            .Qt2 = .{ .reg = .{ .format = .{ .scalar = .quad } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 10 }, .multiple_of = 16 } },
+        },
+        .encode = .{ .stp, .Qt1, .Qt2, .{ .post_index = .{ .base = .Xn, .index = .imm } } },
+    },
+    .{
+        .pattern = "STP <Qt1>, <Qt2>, [<Xn|SP>, #<imm>]!",
+        .symbols = .{
+            .Qt1 = .{ .reg = .{ .format = .{ .scalar = .quad } } },
+            .Qt2 = .{ .reg = .{ .format = .{ .scalar = .quad } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .imm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 10 }, .multiple_of = 16 } },
+        },
+        .encode = .{ .stp, .Qt1, .Qt2, .{ .pre_index = .{ .base = .Xn, .index = .imm } } },
+    },
     // C6.2.322 STR (immediate)
     .{
         .pattern = "STR <Wt>, [<Xn|SP>], #<simm>",
@@ -2099,6 +2217,144 @@
             .pimm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 12 } } },
         },
         .encode = .{ .ldrb, .Wt, .{ .unsigned_offset = .{ .base = .Xn, .offset = .pimm } } },
+    },
+    // C6.2.172 LDRH (immediate)
+    .{
+        .pattern = "LDRH <Wt>, [<Xn|SP>]",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .general = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+        },
+        .encode = .{ .ldrh, .Wt, .{ .base = .Xn } },
+    },
+    .{
+        .pattern = "LDRH <Wt>, [<Xn|SP>, #<pimm>]",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .general = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .pimm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 13 }, .multiple_of = 2 } },
+        },
+        .encode = .{ .ldrh, .Wt, .{ .unsigned_offset = .{ .base = .Xn, .offset = .pimm } } },
+    },
+    .{
+        .pattern = "LDRH <Wt>, [<Xn|SP>], #<simm>",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .general = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .simm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 } } },
+        },
+        .encode = .{ .ldrh, .Wt, .{ .post_index = .{ .base = .Xn, .index = .simm } } },
+    },
+    .{
+        .pattern = "LDRH <Wt>, [<Xn|SP>, #<simm>]!",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .general = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .simm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 } } },
+        },
+        .encode = .{ .ldrh, .Wt, .{ .pre_index = .{ .base = .Xn, .index = .simm } } },
+    },
+    // C6.2.326 STRH (immediate)
+    .{
+        .pattern = "STRH <Wt>, [<Xn|SP>]",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .general = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+        },
+        .encode = .{ .strh, .Wt, .{ .base = .Xn } },
+    },
+    .{
+        .pattern = "STRH <Wt>, [<Xn|SP>, #<pimm>]",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .general = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .pimm = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 13 }, .multiple_of = 2 } },
+        },
+        .encode = .{ .strh, .Wt, .{ .unsigned_offset = .{ .base = .Xn, .offset = .pimm } } },
+    },
+    .{
+        .pattern = "STRH <Wt>, [<Xn|SP>], #<simm>",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .general = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .simm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 } } },
+        },
+        .encode = .{ .strh, .Wt, .{ .post_index = .{ .base = .Xn, .index = .simm } } },
+    },
+    .{
+        .pattern = "STRH <Wt>, [<Xn|SP>, #<simm>]!",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .general = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .simm = .{ .imm = .{ .type = .{ .signedness = .signed, .bits = 9 } } },
+        },
+        .encode = .{ .strh, .Wt, .{ .pre_index = .{ .base = .Xn, .index = .simm } } },
+    },
+    // C6.2.168 LDR (register) — register-offset addressing `[Xn, Xm, LSL #s]`.
+    .{
+        .pattern = "LDR <Wt>, [<Xn|SP>, <Xm>, <ls_extend> #<amount>]",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .general = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .Xm = .{ .reg = .{ .format = .{ .general = .doubleword } } },
+            .ls_extend = .{ .ls_extend = .{ .size = .doubleword } },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 3 }, .max_valid = 2 } },
+        },
+        .encode = .{ .ldr, .Wt, .{ .extended_register_explicit = .{
+            .base = .Xn,
+            .index = .Xm,
+            .option = .ls_extend,
+            .amount = .amount,
+        } } },
+    },
+    .{
+        .pattern = "LDR <Xt>, [<Xn|SP>, <Xm>, <ls_extend> #<amount>]",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .general = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .Xm = .{ .reg = .{ .format = .{ .general = .doubleword } } },
+            .ls_extend = .{ .ls_extend = .{ .size = .doubleword } },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 3 }, .max_valid = 3 } },
+        },
+        .encode = .{ .ldr, .Xt, .{ .extended_register_explicit = .{
+            .base = .Xn,
+            .index = .Xm,
+            .option = .ls_extend,
+            .amount = .amount,
+        } } },
+    },
+    // C6.2.323 STR (register) — register-offset addressing `[Xn, Xm, LSL #s]`.
+    .{
+        .pattern = "STR <Wt>, [<Xn|SP>, <Xm>, <ls_extend> #<amount>]",
+        .symbols = .{
+            .Wt = .{ .reg = .{ .format = .{ .general = .word } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .Xm = .{ .reg = .{ .format = .{ .general = .doubleword } } },
+            .ls_extend = .{ .ls_extend = .{ .size = .doubleword } },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 3 }, .max_valid = 2 } },
+        },
+        .encode = .{ .str, .Wt, .{ .extended_register_explicit = .{
+            .base = .Xn,
+            .index = .Xm,
+            .option = .ls_extend,
+            .amount = .amount,
+        } } },
+    },
+    .{
+        .pattern = "STR <Xt>, [<Xn|SP>, <Xm>, <ls_extend> #<amount>]",
+        .symbols = .{
+            .Xt = .{ .reg = .{ .format = .{ .general = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .general = .doubleword }, .allow_sp = true } },
+            .Xm = .{ .reg = .{ .format = .{ .general = .doubleword } } },
+            .ls_extend = .{ .ls_extend = .{ .size = .doubleword } },
+            .amount = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 3 }, .max_valid = 3 } },
+        },
+        .encode = .{ .str, .Xt, .{ .extended_register_explicit = .{
+            .base = .Xn,
+            .index = .Xm,
+            .option = .ls_extend,
+            .amount = .amount,
+        } } },
     },
     // C6.2.356 SUB (extended register)
     .{
@@ -2662,6 +2918,22 @@
             .abs,
             .{ .alias = .Vd, .format = .{ .vector = .T } },
             .{ .alias = .Vn, .format = .{ .vector = .T } },
+        },
+    },
+    // C7.2.204 MOVI (vector, immediate) — the unshifted byte/half/word forms
+    // (`movi Vd.<T>, #imm8`) encode as the `lsl #0` shifted-immediate variant.
+    .{
+        .pattern = "MOVI <Vd>.<T>, #<imm8>",
+        .symbols = .{
+            .Vd = .{ .reg_alias = .vector },
+            .T = .{ .arrangement = .{ .allow_double = false, .min_valid_len = 2 } },
+            .imm8 = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 8 } } },
+        },
+        .encode = .{
+            .movi,
+            .{ .alias = .Vd, .format = .{ .vector = .T } },
+            .imm8,
+            .{ .lsl = 0 },
         },
     },
     // C7.2.28 CMEQ (zero)

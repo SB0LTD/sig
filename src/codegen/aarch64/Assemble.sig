@@ -60,10 +60,18 @@ pub fn nextInstruction(as: *Assemble) !?Instruction {
 /// resolves `label`/`forward` to a concrete PC-relative displacement.
 pub const LabelBranch = struct {
     kind: Kind,
-    /// The local label digit (0-9) named by the reference.
+    /// The local label digit (0-9) named by a numeric reference. Ignored when
+    /// `name` is set (a named-label branch).
     label: u8,
     /// true for a forward reference (`<n>f`), false for backward (`<n>b`).
+    /// Ignored when `name` is set.
     forward: bool,
+    /// A *named* local-label target (`.Lfoo`) borrowed from the asm source, or
+    /// null for a numeric local label. Named targets are resolved by the caller
+    /// against the block's named-label table (like numeric labels), so any
+    /// branch kind — including `b.<cond>`/`cbz`/`cbnz`/`tbz`/`tbnz` — may target
+    /// a named local label, not just `b`/`bl`.
+    name: ?[]const u8 = null,
     /// Register operand for register-carrying branches (cbz/cbnz/tbz/tbnz).
     reg: aarch64.encoding.Register = undefined,
     /// Tested bit index for tbz/tbnz.
@@ -92,10 +100,27 @@ pub const SymbolRef = struct {
     pub const Part = enum { page, lo12 };
     /// Which half of the address this line materializes.
     part: Part,
+    /// True when the source mnemonic was `adr` (full ±1MB PC-relative address)
+    /// rather than `adrp` (page address). Only meaningful for `.part == .page`.
+    /// The external-relocation path treats both identically (page-hi21); the
+    /// caller uses this to emit a real `adr` when the target is a *local* label.
+    is_adr: bool = false,
     /// Destination register (and source for the `add` low-12 form).
     reg: aarch64.encoding.Register,
     /// The referenced symbol name (borrowed from the asm source buffer).
     name: []const u8,
+};
+
+/// An `adr <reg>, <n>f`/`<n>b` whose target is a GNU numeric local label. The
+/// caller resolves it to a concrete ±1MB PC-relative displacement, just like a
+/// local-label branch.
+pub const AdrLabel = struct {
+    /// Destination register (must be an X register).
+    reg: aarch64.encoding.Register,
+    /// The local label digit (0-9) named by the reference.
+    label: u8,
+    /// true for a forward reference (`<n>f`), false for backward (`<n>b`).
+    forward: bool,
 };
 
 /// One logical assembler line.
@@ -110,6 +135,11 @@ pub const Line = union(enum) {
     symbol_branch: SymbolBranch,
     /// A PC-relative symbol address (`adrp`/`add :lo12:`), to be relocated by the caller.
     symbol_ref: SymbolRef,
+    /// An `adr <reg>, <n>f`/`<n>b` materializing the address of a *local* label.
+    /// Resolved by the caller as a real (±1MB) PC-relative `adr`, analogous to a
+    /// local-label branch. Named-label `adr` uses the `symbol_ref` path, where
+    /// the caller decides between a local `adr` and an external relocation.
+    adr_label: AdrLabel,
     /// A named (non-local) label definition `name:` — the target of a symbol.
     /// Used by module-level global assembly to define exported functions/data.
     named_label_def: []const u8,
@@ -131,6 +161,10 @@ pub const Directive = struct {
         /// from byte alignment (`.balign`).
         p2align,
         balign,
+        /// `.ascii "..."` / `.asciz "..."` / `.string "..."`: inline string data.
+        /// `data` holds the raw (still-escaped) bytes between the quotes; `arg`
+        /// is 1 for the NUL-terminated forms (`.asciz`/`.string`), 0 for `.ascii`.
+        ascii,
         /// Any other directive (`.type`, `.size`, `.section`, ...) — recorded
         /// but not acted upon by the flat-image assembler.
         other,
@@ -138,8 +172,12 @@ pub const Directive = struct {
     kind: Kind,
     /// For `.global`: the symbol name. For `other`: empty.
     name: []const u8 = "",
-    /// For `.p2align`/`.balign`: the alignment argument.
+    /// For `.p2align`/`.balign`: the alignment argument. For `.ascii`: 1 if the
+    /// string is NUL-terminated (`.asciz`/`.string`), else 0.
     arg: u64 = 0,
+    /// For `.ascii`/`.asciz`/`.string`: the raw string contents between the
+    /// quotes, escapes not yet processed (borrowed from the asm source buffer).
+    data: []const u8 = "",
 };
 
 /// Advance past run of separators/blank lines. Returns false at end of source.
@@ -492,6 +530,21 @@ pub fn nextLine(as: *Assemble) !Line {
         return .{ .label_def = digit };
     }
 
+    // Named local-label definition beginning with '.' (`.Lfoo:`). GNU-style
+    // local labels commonly start with `.L`; they are distinguished from
+    // directives by the trailing ':'. This must be checked BEFORE the directive
+    // block below (which also matches a leading '.'), or `.Lfoo:` would be
+    // swallowed as an unknown ".other" directive and never recorded.
+    if (as.source[0] == '.' and (std.ascii.isAlphabetic(as.source[1]) or as.source[1] == '_')) {
+        var i: usize = 1;
+        while (isIdentByte(as.source[i])) i += 1;
+        if (i > 1 and as.source[i] == ':') {
+            const name = as.source[0..i];
+            as.source = as.source[i + 1 ..];
+            return .{ .named_label_def = name };
+        }
+    }
+
     // Assembler directive (`.global`, `.type`, `.p2align`, ...) used by
     // module-level global-assembly chunks. A leading '.' that begins an
     // identifier (not the bare `.` location counter, which only appears as a
@@ -524,6 +577,38 @@ pub fn nextLine(as: *Assemble) !Line {
             const arg = std.fmt.parseInt(u64, atok, 0) catch 0;
             as.consumeToLineEnd();
             return .{ .directive = .{ .kind = kind, .arg = arg } };
+        }
+        // `.ascii "..."` (no terminator) / `.asciz "..."` / `.string "..."`
+        // (implicitly NUL-terminated): inline string data. Capture the raw
+        // characters between the quotes (escapes decoded by the caller); the
+        // slice is backed by the persistent asm source buffer.
+        if (eqlIgnoreCase(dtok, ".ascii") or eqlIgnoreCase(dtok, ".asciz") or eqlIgnoreCase(dtok, ".string")) {
+            const nul_terminated: u64 = if (eqlIgnoreCase(dtok, ".ascii")) 0 else 1;
+            // Skip separators up to the opening quote.
+            while (true) switch (as.source[0]) {
+                ' ', '\t', '\r', ',' => as.source = as.source[1..],
+                else => break,
+            };
+            if (as.source[0] == '"') {
+                as.source = as.source[1..];
+                const str_start = as.source;
+                // Scan to the closing quote, honoring backslash escapes so an
+                // escaped quote (`\"`) does not terminate the string early.
+                var n: usize = 0;
+                while (as.source[n] != 0 and as.source[n] != '"') {
+                    if (as.source[n] == '\\' and as.source[n + 1] != 0) n += 1;
+                    n += 1;
+                }
+                if (as.source[n] == '"') {
+                    const data = str_start[0..n];
+                    as.source = as.source[n + 1 ..];
+                    as.consumeToLineEnd();
+                    return .{ .directive = .{ .kind = .ascii, .arg = nul_terminated, .data = data } };
+                }
+            }
+            // Malformed string operand: skip the line and record as a no-op.
+            as.consumeToLineEnd();
+            return .{ .directive = .{ .kind = .other } };
         }
         // Any other directive (.type/.size/.section/...): record and skip.
         as.consumeToLineEnd();
@@ -586,13 +671,28 @@ pub fn nextLine(as: *Assemble) !Line {
     // placeholder `adrp`/`adr` plus a relocation. A numeric/label operand is
     // left to the pattern assembler.
     if (eqlIgnoreCase(mnemonic, "adrp") or eqlIgnoreCase(mnemonic, "adr")) {
+        const is_adr = eqlIgnoreCase(mnemonic, "adr");
         var rbuf: [16]u8 = undefined;
         const rtok = as.rawToken(&rbuf);
         if (aarch64.encoding.Register.parse(rtok)) |reg| {
             if (reg.format.general == .doubleword) {
+                const sym_probe = as.source;
                 const sym_tok = as.rawSourceToken();
-                if (as.resolveSymbolName(sym_tok)) |name| return .{ .symbol_ref = .{
+                // `adr <reg>, <n>f`/`<n>b`: address of a GNU numeric local
+                // label. Only `adr` (not `adrp`) has a local-label form; the
+                // caller resolves it as a real ±1MB PC-relative `adr`.
+                if (is_adr) {
+                    if (parseLabelRef(sym_tok)) |ref| return .{ .adr_label = .{
+                        .reg = reg,
+                        .label = ref.label,
+                        .forward = ref.forward,
+                    } };
+                }
+                as.source = sym_probe;
+                const named = as.rawSourceToken();
+                if (as.resolveSymbolName(named)) |name| return .{ .symbol_ref = .{
                     .part = .page,
+                    .is_adr = is_adr,
                     .reg = reg,
                     .name = name,
                 } };
@@ -771,6 +871,25 @@ pub fn nextLine(as: *Assemble) !Line {
                 .kind = kind,
                 .label = ref.label,
                 .forward = ref.forward,
+                .reg = reg,
+                .bit = bit,
+                .cond = cond,
+            } };
+        }
+        // A *named* local-label target (`.Lfoo`) for ANY branch kind — including
+        // `b.<cond>`/`cbz`/`cbnz`/`tbz`/`tbnz`, which cannot take an external
+        // symbol. It is a dotted identifier (a leading `.` followed by
+        // identifier bytes), distinct from the lone `.` location counter. The
+        // caller resolves it against the block's named-label table exactly like
+        // a numeric local label. The name is a slice into the persistent asm
+        // source buffer so it survives past this call.
+        if (target.len >= 2 and target[0] == '.' and isIdentByte(target[1])) {
+            const name = label_probe[0..target.len];
+            return .{ .branch = .{
+                .kind = kind,
+                .label = 0,
+                .forward = false,
+                .name = name,
                 .reg = reg,
                 .bit = bit,
                 .cond = cond,
@@ -1152,6 +1271,14 @@ const SymbolSpec = union(enum) {
     },
     fimm: struct { only_valid: ?f16 = null },
     extend: struct { size: ?aarch64.encoding.Register.GeneralSize = null },
+    // Load/store register-offset extend option (`uxtw`/`lsl`/`sxtw`/`sxtx`).
+    // Distinct from `.extend`: the load/store `option` field is a 3-bit enum
+    // (RegisterRegisterOffset.Option), not the 4-bit add/sub extend option.
+    ls_extend: struct { size: ?aarch64.encoding.Register.GeneralSize = null },
+    // Logical (bitmask) immediate for AND/ORR/EOR/ANDS (immediate). The token
+    // is a plain integer literal that must be encodable as a bitmask immediate
+    // for the given register width; parsing yields the encoded Bitmask.
+    logical_imm: struct { size: aarch64.encoding.Register.GeneralSize },
     shift: struct { allow_ror: bool = true },
     barrier: struct { only_sy: bool = false },
 
@@ -1164,6 +1291,8 @@ const SymbolSpec = union(enum) {
             .imm => |imm_spec| @Int(imm_spec.type.signedness, imm_spec.type.bits),
             .fimm => f16,
             .extend => Instruction.DataProcessingRegister.AddSubtractExtendedRegister.Option,
+            .ls_extend => aarch64.encoding.Instruction.LoadStore.RegisterRegisterOffset.Option,
+            .logical_imm => aarch64.encoding.Instruction.DataProcessingImmediate.Bitmask,
             .shift => Instruction.DataProcessingRegister.Shift.Op,
             .barrier => Instruction.BranchExceptionGeneratingSystem.Barriers.Option,
         };
@@ -1271,6 +1400,22 @@ const SymbolSpec = union(enum) {
                     },
                 };
             },
+            .logical_imm => |logical_imm_spec| {
+                // Accept the constant as signed or unsigned; reinterpret to the
+                // 64-bit pattern the bitmask encoder expects.
+                const raw = std.fmt.parseInt(i128, token, 0) catch {
+                    log.debug("invalid immediate: \"{f}\"", .{std.sig.fmtString(token)});
+                    return null;
+                };
+                const value: u64 = @bitCast(@as(i64, @truncate(raw)));
+                return aarch64.encoding.Instruction.DataProcessingImmediate.Bitmask.encodeImmediate(
+                    value,
+                    logical_imm_spec.size,
+                ) orelse {
+                    log.debug("immediate is not a valid logical bitmask: \"{f}\"", .{std.sig.fmtString(token)});
+                    return null;
+                };
+            },
             .fimm => |fimm_spec| {
                 const full_fimm = std.fmt.parseFloat(f128, token) catch {
                     log.debug("invalid immediate: \"{f}\"", .{std.sig.fmtString(token)});
@@ -1316,6 +1461,35 @@ const SymbolSpec = union(enum) {
                 };
                 if (extend_spec.size) |size| if (extend.sf() != size) {
                     log.debug("invalid extend: \"{f}\"", .{std.sig.fmtString(token)});
+                    return null;
+                };
+                return extend;
+            },
+            .ls_extend => |ls_extend_spec| {
+                var buf: [
+                    max_len: {
+                        var max_len = 0;
+                        for (@typeInfo(Result).@"enum".field_names) |field_name| max_len = @max(max_len, field_name.len);
+                        break :max_len max_len;
+                    } + 1
+                ]u8 = undefined;
+                const extend = std.meta.stringToEnum(Result, std.ascii.lowerString(
+                    &buf,
+                    token[0..@min(token.len, buf.len)],
+                )) orelse {
+                    log.debug("invalid ls-extend: \"{f}\"", .{std.sig.fmtString(token)});
+                    return null;
+                };
+                // The `_` (unallocated) tag must never come from text.
+                switch (extend) {
+                    .uxtw, .lsl, .sxtw, .sxtx => {},
+                    _ => {
+                        log.debug("invalid ls-extend: \"{f}\"", .{std.sig.fmtString(token)});
+                        return null;
+                    },
+                }
+                if (ls_extend_spec.size) |size| if (extend.sf() != size) {
+                    log.debug("invalid ls-extend: \"{f}\"", .{std.sig.fmtString(token)});
                     return null;
                 };
                 return extend;

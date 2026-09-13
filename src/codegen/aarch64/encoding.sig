@@ -980,6 +980,11 @@ pub const Register = struct {
         pub const far_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0110, .CRm = 0b0000, .op2 = 0b000 };
         /// D19.2.42 FAR_EL3, Fault Address Register (EL3)
         pub const far_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b0110, .CRm = 0b0000, .op2 = 0b000 };
+        /// D19.2 FPCR, Floating-Point Control Register (`S3_3_C4_C4_0`). MSR/MRS
+        /// address it as a system register via op0=3, op1=3, CRn=4, CRm=4, op2=0.
+        pub const fpcr: System = .{ .op0 = 0b11, .op1 = 0b011, .CRn = 0b0100, .CRm = 0b0100, .op2 = 0b000 };
+        /// D19.2 FPSR, Floating-Point Status Register (`S3_3_C4_C4_1`).
+        pub const fpsr: System = .{ .op0 = 0b11, .op1 = 0b011, .CRn = 0b0100, .CRm = 0b0100, .op2 = 0b001 };
         /// D19.2.43 FPEXC32_EL2, Floating-Point Exception Control Register
         pub const fpexc32_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0101, .CRm = 0b0011, .op2 = 0b000 };
         /// D19.2.44 GCR_EL1, Tag Control Register
@@ -1211,7 +1216,7 @@ pub const Register = struct {
         /// D19.2.150 TPIDR_EL3, EL3 Read/Write Software Thread ID Register
         pub const tpidr_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b010 };
         /// D19.2.151 TPIDRRO_EL0, EL0 Read-Only Software Thread ID Register
-        pub const tpidrro_el3: System = .{ .op0 = 0b11, .op1 = 0b011, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b011 };
+        pub const tpidrro_el0: System = .{ .op0 = 0b11, .op1 = 0b011, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b011 };
         /// D19.2.152 TTBR0_EL1, Translation Table Base Register 0 (EL1)
         pub const ttbr0_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0010, .CRm = 0b0000, .op2 = 0b000 };
         /// D19.2.152 TTBR0_EL12, Translation Table Base Register 0 (EL12)
@@ -2037,6 +2042,36 @@ pub const Instruction = packed union {
                 if (s < 16) return (-%r % 16) <= (15 - s);
                 if (s >= width - 15) return (r % 16) <= (s - (width - 15));
                 return false;
+            }
+
+            /// Encode a constant into the AArch64 logical (bitmask) immediate
+            /// form used by AND/ORR/EOR/ANDS (immediate). Returns null when the
+            /// value is not a legal bitmask immediate. Implemented as an
+            /// exhaustive search over the (N, immr, imms) space validated
+            /// against the authoritative `decodeImmediate` — small (<=8192
+            /// candidates) and guaranteed consistent with decoding.
+            pub fn encodeImmediate(value: u64, sf: Register.GeneralSize) ?Bitmask {
+                const target: u64 = switch (sf) {
+                    .word => @as(u32, @truncate(value)),
+                    .doubleword => value,
+                };
+                const n_values = [_]Register.GeneralSize{ .word, .doubleword };
+                for (n_values) |n| {
+                    var immr: u7 = 0;
+                    while (immr < 64) : (immr += 1) {
+                        var imms: u7 = 0;
+                        while (imms < 64) : (imms += 1) {
+                            const candidate: Bitmask = .{
+                                .N = n,
+                                .immr = @intCast(immr),
+                                .imms = @intCast(imms),
+                            };
+                            if (!candidate.validImmediate(sf)) continue;
+                            if (candidate.decodeImmediate(sf) == target) return candidate;
+                        }
+                    }
+                }
+                return null;
             }
         };
 
@@ -15871,6 +15906,17 @@ pub const Instruction = packed union {
         pre_index: struct { base: Register, index: i9 },
         unsigned_offset: struct { base: Register, offset: u16 = 0 },
         base: Register,
+        extended_register_explicit: struct {
+            base: Register,
+            index: Register,
+            option: LoadStore.RegisterRegisterOffset.Option,
+            amount: LoadStore.RegisterRegisterOffset.Extend.Amount,
+        },
+        extended_register: struct {
+            base: Register,
+            index: Register,
+            extend: LoadStore.RegisterRegisterOffset.Extend,
+        },
     }) Instruction {
         switch (t.format) {
             else => unreachable,
@@ -15909,6 +15955,39 @@ pub const Instruction = packed union {
                     } } } };
                 },
                 .base => |base| continue :form .{ .unsigned_offset = .{ .base = base } },
+                .extended_register_explicit => |extended_register_explicit| {
+                    assert(extended_register_explicit.base.format.general == .doubleword and
+                        extended_register_explicit.index.format.general == extended_register_explicit.option.sf());
+                    return .{ .load_store = .{ .register_register_offset = .{ .integer = .{
+                        .str = .{
+                            .Rt = t.alias.encode(.{}),
+                            .Rn = extended_register_explicit.base.alias.encode(.{ .sp = true }),
+                            .S = switch (sf) {
+                                .word => switch (extended_register_explicit.amount) {
+                                    0 => false,
+                                    2 => true,
+                                    else => unreachable,
+                                },
+                                .doubleword => switch (extended_register_explicit.amount) {
+                                    0 => false,
+                                    3 => true,
+                                    else => unreachable,
+                                },
+                            },
+                            .option = extended_register_explicit.option,
+                            .Rm = extended_register_explicit.index.alias.encode(.{}),
+                            .sf = sf,
+                        },
+                    } } } };
+                },
+                .extended_register => |extended_register| continue :form .{ .extended_register_explicit = .{
+                    .base = extended_register.base,
+                    .index = extended_register.index,
+                    .option = extended_register.extend,
+                    .amount = switch (extended_register.extend) {
+                        .uxtw, .lsl, .sxtw, .sxtx => |amount| amount,
+                    },
+                } },
             },
             .scalar => |vs| form: switch (form) {
                 .post_index => |post_index| {
@@ -15948,15 +16027,29 @@ pub const Instruction = packed union {
                     } } } };
                 },
                 .base => |base| continue :form .{ .unsigned_offset = .{ .base = base } },
+                // Register-offset addressing is an integer-store form only.
+                .extended_register_explicit, .extended_register => unreachable,
             },
         }
     }
     /// C6.2.324 STRB (immediate)
+    /// C6.2.325 STRB (register)
     pub fn strb(t: Register, form: union(enum) {
         post_index: struct { base: Register, index: i9 },
         pre_index: struct { base: Register, index: i9 },
         unsigned_offset: struct { base: Register, offset: u12 = 0 },
         base: Register,
+        extended_register_explicit: struct {
+            base: Register,
+            index: Register,
+            option: LoadStore.RegisterRegisterOffset.Option,
+            amount: LoadStore.RegisterRegisterOffset.Extend.Amount,
+        },
+        extended_register: struct {
+            base: Register,
+            index: Register,
+            extend: LoadStore.RegisterRegisterOffset.Extend,
+        },
     }) Instruction {
         assert(t.format.general == .word);
         form: switch (form) {
@@ -15991,6 +16084,32 @@ pub const Instruction = packed union {
                 } } } };
             },
             .base => |base| continue :form .{ .unsigned_offset = .{ .base = base } },
+            .extended_register_explicit => |extended_register_explicit| {
+                assert(extended_register_explicit.base.format.general == .doubleword and
+                    extended_register_explicit.index.format.general == extended_register_explicit.option.sf());
+                // STRB (register) has no access-size scaling: the only legal
+                // shift amount is 0, so S is always clear.
+                return .{ .load_store = .{ .register_register_offset = .{ .integer = .{
+                    .strb = .{
+                        .Rt = t.alias.encode(.{}),
+                        .Rn = extended_register_explicit.base.alias.encode(.{ .sp = true }),
+                        .S = switch (extended_register_explicit.amount) {
+                            0 => false,
+                            else => unreachable,
+                        },
+                        .option = extended_register_explicit.option,
+                        .Rm = extended_register_explicit.index.alias.encode(.{}),
+                    },
+                } } } };
+            },
+            .extended_register => |extended_register| continue :form .{ .extended_register_explicit = .{
+                .base = extended_register.base,
+                .index = extended_register.index,
+                .option = extended_register.extend,
+                .amount = switch (extended_register.extend) {
+                    .uxtw, .lsl, .sxtw, .sxtx => |amount| amount,
+                },
+            } },
         }
     }
     /// C6.2.326 STRH (immediate)
@@ -15999,6 +16118,17 @@ pub const Instruction = packed union {
         pre_index: struct { base: Register, index: i9 },
         unsigned_offset: struct { base: Register, offset: u13 = 0 },
         base: Register,
+        extended_register_explicit: struct {
+            base: Register,
+            index: Register,
+            option: LoadStore.RegisterRegisterOffset.Option,
+            amount: LoadStore.RegisterRegisterOffset.Extend.Amount,
+        },
+        extended_register: struct {
+            base: Register,
+            index: Register,
+            extend: LoadStore.RegisterRegisterOffset.Extend,
+        },
     }) Instruction {
         assert(t.format.general == .word);
         form: switch (form) {
@@ -16033,6 +16163,31 @@ pub const Instruction = packed union {
                 } } } };
             },
             .base => |base| continue :form .{ .unsigned_offset = .{ .base = base } },
+            .extended_register_explicit => |extended_register_explicit| {
+                assert(extended_register_explicit.base.format.general == .doubleword and
+                    extended_register_explicit.index.format.general == extended_register_explicit.option.sf());
+                return .{ .load_store = .{ .register_register_offset = .{ .integer = .{
+                    .strh = .{
+                        .Rt = t.alias.encode(.{}),
+                        .Rn = extended_register_explicit.base.alias.encode(.{ .sp = true }),
+                        .S = switch (extended_register_explicit.amount) {
+                            0 => false,
+                            1 => true,
+                            else => unreachable,
+                        },
+                        .option = extended_register_explicit.option,
+                        .Rm = extended_register_explicit.index.alias.encode(.{}),
+                    },
+                } } } };
+            },
+            .extended_register => |extended_register| continue :form .{ .extended_register_explicit = .{
+                .base = extended_register.base,
+                .index = extended_register.index,
+                .option = extended_register.extend,
+                .amount = switch (extended_register.extend) {
+                    .uxtw, .lsl, .sxtw, .sxtx => |amount| amount,
+                },
+            } },
         }
     }
     /// C6.2.346 STUR

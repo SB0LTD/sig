@@ -852,6 +852,31 @@ fn assembleGlobalAsm(sb0: *Sb0, tid: Zcu.PerThread.Id) Error!void {
                         const al = if (dir.arg == 0) 1 else dir.arg;
                         while (bytes.items.len % al != 0) try bytes.append(gpa, 0);
                     },
+                    // `.ascii "..."` / `.asciz`/`.string`: append the decoded
+                    // string bytes directly (module-level asm is written in
+                    // source order, so no reversal concerns apply here).
+                    .ascii => {
+                        var i: usize = 0;
+                        const s = dir.data;
+                        while (i < s.len) : (i += 1) {
+                            var c: u8 = s[i];
+                            if (c == '\\' and i + 1 < s.len) {
+                                i += 1;
+                                c = switch (s[i]) {
+                                    'n' => '\n',
+                                    't' => '\t',
+                                    'r' => '\r',
+                                    '0' => 0,
+                                    '\\' => '\\',
+                                    '"' => '"',
+                                    '\'' => '\'',
+                                    else => s[i],
+                                };
+                            }
+                            try bytes.append(gpa, c);
+                        }
+                        if (dir.arg != 0) try bytes.append(gpa, 0);
+                    },
                     .other => {},
                 },
                 // Local labels / branches inside a global chunk are uncommon
