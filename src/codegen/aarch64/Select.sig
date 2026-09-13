@@ -2968,23 +2968,39 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
             // — the natural on-disk offset, since the later `std.mem.reverse`
             // only reorders storage, not the encoded immediates.
             var label_pos: [10]?u32 = @splat(null);
+            // Named local labels (`.Lfoo:`) mapped to their append-space
+            // instruction index, analogous to `label_pos` for numeric labels.
+            // A symbol branch/ref whose target is present here is resolved
+            // locally (PC-relative) instead of via an external relocation, so
+            // a hand-written asm block can define and jump to its own labels.
+            // Names are borrowed from the (persistent for this block) asm source.
+            var named_labels: std.StringHashMapUnmanaged(u32) = .empty;
+            defer named_labels.deinit(gpa);
             const PendingBranch = struct {
                 slot: u32,
                 branch: codegen.aarch64.Assemble.LabelBranch,
             };
-            var pending: [64]PendingBranch = undefined;
+            var pending: [256]PendingBranch = undefined;
             var pending_len: usize = 0;
+            // `adr <reg>, <n>f`/`<n>b` — address of a numeric local label,
+            // resolved to a real ±1MB PC-relative `adr` after all labels known.
+            const PendingAdrLabel = struct {
+                slot: u32,
+                adr: codegen.aarch64.Assemble.AdrLabel,
+            };
+            var pending_adr: [256]PendingAdrLabel = undefined;
+            var pending_adr_len: usize = 0;
             const PendingSymbolBranch = struct {
                 slot: u32,
                 branch: codegen.aarch64.Assemble.SymbolBranch,
             };
-            var pending_symbols: [64]PendingSymbolBranch = undefined;
+            var pending_symbols: [256]PendingSymbolBranch = undefined;
             var pending_symbols_len: usize = 0;
             const PendingSymbolRef = struct {
                 slot: u32,
                 ref: codegen.aarch64.Assemble.SymbolRef,
             };
-            var pending_refs: [64]PendingSymbolRef = undefined;
+            var pending_refs: [256]PendingSymbolRef = undefined;
             var pending_refs_len: usize = 0;
             while (true) {
                 const line = as.nextLine() catch |err| switch (err) {
@@ -3032,25 +3048,116 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                         // Emit the address-materialization placeholder now; the
                         // relocation (adrp -> page-hi21, add -> abs-lo12) is added
                         // after the block is reversed into final program order.
+                        // If the target turns out to be a *local* named label, this
+                        // placeholder is overwritten with a real `adr` below.
                         try isel.emit(switch (sr.part) {
                             .page => .adrp(sr.reg, 0),
                             .lo12 => .add(sr.reg, sr.reg, .{ .immediate = 0 }),
                         });
                     },
-                    // Named label definitions and directives (`.global`, `.type`,
-                    // `.p2align`, ...) only occur in module-level global assembly,
-                    // which the SB0 linker assembles separately — they are not
-                    // valid inside a function-body `asm` block.
-                    .named_label_def, .directive => return isel.fail(
-                        "directive or named label not supported in function-level asm",
-                        .{},
-                    ),
+                    .adr_label => |al| {
+                        if (pending_adr_len >= pending_adr.len)
+                            return isel.fail("too many local-label adr in one asm block", .{});
+                        pending_adr[pending_adr_len] = .{
+                            .slot = @intCast(isel.instructions.items.len - asm_start),
+                            .adr = al,
+                        };
+                        pending_adr_len += 1;
+                        // Placeholder; patched to a real `adr` once labels are known.
+                        try isel.emit(.adr(al.reg, 0));
+                    },
+                    // A named label definition `.Lfoo:` inside a function-body asm
+                    // block is a *local* branch/adr target — record its position.
+                    .named_label_def => |name| {
+                        const gop = try named_labels.getOrPut(gpa, name);
+                        if (gop.found_existing)
+                            return isel.fail("duplicate asm label '{s}'", .{name});
+                        gop.value_ptr.* = @intCast(isel.instructions.items.len - asm_start);
+                    },
+                    .directive => |dir| switch (dir.kind) {
+                        // `.balign N` / `.p2align N` / `.align N`: pad with `nop`
+                        // words until the block's local byte offset (index << 2)
+                        // is N-byte aligned. Every emitted word is 4 bytes and the
+                        // block is 4-byte aligned, so `.balign 4`/`.p2align 2` are
+                        // no-ops; only larger alignments emit padding.
+                        .balign, .p2align => {
+                            const bytes: u64 = if (dir.kind == .balign)
+                                dir.arg
+                            else if (dir.arg >= 63) 0 else @as(u64, 1) << @intCast(dir.arg);
+                            if (bytes > 4) {
+                                while (((isel.instructions.items.len - asm_start) << 2) % bytes != 0)
+                                    try isel.emit(.nop());
+                            }
+                        },
+                        // `.ascii "..."` / `.asciz`/`.string`: emit the decoded
+                        // string bytes as consecutive little-endian 4-byte data
+                        // words (zero-padded to a multiple of 4). Emitting in
+                        // source order via `isel.emit` lands the bytes in source
+                        // order on disk: the block-level `std.mem.reverse` below
+                        // and the function-level backward write cancel out. Each
+                        // word packs its first character in the low byte, so on a
+                        // little-endian target the first char is at the lowest
+                        // address.
+                        .ascii => {
+                            var word: u32 = 0;
+                            var nbytes: u3 = 0;
+                            var i: usize = 0;
+                            const s = dir.data;
+                            while (i < s.len) {
+                                var c: u8 = s[i];
+                                if (c == '\\' and i + 1 < s.len) {
+                                    i += 1;
+                                    c = switch (s[i]) {
+                                        'n' => '\n',
+                                        't' => '\t',
+                                        'r' => '\r',
+                                        '0' => 0,
+                                        '\\' => '\\',
+                                        '"' => '"',
+                                        '\'' => '\'',
+                                        else => s[i],
+                                    };
+                                }
+                                word |= @as(u32, c) << (@as(u5, nbytes) * 8);
+                                nbytes += 1;
+                                i += 1;
+                                if (nbytes == 4) {
+                                    try isel.emit(@bitCast(word));
+                                    word = 0;
+                                    nbytes = 0;
+                                }
+                            }
+                            // NUL terminator for `.asciz`/`.string`.
+                            if (dir.arg != 0) {
+                                // A zero byte; only advances the packer.
+                                nbytes += 1;
+                                if (nbytes == 4) {
+                                    try isel.emit(@bitCast(word));
+                                    word = 0;
+                                    nbytes = 0;
+                                }
+                            }
+                            // Flush any partial word (zero-padded high bytes).
+                            if (nbytes != 0) try isel.emit(@bitCast(word));
+                        },
+                        // Declaration/section directives (`.global`, `.type`,
+                        // `.size`, `.section`, ...) have no effect on the emitted
+                        // bytes of a function-body asm block; ignore them.
+                        .global, .other => {},
+                    },
                 }
             }
-            // Resolve label branches in append (forward/source) space.
+            // Resolve local-label branches in append (forward/source) space.
+            // A branch targets either a numeric local label (`p.branch.label`)
+            // or a named local label (`p.branch.name`); both resolve to an
+            // append-space instruction index in the same PC-relative way.
             for (pending[0..pending_len]) |p| {
-                const target = label_pos[p.branch.label] orelse
-                    return isel.fail("reference to undefined asm label '{d}'", .{p.branch.label});
+                const target = if (p.branch.name) |nm|
+                    (named_labels.get(nm) orelse
+                        return isel.fail("reference to undefined asm label '{s}'", .{nm}))
+                else
+                    (label_pos[p.branch.label] orelse
+                        return isel.fail("reference to undefined asm label '{d}'", .{p.branch.label}));
                 const disp_bytes: i64 = (@as(i64, target) - @as(i64, p.slot)) << 2;
                 const slot = &isel.instructions.items[asm_start + p.slot];
                 slot.* = switch (p.branch.kind) {
@@ -3063,14 +3170,57 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                     .tbnz => .tbnz(p.branch.reg, p.branch.bit, @intCast(disp_bytes)),
                 };
             }
+            // Resolve `adr <reg>, <n>f`/`<n>b` to a real ±1MB PC-relative `adr`.
+            for (pending_adr[0..pending_adr_len]) |p| {
+                const target = label_pos[p.adr.label] orelse
+                    return isel.fail("reference to undefined asm label '{d}'", .{p.adr.label});
+                const disp_bytes: i64 = (@as(i64, target) - @as(i64, p.slot)) << 2;
+                if (disp_bytes < -(1 << 20) or disp_bytes >= (1 << 20))
+                    return isel.fail("asm adr target out of ±1MB range", .{});
+                isel.instructions.items[asm_start + p.slot] = .adr(p.adr.reg, @intCast(disp_bytes));
+            }
+            // Resolve symbol branches/refs whose target is a *local* named label
+            // to a PC-relative form, in append space (before the reverse), just
+            // like numeric labels. Branches/refs to names that are NOT local
+            // labels stay as external relocations, applied after the reverse.
+            // Track which entries were resolved locally so they are skipped by
+            // the relocation loops below.
+            var sym_branch_local: [256]bool = @splat(false);
+            var sym_ref_local: [256]bool = @splat(false);
+            for (pending_symbols[0..pending_symbols_len], 0..) |p, i| {
+                const target = named_labels.get(p.branch.name) orelse continue;
+                sym_branch_local[i] = true;
+                const disp_bytes: i64 = (@as(i64, target) - @as(i64, p.slot)) << 2;
+                isel.instructions.items[asm_start + p.slot] = if (p.branch.link)
+                    .bl(@intCast(disp_bytes))
+                else
+                    .b(@intCast(disp_bytes));
+            }
+            for (pending_refs[0..pending_refs_len], 0..) |p, i| {
+                const target = named_labels.get(p.ref.name) orelse continue;
+                sym_ref_local[i] = true;
+                const disp_bytes: i64 = (@as(i64, target) - @as(i64, p.slot)) << 2;
+                // A local named-label `adr` becomes a real ±1MB PC-relative adr.
+                // A local named-label referenced via `adrp`/`add :lo12:` has no
+                // meaningful local page/offset form in a single block, so require
+                // the `adr` form for local targets.
+                if (p.ref.part != .page or !p.ref.is_adr)
+                    return isel.fail("local asm label '{s}' needs `adr` (not adrp/:lo12:)", .{p.ref.name});
+                if (disp_bytes < -(1 << 20) or disp_bytes >= (1 << 20))
+                    return isel.fail("asm adr target out of ±1MB range", .{});
+                isel.instructions.items[asm_start + p.slot] = .adr(p.ref.reg, @intCast(disp_bytes));
+            }
             const asm_len = isel.instructions.items.len - asm_start;
             std.mem.reverse(codegen.aarch64.encoding.Instruction, isel.instructions.items[asm_start..]);
 
-            // Emit relocations for `b`/`bl <symbol>` branches. `slot` is the pre-reverse
-            // append index within the block; after reversal the instruction lands at
-            // `asm_start + (asm_len - 1 - slot)`. Global relocations are keyed by symbol
-            // name (duplicated so it outlives the transient asm source buffer).
-            for (pending_symbols[0..pending_symbols_len]) |p| {
+            // Emit relocations for `b`/`bl <symbol>` branches to *external*
+            // symbols. `slot` is the pre-reverse append index within the block;
+            // after reversal the instruction lands at
+            // `asm_start + (asm_len - 1 - slot)`. Global relocations are keyed by
+            // symbol name (duplicated so it outlives the transient asm source
+            // buffer). Local named-label branches were already resolved above.
+            for (pending_symbols[0..pending_symbols_len], 0..) |p, i| {
+                if (sym_branch_local[i]) continue;
                 const final_index = asm_start + (asm_len - 1 - p.slot);
                 const name = try gpa.dupeSentinel(u8, p.branch.name, 0);
                 try isel.owned_reloc_names.append(gpa, name.ptr);
@@ -3081,9 +3231,11 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
             }
 
             // Emit relocations for `adrp <sym>` / `add ..., :lo12:<sym>` address
-            // materializations. The relocation kind is inferred at emit time from
-            // the instruction at the label (adrp -> page-hi21, add -> abs-lo12).
-            for (pending_refs[0..pending_refs_len]) |p| {
+            // materializations against *external* symbols. The relocation kind is
+            // inferred at emit time from the instruction at the label (adrp ->
+            // page-hi21, add -> abs-lo12). Local named-label refs were resolved above.
+            for (pending_refs[0..pending_refs_len], 0..) |p, i| {
+                if (sym_ref_local[i]) continue;
                 const final_index = asm_start + (asm_len - 1 - p.slot);
                 const name = try gpa.dupeSentinel(u8, p.ref.name, 0);
                 try isel.owned_reloc_names.append(gpa, name.ptr);

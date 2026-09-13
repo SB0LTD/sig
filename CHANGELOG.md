@@ -4,6 +4,41 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.5.8] — 2026-09-13 — Native SB0X Userspace: Full Inline-Assembler Coverage
+Sig 0.5.8 rounds out the `aarch64-sb0` inline assembler so a complete
+hand-written SB0 userspace program — one that touches SIMD state, thread-ID and
+floating-point system registers, halfword/register-offset memory, logical
+immediates, and its own named labels and inline string data — assembles
+natively with no external assembler. This is what a full SB0 ABI conformance
+process (and real userspace apps) require end to end.
+### Added
+- **Load/store coverage.** `LDRH`/`STRH` (immediate: base, unsigned-offset,
+  pre/post-index) and register-offset addressing `[Xn, Xm, LSL #s]` for
+  `LDR`/`STR` now assemble. The store-side encoders (`str`/`strh`/`strb`) gained
+  the register-offset form so `str w9, [x28, x9, lsl #2]` and
+  `str xzr, [x28, x9, lsl #3]` encode directly; the load side already supported
+  it and is now exposed via patterns.
+- **SIMD `MOVI` (vector immediate).** `movi Vd.<T>, #imm8` (e.g.
+  `movi v7.16b, #0x5a`) assembles across the byte/halfword/word arrangements.
+- **128-bit SIMD register pairs.** `STP`/`LDP` of quad registers
+  (`stp q7, q31, [sp, #160]`) assemble in the base, signed-offset, and
+  pre/post-index forms.
+- **Floating-point and thread-ID system registers.** `msr`/`mrs` now address
+  `fpcr`, `fpsr`, and `tpidrro_el0` as system registers. (`tpidrro_el0` was
+  previously mis-declared as `tpidrro_el3`; `fpcr`/`fpsr` were only register
+  aliases, not addressable via `msr`/`mrs`.)
+- **Logical (bitmask) immediates.** `AND <Wd|WSP>, <Wn>, #imm` (and the X form)
+  assemble for any legal bitmask immediate (e.g. `and w9, w9, #0xffff`), and
+  `LSR <Wd>, <Wn>, #shift` (the `UBFM` alias) now has an immediate form.
+- **Named local labels and inline data in function-level asm.** A function-body
+  `asm volatile` block may now define and reference its own named local labels
+  (`.Lfill_surface:`, `.Lthread_child:`, …) from any branch — including
+  `b.<cond>`/`cbz`/`cbnz`/`tbz`/`tbnz` and `adr` — and may embed data via
+  `.ascii`/`.asciz`/`.string` and align with `.balign`/`.p2align`/`.align`.
+  Named-label targets that are not block-local still relocate as external
+  symbols. Previously only numeric local labels (`1f`/`2b`) and straight-line
+  instructions were allowed inside a function-level block.
+
 ## [0.5.7] — 2026-09-13 — Native SB0X Userspace: Two-Segment Images and `cmp`/`cmn`
 Sig 0.5.7 makes `sig build-exe -target aarch64-sb0` (no linker script) emit a
 proper multi-segment SB0X userspace image directly, so native SB0 applications
