@@ -1346,12 +1346,22 @@ fn flushInner(sb0: *Sb0, arena: Allocator, tid: Zcu.PerThread.Id) Error!void {
     // the reset code immediately after the 64-byte header, so its symbols have
     // concrete run-time addresses: `preferred_physical_base + header + offset`.
     // Anchoring `base_vaddr` there makes in-place absolute relocations (adrp /
-    // add_abs_lo12 / abs64) resolve to the correct load-time addresses. An SB0X
-    // userspace image is position-relative (loader-relocated), so it keeps
-    // `base_vaddr == 0`.
-    if (sb0.kernel) {
-        sb0.base_vaddr = sb0.preferred_physical_base + Sb0Format.SB0K_HEADER_SIZE;
-    }
+    // add_abs_lo12 / abs64) resolve to the correct load-time addresses.
+    //
+    // An SB0X userspace image is ALSO loaded at a fixed virtual base
+    // (`SB0X_IMAGE_BASE`): the SB0/Nexus loader maps every process there and
+    // applies no load-time relocations. So userspace must be anchored too —
+    // otherwise `abs64` relocations (a pointer embedded in initialized data,
+    // e.g. the `.ptr` of a `[]const u8` slice that references a string literal)
+    // would be written as base-0 offsets and dereference bogus low addresses at
+    // run time. PC-relative code relocations (adrp/add/branch) are unaffected by
+    // the base, so anchoring is safe for them; only absolute pointers need it.
+    // Segment `vaddr_offset`s and `entry_offset` remain image-relative because
+    // they are computed as `value - base_vaddr`.
+    sb0.base_vaddr = if (sb0.kernel)
+        sb0.preferred_physical_base + Sb0Format.SB0K_HEADER_SIZE
+    else
+        Sb0Format.SB0X_IMAGE_BASE;
 
     // 1. Assign monotonic vaddrs to every body-bearing symbol (one with an
     //    emitted node). SB0X userspace images use TWO regions so the process

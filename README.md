@@ -21,33 +21,33 @@
 
 ---
 
-## 0.5.8 — Native SB0X Userspace: Full Inline-Assembler Coverage
+## 0.5.9 — Native SB0X Userspace: Correct Absolute Data Pointers
 
-A complete hand-written SB0 userspace program now assembles natively for
-`aarch64-sb0` with no external assembler — including SIMD state, floating-point
-and thread-ID system registers, halfword and register-offset memory access,
-logical immediates, and a function-level `asm` block that defines its own named
-labels and embeds inline string data.
+A pointer embedded in an SB0X userspace image's initialized data — such as the
+`.ptr` of a `[]const u8` global that references a string literal — now resolves
+to the correct run-time address, so a real userspace program (e.g. a native LSP
+server) runs without faulting.
 
 ```
 $ sig version
-sig 0.5.8 (zig 0.17.0)
+sig 0.5.9 (zig 0.17.0)
 ```
 
-- Load/store: `LDRH`/`STRH` and register-offset `[Xn, Xm, LSL #s]` for
-  `LDR`/`STR` (the store encoders gained the register-offset form).
-- SIMD: `movi Vd.<T>, #imm8` and 128-bit `STP`/`LDP` of quad registers.
-- System registers: `msr`/`mrs` reach `fpcr`, `fpsr`, and `tpidrro_el0`.
-- Logical immediates: `AND …, #imm` (any legal bitmask) and `LSR …, #shift`.
-- Function-level asm may define/reference **named local labels** from any branch
-  (`b.<cond>`/`cbz`/`cbnz`/`tbz`/`tbnz`/`adr`) and embed data via
-  `.ascii`/`.asciz`/`.string` with `.balign`/`.p2align` alignment.
+- SB0X userspace images are anchored at the fixed virtual load base
+  (`SB0X_IMAGE_BASE` = `0x0040_0000`, matching the SB0/Nexus loader) instead of
+  being linked base-relative to 0. An `abs64` relocation (a 64-bit pointer
+  stored in data that points at another symbol) is therefore written with the
+  correct absolute address; previously it was a base-0 offset that dereferenced
+  a bogus low address at run time.
+- PC-relative code relocations (`adrp`/`add`/`branch`) are unaffected — they
+  cancel the base — and the container layout is unchanged (segment offsets and
+  the entry offset stay image-relative). Kernel (SB0K) images are unaffected.
 
-Builds on 0.5.7's two-segment SB0X userspace images and `cmp`/`cmn` support.
-Found via the SB0/Nexus userspace apps ([`sls`](https://github.com/SB0LTD/sls),
-[`stools`](https://github.com/SB0LTD/stools)): each ships a native `*.sb0x`
-loaded at runtime by the generic Nexus kernel. See the
-[changelog](CHANGELOG.md) for 0.5.8 and 0.5.7 details.
+Builds on 0.5.8's full inline-assembler coverage and 0.5.7's two-segment SB0X
+userspace images. Found via the SB0/Nexus userspace apps
+([`sls`](https://github.com/SB0LTD/sls), [`stools`](https://github.com/SB0LTD/stools)):
+each ships a native `*.sb0x` loaded at runtime by the generic Nexus kernel. See
+the [changelog](CHANGELOG.md) for 0.5.9 and 0.5.8 details.
 
 ## 0.5.5 — AArch64 Runtime-Indexed Element Address Fix
 
