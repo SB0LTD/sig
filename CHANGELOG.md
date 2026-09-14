@@ -4,6 +4,27 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.5.9] — 2026-09-13 — Native SB0X Userspace: Correct Absolute Data Pointers
+Sig 0.5.9 fixes absolute (`abs64`) relocations in SB0X userspace images so a
+pointer embedded in initialized data resolves to the correct run-time address.
+This is what a real userspace program (e.g. an LSP server holding a `[]const u8`
+whose `.ptr` references a string literal, or any global slice/pointer field)
+needs to run without faulting.
+### Fixed
+- SB0X userspace images are now anchored at the fixed virtual load base
+  (`SB0X_IMAGE_BASE` = `0x0040_0000`, matching the SB0/Nexus loader), rather
+  than being linked base-relative to 0. Previously an `abs64` relocation — a
+  64-bit pointer stored *in* initialized data that points at another symbol
+  (a code/rodata/data address) — was written as a base-0 offset, and since the
+  loader maps the image at a fixed base and applies no load-time relocations,
+  the pointer dereferenced a bogus low address at run time (e.g. a native LSP
+  server faulted reading its own server-name string). PC-relative code
+  relocations (`adrp`/`add`/`branch`) are unaffected — they cancel the base —
+  so this only changes absolute in-data pointers. Segment `vaddr_offset`s and
+  the entry offset stay image-relative (computed as `value - base_vaddr`), so
+  the container layout is unchanged. Kernel (SB0K) images are unaffected (they
+  were already anchored at their physical base).
+
 ## [0.5.8] — 2026-09-13 — Native SB0X Userspace: Full Inline-Assembler Coverage
 Sig 0.5.8 rounds out the `aarch64-sb0` inline assembler so a complete
 hand-written SB0 userspace program — one that touches SIMD state, thread-ID and

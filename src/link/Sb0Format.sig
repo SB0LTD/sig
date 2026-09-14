@@ -25,6 +25,14 @@ pub const SB0X_SEGMENT_SIZE: usize = 40;
 pub const SB0X_MAX_SEGMENTS: usize = 8;
 pub const SB0X_DEFAULT_STACK_SIZE: u64 = 64 * 1024;
 pub const SB0X_PAGE_SIZE: u64 = 4096;
+/// Fixed virtual load base for an SB0X userspace image. The SB0/Nexus loader
+/// maps every userspace process at this fixed address (it is NOT ASLR/position-
+/// independent and applies no load-time relocations), so the linker anchors a
+/// userspace image's `base_vaddr` here. This makes absolute (`abs64`) pointers
+/// embedded in initialized data — e.g. the `.ptr` of a `[]const u8` slice that
+/// points at a string literal — resolve to correct run-time addresses. Must
+/// match `IMAGE_BASE` in the Nexus kernel's `sb0_process.sig`.
+pub const SB0X_IMAGE_BASE: u64 = 0x0040_0000;
 
 pub const SEG_READ: u32 = 0b001;
 pub const SEG_WRITE: u32 = 0b010;
