@@ -154,6 +154,7 @@ pub const Step_Registry = struct {
         entry.make_fn = make_fn;
         entry.dep_count = 0;
         entry.module_dep_count = 0;
+        entry.win32_resource_len = 0;
         entry.state = .pending;
         self.count += 1;
 
