@@ -119,6 +119,10 @@ pub const Step_Entry = struct {
     dep_count: usize = 0,
     module_deps: [MAX_IMPORTS_PER_MODULE]Module_Handle = undefined,
     module_dep_count: usize = 0,
+    /// Optional Win32 resource script (.rc) to compile+link into an exe step.
+    /// Empty length = none. Emitted as a positional attached to the root module.
+    win32_resource: [MODULE_PATH_BUF_SIZE]u8 = undefined,
+    win32_resource_len: usize = 0,
     state: Step_State = .pending,
 };
 
@@ -1165,6 +1169,10 @@ pub const Compile_Options = struct {
     imports: []const Import_Entry,
     /// Path to the sig/Sig compiler binary. If empty, uses "sig" (found via PATH).
     compiler_path: []const u8,
+    /// Optional Win32 resource script (.rc) to compile and link into the exe
+    /// (icons, version info, manifest). The compiler compiles .rc natively; the
+    /// file is emitted as a positional attached to the root module. Empty = none.
+    win32_resource: []const u8 = "",
 };
 
 // ── Version string resolution ────────────────────────────────────────────────
@@ -3355,6 +3363,14 @@ pub const Build_Context = struct {
         // so the compile command can be reconstructed at execution time.
         // (The desc field already holds source_path from the register call above.)
 
+        // Record an optional .rc resource to compile+link (icons, manifest, etc).
+        if (opts.win32_resource.len > 0) {
+            if (opts.win32_resource.len > MODULE_PATH_BUF_SIZE) return error.BufferTooSmall;
+            var step_rc = &self.steps.entries[handle];
+            @memcpy(step_rc.win32_resource[0..opts.win32_resource.len], opts.win32_resource);
+            step_rc.win32_resource_len = opts.win32_resource.len;
+        }
+
         // Wire module imports: register each import as a module and add to registry
         // so the scheduler can reconstruct the command at execution time.
         for (opts.imports) |imp| {
@@ -3585,6 +3601,13 @@ pub const Build_Context = struct {
         @memcpy(root_flag[0..root_prefix.len], root_prefix);
         @memcpy(root_flag[root_prefix.len..][0..source_path.len], source_path);
         try cmd.appendArg(root_flag[0 .. root_prefix.len + source_path.len]);
+
+        // Attach an optional Win32 resource (.rc) as a positional in the root
+        // module's active block, so its compiled .res links into this exe
+        // (native icon/manifest embedding — no post-build stamping).
+        if (entry.win32_resource_len > 0) {
+            try cmd.appendArg(entry.win32_resource[0..entry.win32_resource_len]);
+        }
 
         // Select the transitive closure and attach each dependency list to its
         // own -M declaration, matching Sig/Sig module CLI semantics.
