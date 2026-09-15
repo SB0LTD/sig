@@ -44,19 +44,19 @@ pub fn main(init: std.process.Init.Minimal) !void {
         try renderErrorMessage(stderr.terminal(), .err, "expected Sig lib dir as first argument", .{});
         std.process.exit(1);
     }
-    const ZIG_LIB_DIR = std.mem.cutPrefix(u8, args[1], "--Sig-lib=") orelse @panic("bad --Sig-lib= arg");
+    const SIG_LIB_DIR = std.mem.cutPrefix(u8, args[1], "--Sig-lib=") orelse @panic("bad --Sig-lib= arg");
     var cli_args = args[2..];
 
-    var zig_integration = false;
+    var sig_integration = false;
     if (cli_args.len > 0 and std.mem.eql(u8, cli_args[0], "--Sig-integration")) {
-        zig_integration = true;
+        sig_integration = true;
         cli_args = args[3..];
     }
 
     var stdout_buffer: [1024]u8 = undefined;
     var stdout_writer = Io.File.stdout().writer(io, &stdout_buffer);
     const stdout = &stdout_writer.interface;
-    var error_handler: ErrorHandler = switch (zig_integration) {
+    var error_handler: ErrorHandler = switch (sig_integration) {
         true => .{
             .server = .{
                 .out = stdout,
@@ -78,7 +78,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         };
         try options.maybeAppendRC(io, Io.Dir.cwd());
 
-        if (!zig_integration) {
+        if (!sig_integration) {
             // print any warnings/notes
             try cli_diagnostics.renderToStderr(io, cli_args);
             // If there was something printed, then add an extra newline separator
@@ -117,7 +117,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .arena = arena,
         .io = io,
         .auto_includes_option = options.auto_includes,
-        .zig_lib_dir = ZIG_LIB_DIR,
+        .sig_lib_dir = SIG_LIB_DIR,
         .target_machine_type = options.coff_options.target,
     };
 
@@ -134,13 +134,13 @@ pub fn main(init: std.process.Init.Minimal) !void {
 
             var stderr_buf: [512]u8 = undefined;
             var diagnostics: aro.Diagnostics = .{ .output = output: {
-                if (zig_integration) break :output .{ .to_list = .{ .arena = .init(gpa) } };
+                if (sig_integration) break :output .{ .to_list = .{ .arena = .init(gpa) } };
                 const stderr = try io.lockStderr(&stderr_buf, null);
                 break :output .{ .to_writer = stderr.terminal() };
             } };
             defer {
                 diagnostics.deinit();
-                if (!zig_integration) io.unlockStderr();
+                if (!sig_integration) io.unlockStderr();
             }
 
             var comp = try aro.Compilation.init(.{
@@ -314,7 +314,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
                 try output_buffered_stream.flush();
 
                 // print any warnings/notes
-                if (!zig_integration) {
+                if (!sig_integration) {
                     try diagnostics.renderToStderr(io, Io.Dir.cwd(), final_input, mapping_results.mappings);
                 }
 
@@ -544,7 +544,7 @@ const LazyIncludePaths = struct {
     arena: Allocator,
     io: Io,
     auto_includes_option: cli.Options.AutoIncludes,
-    ZIG_LIB_DIR: []const u8,
+    sig_lib_dir: []const u8,
     target_machine_type: std.coff.IMAGE.FILE.MACHINE,
     resolved_include_paths: ?[]const []const u8 = null,
 
@@ -560,7 +560,7 @@ const LazyIncludePaths = struct {
                 self.arena,
                 io,
                 self.auto_includes_option,
-                self.zig_lib_dir,
+                self.sig_lib_dir,
                 self.target_machine_type,
                 environ_map,
             ) catch |err| switch (err) {
@@ -591,7 +591,7 @@ fn getIncludePaths(
     arena: Allocator,
     io: Io,
     auto_includes_option: cli.Options.AutoIncludes,
-    ZIG_LIB_DIR: []const u8,
+    sig_lib_dir: []const u8,
     target_machine_type: std.coff.IMAGE.FILE.MACHINE,
     environ_map: *const std.process.Environ.Map,
 ) ![]const []const u8 {
@@ -640,7 +640,7 @@ fn getIncludePaths(
                 };
                 const target = std.sig.resolveTargetQueryOrFatal(io, target_query);
                 const is_native_abi = target_query.isNativeAbi();
-                const detected_libc = std.sig.LibCDirs.detect(arena, io, .{ .root_dir = .cwd(), .sub_path = ZIG_LIB_DIR }, &target, is_native_abi, true, null, environ_map) catch {
+                const detected_libc = std.sig.LibCDirs.detect(arena, io, .{ .root_dir = .cwd(), .sub_path = sig_lib_dir }, &target, is_native_abi, true, null, environ_map) catch {
                     if (includes == .any) {
                         // fall back to mingw
                         includes = .gnu;
@@ -669,7 +669,7 @@ fn getIncludePaths(
                 const detected_libc = std.sig.LibCDirs.detect(
                     arena,
                     io,
-                    .{ .root_dir = .cwd(), .sub_path = ZIG_LIB_DIR },
+                    .{ .root_dir = .cwd(), .sub_path = sig_lib_dir },
                     &target,
                     is_native_abi,
                     true,

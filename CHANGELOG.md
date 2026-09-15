@@ -4,6 +4,34 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.6.0] — 2026-09-15 — Windows Resources: Working `.rc` Compilation + Native `build.sig` Icons
+
+Sig 0.6.0 repairs Windows resource-script (`.rc`) compilation, which was
+completely broken, and adds first-class native resource embedding to the
+`sig_build` API so a project can link an application icon, version info, or
+manifest into its executable with `sig build` alone — no external resource
+compiler and no post-build tooling.
+
+### Fixed
+
+- The bundled resource compiler (`lib/compiler/resinator`) failed to compile
+  due to an internal field-name mismatch: `LazyIncludePaths` declared the field
+  one way but its initializer and reader referenced another, so any
+  `sig build-exe main.sig resource.rc` errored (`no field named ...`) before
+  doing any work. The field name is now consistent, so `.rc` compilation and
+  linking work again. The affected identifiers were also renamed to Sig-branded
+  names (`sig_lib_dir` / `SIG_LIB_DIR` / `sig_integration`); the CLI flags
+  (`--Sig-lib=`, `--Sig-integration`) are unchanged.
+
+### Added
+
+- `sig_build` `Compile_Options.win32_resource`: an optional path to a `.rc`
+  file. When set, the build step compiles and links the resource into the
+  executable (the file is emitted as a positional attached to the root module,
+  so its `.res` links in). This makes `sig build` embed an app icon/manifest
+  natively — a project just sets `.win32_resource = "src/app.rc"` on its
+  `addCompileStep`.
+
 ## [0.5.9] — 2026-09-13 — Native SB0X Userspace: Correct Absolute Data Pointers
 Sig 0.5.9 fixes absolute (`abs64`) relocations in SB0X userspace images so a
 pointer embedded in initialized data resolves to the correct run-time address.
