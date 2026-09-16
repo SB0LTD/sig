@@ -7,7 +7,7 @@
 const builtin = @import("builtin");
 const native_arch = builtin.cpu.arch;
 
-const std = @import("../std.zig");
+const std = @import("../std.sig");
 const Io = std.Io;
 const mem = std.mem;
 const assert = std.debug.assert;
@@ -15,11 +15,11 @@ const math = std.math;
 const maxInt = std.math.maxInt;
 const UnexpectedError = std.posix.UnexpectedError;
 
-pub const kernel32 = @import("windows/kernel32.zig");
-pub const ntdll = @import("windows/ntdll.zig");
-pub const ws2_32 = @import("windows/ws2_32.zig");
-pub const crypt32 = @import("windows/crypt32.zig");
-pub const nls = @import("windows/nls.zig");
+pub const kernel32 = @import("windows/kernel32.sig");
+pub const ntdll = @import("windows/ntdll.sig");
+pub const ws2_32 = @import("windows/ws2_32.sig");
+pub const crypt32 = @import("windows/crypt32.sig");
+pub const nls = @import("windows/nls.sig");
 
 pub const current_process: HANDLE = @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))));
 
@@ -3522,7 +3522,7 @@ pub const WAIT_TYPE = enum(c_int) {
 
 pub const LOGICAL = ULONG;
 
-pub const NTSTATUS = @import("windows/ntstatus.zig").NTSTATUS;
+pub const NTSTATUS = @import("windows/ntstatus.sig").NTSTATUS;
 
 // ref: um/heapapi.h
 
@@ -3971,9 +3971,9 @@ pub fn errorBug(err: Win32Error) UnexpectedError {
     }
 }
 
-pub const Win32Error = @import("windows/win32error.zig").Win32Error;
-pub const LANG = @import("windows/lang.zig");
-pub const SUBLANG = @import("windows/sublang.zig");
+pub const Win32Error = @import("windows/win32error.sig").Win32Error;
+pub const LANG = @import("windows/lang.sig");
+pub const SUBLANG = @import("windows/sublang.sig");
 
 pub const BOOL = Bool(c_int);
 pub const BOOLEAN = Bool(BYTE);
