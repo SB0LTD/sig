@@ -1,13 +1,13 @@
 //! This file contains thin wrappers around Windows-specific APIs, with these
 //! specific goals in mind:
-//! * Convert "errno"-style error codes into Sig errors.
+//! * Convert "errno"-style error codes into Zig errors.
 //! * When null-terminated or WTF16LE byte buffers are required, provide APIs which accept
 //!   slices as well as APIs which accept null-terminated WTF16LE byte buffers.
 
 const builtin = @import("builtin");
 const native_arch = builtin.cpu.arch;
 
-const std = @import("../std.sig");
+const std = @import("../std.zig");
 const Io = std.Io;
 const mem = std.mem;
 const assert = std.debug.assert;
@@ -15,11 +15,11 @@ const math = std.math;
 const maxInt = std.math.maxInt;
 const UnexpectedError = std.posix.UnexpectedError;
 
-pub const kernel32 = @import("windows/kernel32.sig");
-pub const ntdll = @import("windows/ntdll.sig");
-pub const ws2_32 = @import("windows/ws2_32.sig");
-pub const crypt32 = @import("windows/crypt32.sig");
-pub const nls = @import("windows/nls.sig");
+pub const kernel32 = @import("windows/kernel32.zig");
+pub const ntdll = @import("windows/ntdll.zig");
+pub const ws2_32 = @import("windows/ws2_32.zig");
+pub const crypt32 = @import("windows/crypt32.zig");
+pub const nls = @import("windows/nls.zig");
 
 pub const current_process: HANDLE = @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))));
 
@@ -3387,7 +3387,7 @@ pub const PAGE = packed struct(ULONG) {
     REVERT_TO_FILE_MAP: bool = false,
 
     pub fn fromProtection(protection: std.process.MemoryProtection) ?PAGE {
-        // TODO https://github.com/ziglang/Sig/issues/22214
+        // TODO https://github.com/ziglang/zig/issues/22214
         return switch (@as(u3, @bitCast(protection))) {
             0b000 => .{ .NOACCESS = true },
             0b001 => .{ .READONLY = true },
@@ -3522,7 +3522,7 @@ pub const WAIT_TYPE = enum(c_int) {
 
 pub const LOGICAL = ULONG;
 
-pub const NTSTATUS = @import("windows/ntstatus.sig").NTSTATUS;
+pub const NTSTATUS = @import("windows/ntstatus.zig").NTSTATUS;
 
 // ref: um/heapapi.h
 
@@ -3609,10 +3609,10 @@ pub const CreateProcessFlags = packed struct(u32) {
 
 pub fn teb() *TEB {
     if (builtin.zig_backend == .stage2_c) return @ptrCast(@alignCast(struct {
-        /// This is a workaround for the C backend until Sig has the ability to put
+        /// This is a workaround for the C backend until zig has the ability to put
         /// C code in inline assembly.
         extern fn zig_windows_teb() callconv(.c) *anyopaque;
-    }.sig_windows_teb()));
+    }.zig_windows_teb()));
     switch (native_arch) {
         .thumb => return asm (
             \\ mrc p15, 0, %[ptr], c13, c0, 2
@@ -3645,14 +3645,12 @@ pub fn teb() *TEB {
 }
 
 pub fn peb() *PEB {
-    if (builtin.zig_backend == .stage2_c) switch (native_arch) {
-        .x86, .x86_64 => return @ptrCast(@alignCast(struct {
-            /// This is a workaround for the C backend until Sig has the ability to put
-            /// C code in inline assembly.
-            extern fn zig_windows_peb() callconv(.c) *anyopaque;
-        }.sig_windows_peb())),
-        else => {},
-    } else switch (native_arch) {
+    if (builtin.zig_backend == .stage2_c) return @ptrCast(@alignCast(struct {
+        /// This is a workaround for the C backend until zig has the ability to put
+        /// C code in inline assembly.
+        extern fn zig_windows_peb() callconv(.c) *anyopaque;
+    }.zig_windows_peb()));
+    switch (native_arch) {
         .aarch64 => {
             comptime assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x60);
             return asm (
@@ -3973,9 +3971,9 @@ pub fn errorBug(err: Win32Error) UnexpectedError {
     }
 }
 
-pub const Win32Error = @import("windows/win32error.sig").Win32Error;
-pub const LANG = @import("windows/lang.sig");
-pub const SUBLANG = @import("windows/sublang.sig");
+pub const Win32Error = @import("windows/win32error.zig").Win32Error;
+pub const LANG = @import("windows/lang.zig");
+pub const SUBLANG = @import("windows/sublang.zig");
 
 pub const BOOL = Bool(c_int);
 pub const BOOLEAN = Bool(BYTE);
