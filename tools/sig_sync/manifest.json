@@ -1,7 +1,7 @@
 {
   "schema": "sb0.sig.sync-manifest.v1",
-  "last_integrated_commit": "ed1617dd20cd5bf8618565472e898da8300f832d",
-  "last_integration_timestamp": 1789604245,
+  "last_integrated_commit": "89ff10d568522e7a64a3a8e5dbe9e873a17eff4f",
+  "last_integration_timestamp": 1789609337,
   "bootstrap_tag": "bootstrap-sig-v58",
   "llvm_tag": "llvm-22.1.8-sig-0.3.1",
   "entries": []
