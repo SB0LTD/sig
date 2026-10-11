@@ -21,6 +21,36 @@
 
 ---
 
+## 0.6.1 — Native sBPF (Solana) Backend + Link/Deploy Path
+
+Sig can now build and link a loadable Solana on-chain program end-to-end with no
+external toolchain beyond `sig`. A trivial entrypoint deploys and executes on a
+current `solana-test-validator`, and Solana syscalls resolve at runtime via the
+SIMD-0178 static-syscall encoding.
+
+```
+$ sig version
+sig 0.6.1 (zig 0.17.0)
+
+$ sig build-lib -dynamic -target sbf-solana-solana -mcpu sbpfv3 \
+      -O ReleaseSmall -femit-bin=program.so entry.sig
+```
+
+- First-class `sbf-solana-solana` target (OS+ABI+CPU over the reused `.bpfel`
+  codegen path, not a new arch), with `sbpfv1`/`sbpfv2`/`sbpfv3` CPU models and a
+  default `-mcpu sbpfv3`. Listed in `sig targets`.
+- The self-hosted ELF linker accepts `EM_BPF` (the vendored LLD is bypassed for
+  Solana), applies the `R_SBF_*` relocation family, and emits a relocation-free
+  `ET_DYN` conforming to the SIMD-0189 stricter-ELF-header contract.
+- SIMD-0178 static syscalls: a no-library `extern fn … callconv(.c)` lowers to a
+  `call imm` of `murmur3_32(name)` with no relocation.
+- No-`compiler_rt`, float-free on-chain profile by default for the Solana
+  target, and `-dynamic` support so a `.so` is produced.
+- Build driver `tools/build-sbpf.ps1` and the full contract/recipe in
+  `compiler/SBPF_SOLANA_TARGET.md`.
+
+Scope is compiler/toolchain only; the on-chain library lives in `SB0LTD/zpm`.
+
 ## 0.5.9 — Native SB0X Userspace: Correct Absolute Data Pointers
 
 A pointer embedded in an SB0X userspace image's initialized data — such as the
