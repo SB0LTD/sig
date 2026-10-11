@@ -35,7 +35,14 @@ contract and build/deploy recipe.
   `.plt`/section-header table. A BPF-only finalization pass
   (`finalizeBpfSolanaObject`) performs this rewrite keyed strictly on
   `machine == .BPF`, so non-BPF targets are byte-identical to the stage0
-  compiler.
+  compiler. The pass rebases absolute `.rodata` pointers to the loader's VA-0
+  rodata base by walking the recorded `R_SBF_64_64` (`.sbf_lddw`) relocation
+  sites — the exact `lddw` slots the linker resolved against `.rodata` —
+  rather than scanning `.text` for `0x18` opcode bytes, so a non-`lddw` qword
+  or an in-range numeric constant can never be mis-rewritten; each site is
+  structurally asserted to be a real `lddw` pair (first-slot `0x18`,
+  second-slot `0x00` pseudo) and the trailing-zero `.text` trim asserts the
+  final slot is a recognized terminator (`exit`/`ja`).
 - **SIMD-0178 static-syscall lowering (`src/codegen/llvm.sig`).** Under
   `os == .solana`, a no-library `extern fn … callconv(.c)` is lowered to a BPF
   `call imm` whose 32-bit immediate is `murmur3_32(name)`, with no relocation —
@@ -62,6 +69,18 @@ contract and build/deploy recipe.
   `sig.exe`; and the Windows system libraries LLVM Support needs (`ole32`,
   `uuid`, `advapi32`, `shell32`, `oleaut32`, `psapi`) are added to the LLVM
   linker args.
+- **sBPF release gate now byte-verifies the SIMD-0189 program-header layout.**
+  `ci/test-sbpf-solana-target.sh` asserted only the ELF header magic/class/
+  data/type/machine and the static-syscall immediate; it now also checks the
+  final `finalizeBpfSolanaObject` shape (`e_phoff = 64`, `e_phnum = 2`,
+  `e_phentsize = 56`, `e_shoff = e_shnum = 0`, and both `PT_LOAD` headers'
+  type/flags/vaddr), so a regression that bypasses the finalizer and reverts to
+  the pre-SIMD-0189 multi-segment layout fails the release build. This gate
+  (wired into `release.yaml`) is the authoritative reproduction of the
+  LLVM-backed `.so` byte-verification; it runs under Linux CI where the LLVM 22
+  toolchain is available (a `-Denable-llvm` build is not reproducible on a
+  Windows dev host that lacks LLVM, though plain `sig build`/`sig build test`
+  pass there).
 
 ## [0.6.0] — 2026-09-15 — Windows Resources: Working `.rc` Compilation + Native `build.sig` Icons
 
