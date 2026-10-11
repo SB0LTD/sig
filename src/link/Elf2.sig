@@ -9465,11 +9465,209 @@ fn flushInner(
         inline else => |ehdr| elf.targetStore(&ehdr.entry, @intCast(entry_addr)),
     }
 
+    // Capture the sBPF/Solana layout inputs (section vaddrs/sizes + entrypoint)
+    // while the file is still mapped; the SIMD-0189 rewrite below runs after the
+    // generic flush and reads the section bytes out of the mapped nodes.
+    const bpf_solana = elf.ehdrMachine() == .BPF;
+    const bpf_entry_vaddr: u64 = if (bpf_solana) entry_addr else 0;
+
     try elf.mf.flush();
+
+    // sBPF (Solana) requires a program-header layout that satisfies SIMD-0189
+    // (e_phoff==64, exactly two ordered PT_LOAD headers at vaddr 0 / 0x1_0000_0000
+    // with e_entry inside the bytecode segment). The generic ELF the linker just
+    // flushed is relocation-free and correct in content, but its multi-segment,
+    // page-aligned layout is rejected by the loader's strict header parser. Rewrite
+    // the output into the SIMD-0189 shape (BPF only; no other target is touched).
+    if (bpf_solana) {
+        elf.finalizeBpfSolanaObject(bpf_entry_vaddr) catch |err|
+            return diags.fail("sBPF SIMD-0189 program-header finalization failed: {t}", .{err});
+    }
 
     if (elf.options.enable_link_snapshots)
         elf.dumpStderr(tid) catch |err|
             return diags.fail("dumping link snapshot failed: {t}", .{err});
+}
+
+/// Rewrite the just-flushed ELF output into the strict sBPFv3 shared-object layout
+/// mandated by SIMD-0189 so the Solana loader accepts it. The generic linker emits
+/// a correct, relocation-free `EM_BPF` `ET_DYN` with the program's `.rodata`/`.text`
+/// content, but with a multi-segment, page-aligned layout the loader's header parser
+/// rejects. This produces, in its place:
+///
+///   e_phoff = 64, e_phnum = 2, e_phentsize = 56, e_shoff = e_shnum = 0
+///   phdr[0] = PT_LOAD PF_R  vaddr 0            (read-only data)
+///   phdr[1] = PT_LOAD PF_X  vaddr 0x1_0000_0000 (bytecode), e_entry inside it
+///   p_offset chained from 176 (= 64 + 2*56), each segment 8-byte aligned
+///
+/// Section headers are ignored by the loader, so none are emitted. Internal calls are
+/// PC-relative, so moving `.text` to the fixed sBPF code VA does not require fixups;
+/// `e_entry` is recomputed relative to the bytecode segment base. BPF-only: never
+/// invoked for any other machine.
+fn finalizeBpfSolanaObject(elf: *Elf, entry_vaddr: u64) !void {
+    const comp = elf.base.comp;
+    const gpa = comp.gpa;
+    const io = comp.io;
+    const Ehdr = std.elf.Elf64.Ehdr;
+    const Phdr = std.elf.Elf64.Phdr;
+
+    // sBPF is always little-endian; a big-endian host would need per-field
+    // byte-swaps of the structs below. No Sig host is big-endian, but guard it.
+    if (elf.targetEndian() != @import("builtin").cpu.arch.endian())
+        return error.UnsupportedHostEndianForSbpf;
+
+    // SIMD-0189 fixed constants.
+    const ehdr_size: u64 = @sizeOf(Ehdr); // 64
+    const phdr_size: u64 = @sizeOf(Phdr); // 56
+    const phnum: u16 = 2;
+    const phoff: u64 = ehdr_size; // 64
+    const content_start: u64 = phoff + @as(u64, phnum) * phdr_size; // 176
+    const text_vaddr_base: u64 = 0x1_0000_0000; // 1 << 32
+
+    const align8 = struct {
+        fn f(n: u64) u64 {
+            return (n + 7) & ~@as(u64, 7);
+        }
+    }.f;
+
+    // Read the generic layout's section geometry while still mapped.
+    const rodata_vaddr = Section.Index.rodata.vaddr(elf);
+    const rodata_size = Section.Index.rodata.size(elf);
+    const text_vaddr = Section.Index.text.vaddr(elf);
+    const text_size = Section.Index.text.size(elf);
+
+    // Copy the section bytes out before we rebuild the file.
+    const rodata_src = Section.Index.rodata.get(elf).ni.slice(&elf.mf)[0..@intCast(rodata_size)];
+    const text_src = Section.Index.text.get(elf).ni.slice(&elf.mf)[0..@intCast(text_size)];
+    const rodata_copy = try gpa.dupe(u8, rodata_src);
+    defer gpa.free(rodata_copy);
+    const text_copy = try gpa.dupe(u8, text_src);
+    defer gpa.free(text_copy);
+
+    // Rebase absolute rodata pointers to the loader's rodata VA (0).
+    //
+    // The generic linker placed `.rodata` at `rodata_vaddr` and resolved every
+    // absolute rodata reference (a `lddw rN, <abs>` immediate) against it. But
+    // SIMD-0189 maps the read-only-data segment at VA 0, so those immediates must
+    // be made rodata-relative. sBPF on-chain code has no GOT and its only absolute
+    // addresses are rodata data pointers (text is PC-relative), so remapping every
+    // `lddw` immediate that falls in `[rodata_vaddr, rodata_vaddr + rodata_size)`
+    // to `imm - rodata_vaddr` is well-defined and complete. An `lddw` is a 16-byte
+    // instruction pair: opcode 0x18 in the first slot, the low 32 bits of the
+    // immediate in bytes [4..8) and the high 32 bits in the following slot's bytes
+    // [12..16) (FEAT-001 PC2).
+    if (rodata_size > 0) {
+        var i: usize = 0;
+        while (i + 16 <= text_copy.len) : (i += 8) {
+            if (text_copy[i] != 0x18) continue; // not an lddw
+            const lo: u64 = std.mem.readInt(u32, text_copy[i + 4 ..][0..4], .little);
+            const hi: u64 = std.mem.readInt(u32, text_copy[i + 12 ..][0..4], .little);
+            const imm = (hi << 32) | lo;
+            if (imm >= rodata_vaddr and imm < rodata_vaddr + rodata_size) {
+                const rebased = imm - rodata_vaddr; // rodata base is 0 for the loader
+                std.mem.writeInt(u32, text_copy[i + 4 ..][0..4], @truncate(rebased), .little);
+                std.mem.writeInt(u32, text_copy[i + 12 ..][0..4], @truncate(rebased >> 32), .little);
+            }
+            i += 8; // consume the second lddw slot
+        }
+    }
+
+    // The generic linker over-allocates the `.text` node (block-aligned), so its
+    // reported size includes trailing zero padding. The Solana bytecode verifier
+    // walks the ENTIRE PF_X segment as instructions and rejects a zero opcode
+    // (0x00 is not a valid eBPF opcode), so the bytecode segment must cover only
+    // the real instruction stream. Trim trailing all-zero 8-byte instruction
+    // slots: a valid final instruction (exit/jump/alu) is never all-zero, so any
+    // trailing zero qword is padding. (rodata is data, not instructions — do NOT
+    // trim it; its trailing zeros are legitimate and its filesz may be 0.)
+    var text_used: u64 = text_copy.len;
+    while (text_used >= 8) {
+        const w = text_copy[@intCast(text_used - 8)..][0..8];
+        if (!std.mem.allEqual(u8, w, 0)) break; // last real instruction found
+
+        text_used -= 8;
+    }
+
+    // Lay out the new file: ehdr | phdr[0] | phdr[1] | rodata (pad8) | text (pad8).
+    const rodata_filesz = align8(rodata_size);
+    const text_filesz = align8(text_used);
+    const rodata_off = content_start;
+    const text_off = rodata_off + rodata_filesz;
+    const total_len = text_off + text_filesz;
+
+    const buf = try gpa.alloc(u8, @intCast(total_len));
+    defer gpa.free(buf);
+    @memset(buf, 0);
+
+    // ── ELF header (typed; SIMD-0189 strict file-header constraints) ─────────
+    const ehdr: Ehdr = .{
+        .ident = .{
+            .class = .@"64",
+            .data = .@"2LSB",
+            .version = 1,
+            .osabi = .NONE,
+            .abiversion = 0,
+        },
+        .type = .DYN,
+        .machine = .BPF,
+        .version = 1,
+        // e_entry must fall within the bytecode segment: the generic layout put
+        // `entrypoint` at `entry_vaddr` within `.text` (base `text_vaddr`);
+        // relocate it onto the SIMD-0189 code VA base.
+        .entry = text_vaddr_base + (entry_vaddr - text_vaddr),
+        .phoff = phoff,
+        .shoff = 0,
+        .flags = .{ .int = 0x3 }, // sBPFv3 (FEAT-001 PC3)
+        .ehsize = @intCast(ehdr_size),
+        .phentsize = @intCast(phdr_size),
+        .phnum = phnum,
+        .shentsize = 0,
+        .shnum = 0,
+        .shstrndx = 0,
+    };
+    const ehdr_bytes = std.mem.asBytes(&ehdr);
+    @memcpy(buf[0..ehdr_bytes.len], ehdr_bytes);
+
+    // ── Program headers: [0] ro-data PF_R @0, [1] bytecode PF_X @1<<32 ───────
+    const phdrs = [2]Phdr{
+        .{
+            .type = .LOAD,
+            .flags = .{ .R = true },
+            .offset = rodata_off,
+            .vaddr = 0,
+            .paddr = 0,
+            .filesz = rodata_filesz,
+            .memsz = rodata_filesz,
+            .@"align" = 8,
+        },
+        .{
+            .type = .LOAD,
+            .flags = .{ .X = true },
+            .offset = text_off,
+            .vaddr = text_vaddr_base,
+            .paddr = text_vaddr_base,
+            .filesz = text_filesz,
+            .memsz = text_filesz,
+            .@"align" = 8,
+        },
+    };
+    const phdr_bytes = std.mem.sliceAsBytes(phdrs[0..]);
+    @memcpy(buf[@intCast(phoff)..][0..phdr_bytes.len], phdr_bytes);
+
+    // ── Section payloads ────────────────────────────────────────────────────
+    @memcpy(buf[@intCast(rodata_off)..][0..rodata_copy.len], rodata_copy);
+    @memcpy(buf[@intCast(text_off)..][0..@intCast(text_used)], text_copy[0..@intCast(text_used)]);
+
+    // Release the memory map before rewriting the file: `elf.mf` still holds an
+    // active mapping of the (larger) generic image, and writing/truncating under
+    // a live mmap aliases undefined. The section bytes are already copied to the
+    // heap above, so unmapping now is safe. (This is the final flush of the link.)
+    elf.mf.unmap();
+
+    // Overwrite the output file with the SIMD-0189 image and truncate to length.
+    const out_file = elf.base.file.?;
+    try out_file.writePositionalAll(io, buf, 0);
+    try out_file.setLength(io, total_len);
 }
 
 pub fn idle(elf: *Elf, tid: Zcu.PerThread.Id) link.Error!bool {
