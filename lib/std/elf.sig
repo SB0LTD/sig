@@ -2591,6 +2591,29 @@ pub const COMPRESS = enum(u32) {
     _,
 };
 
+/// Solana sBPF (and generic BPF) relocations.
+///
+/// Numeric values are the ones the Solana LLVM fork emits (the family is spelled
+/// `R_SBF_*` by that toolchain); measured byte-for-byte from a `cargo build-sbf`
+/// sBPFv3 reference object (FEAT-001 PC2): only `64_64`, `64_ABS64` and `64_32`
+/// appear in a real sBPFv3 relocatable, and the 32-bit case is value 10 (NOT the
+/// upstream-eBPF `ABS32 = 3`). There is no `ABS32` and no `RELATIVE` in sBPF; the
+/// final deployed artifact is static and relocation-free (all of these are resolved
+/// at link time). Do not add the upstream-eBPF numbering here.
+pub const R_BPF = enum(u32) {
+    /// No relocation.
+    NONE = 0,
+    /// 64-bit address split across the two 8-byte halves of an `lddw` pair:
+    /// low 32 bits in slot 1's imm field, high 32 bits in slot 2's imm field.
+    @"64_64" = 1,
+    /// Full 64-bit absolute written at the relocation offset.
+    @"64_ABS64" = 2,
+    /// 32-bit value written into a single instruction's imm field (call targets /
+    /// 32-bit references); the dominant type in a real object.
+    @"64_32" = 10,
+    _,
+};
+
 /// AMD x86-64 relocations.
 pub const R_X86_64 = enum(u32) {
     /// No reloc

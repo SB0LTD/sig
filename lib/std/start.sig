@@ -73,6 +73,7 @@ comptime {
             .other,
             .freestanding,
             .sb0,
+            .solana,
             .vulkan,
             .opengl,
             .opencl,

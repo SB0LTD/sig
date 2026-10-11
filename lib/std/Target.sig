@@ -21,6 +21,9 @@ pub const Os = struct {
         /// Native SB0. The only supported architecture is AArch64 and the
         /// corresponding ABI is `.sb0`.
         sb0,
+        /// Solana sBPF on-chain program. The supported architecture is
+        /// `.bpfel` (or `.bpfeb`) and the corresponding ABI is `.solana`.
+        solana,
         contiki,
         fuchsia,
         hermit,
@@ -160,6 +163,7 @@ pub const Os = struct {
                 .freestanding,
                 .other,
                 .sb0,
+                .solana,
                 .managarm,
 
                 .haiku,
@@ -401,6 +405,7 @@ pub const Os = struct {
                 .freestanding,
                 .other,
                 .sb0,
+                .solana,
                 .managarm,
 
                 .haiku,
@@ -806,6 +811,8 @@ pub const Abi = enum {
     none,
     /// Consolidated native SB0 AArch64 ABI.
     sb0,
+    /// Solana sBPF on-chain program ABI.
+    solana,
     gnu,
     gnuabin32,
     gnuabi64,
@@ -842,6 +849,9 @@ pub const Abi = enum {
             // bare `aarch64-sb0` triple resolves to the sb0 contract. An explicit
             // ABI (e.g. `aarch64-sb0-none`) still overrides this default.
             .sb0 => .sb0,
+            // The Solana sBPF target defaults to the solana ABI so a bare
+            // `bpfel-solana`/`sbf-solana` triple resolves to the solana contract.
+            .solana => .solana,
             .freestanding, .other => switch (arch) {
                 // Soft float is usually a sane default for freestanding.
                 .arm,
@@ -1089,6 +1099,9 @@ pub const ObjectFormat = enum {
             // The consolidated native SB0 target emits raw SB0X images, so a bare
             // `aarch64-sb0` triple defaults to the raw object format.
             .sb0 => .raw,
+            // The Solana sBPF target ships an ELF `.so`, so it does NOT use `.raw`
+            // like `.sb0`; it keeps the normal ELF object format.
+            .solana => .elf,
             else => switch (arch) {
                 .spirv32, .spirv64 => .spirv,
                 .wasm32, .wasm64 => .wasm,
@@ -2117,7 +2130,11 @@ pub const Cpu = struct {
                     else => generic(arch),
                 },
                 .avr => &avr.cpu.avr2,
-                .bpfel, .bpfeb => &bpf.cpu.v3,
+                .bpfel, .bpfeb => switch (os.tag) {
+                    // The Solana sBPF target defaults to the sBPFv3 CPU model.
+                    .solana => &bpf.cpu.sbpfv3,
+                    else => &bpf.cpu.v3,
+                },
                 .csky => &csky.cpu.ck810, // gcc/clang do not have a generic csky model.
                 .hexagon => &hexagon.cpu.hexagonv68, // gcc/clang do not have a generic hexagon model.
                 .hppa => &hppa.cpu.pa_7300lc,
@@ -2252,6 +2269,14 @@ pub inline fn isSb0(target: *const Target) bool {
     return target.os.tag == .sb0 and target.abi == .sb0 and target.cpu.arch == .aarch64;
 }
 
+/// Returns whether this target is the Solana sBPF on-chain target: the sBPF
+/// (`.bpfel`/`.bpfeb`) ISA with the `solana` OS/ABI contract that emits a
+/// loadable ELF `.so`. Routed exclusively through the self-hosted ELF linker.
+pub inline fn isSolana(target: *const Target) bool {
+    return target.os.tag == .solana and target.abi == .solana and
+        (target.cpu.arch == .bpfel or target.cpu.arch == .bpfeb);
+}
+
 pub inline fn isMinGW(target: *const Target) bool {
     return target.os.tag == .windows and target.abi.isGnu();
 }
@@ -2333,6 +2358,7 @@ pub fn requiresLibC(target: *const Target) bool {
         .openbsd,
         .freestanding,
         .sb0,
+        .solana,
         .fuchsia,
         .managarm,
         .rtems,
@@ -2499,6 +2525,7 @@ pub const DynamicLinker = struct {
             .freestanding,
             .other,
             .sb0,
+            .solana,
             .contiki,
             .hermit,
             .managarm, // Needs to be double-checked.
@@ -2940,6 +2967,7 @@ pub const DynamicLinker = struct {
             .freestanding,
             .other,
             .sb0,
+            .solana,
             .contiki,
             .hermit,
 
@@ -3249,6 +3277,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) ?u16 {
         .freestanding,
         .other,
         .sb0,
+        .solana,
         .ashetos,
         => switch (target.cpu.arch) {
             .msp430,

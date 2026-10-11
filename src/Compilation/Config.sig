@@ -408,6 +408,13 @@ pub fn resolve(options: Options) ResolveError!Config {
 
     // Make a decision on whether to use LLD or our own linker.
     const use_lld = b: {
+        // The Solana sBPF target MUST route through the self-hosted ELF linker:
+        // the vendored LLD rejects EM_BPF (247). sBPF never uses LLD.
+        if (target.os.tag == .solana) {
+            if (options.use_lld == true) return error.LldIncompatibleObjectFormat;
+            break :b false;
+        }
+
         if (!target_util.hasLldSupport(target.ofmt)) {
             if (options.use_lld == true) return error.LldIncompatibleObjectFormat;
             break :b false;
@@ -463,6 +470,10 @@ pub fn resolve(options: Options) ResolveError!Config {
             if (options.use_new_linker == true) return error.NewLinkerIncompatibleWithLld;
             break :b false;
         }
+
+        // The Solana sBPF target is served exclusively by the self-hosted ELF
+        // linker (Elf2), which carries the sBPF relocation + layout support.
+        if (target.os.tag == .solana) break :b true;
 
         if (!target_util.hasNewLinker(target.ofmt)) {
             if (options.use_new_linker == true) return error.NewLinkerIncompatibleObjectFormat;

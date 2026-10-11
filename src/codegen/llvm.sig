@@ -45,6 +45,70 @@ pub fn legalizeFeatures(target: *const std.Target) ?*const Air.Legalize.Features
     };
 }
 
+/// MurmurHash3 x86 32-bit, seed 0 — the Solana syscall-registry hash.
+///
+/// SIMD-0178 "static syscalls" encode a syscall call as a BPF `call imm`
+/// whose 32-bit immediate is `murmur3_32(name)` with `seed == 0`, hashing the
+/// raw ASCII bytes of the syscall symbol name. This is compiler/codegen
+/// machinery (not on-chain library logic), so it lives in the codegen seam
+/// alongside the Solana syscall lowering (FEAT-004, design.md §7). The
+/// reference immediates it must reproduce were measured byte-exactly against a
+/// `cargo build-sbf` artifact in FEAT-001 (PC-SYS), e.g.
+/// `murmur3_32("sol_log_") == 0x207559bd`.
+pub fn murmur3_32(key: []const u8) u32 {
+    const c1: u32 = 0xcc9e2d51;
+    const c2: u32 = 0x1b873593;
+
+    var h: u32 = 0; // seed = 0
+    const nblocks = key.len / 4;
+
+    var i: usize = 0;
+    while (i < nblocks) : (i += 1) {
+        var k: u32 = std.mem.readInt(u32, key[i * 4 ..][0..4], .little);
+        k *%= c1;
+        k = std.math.rotl(u32, k, 15);
+        k *%= c2;
+        h ^= k;
+        h = std.math.rotl(u32, h, 13);
+        h = h *% 5 +% 0xe6546b64;
+    }
+
+    const tail = key[nblocks * 4 ..];
+    var k1: u32 = 0;
+    if (tail.len >= 3) k1 ^= @as(u32, tail[2]) << 16;
+    if (tail.len >= 2) k1 ^= @as(u32, tail[1]) << 8;
+    if (tail.len >= 1) {
+        k1 ^= @as(u32, tail[0]);
+        k1 *%= c1;
+        k1 = std.math.rotl(u32, k1, 15);
+        k1 *%= c2;
+        h ^= k1;
+    }
+
+    h ^= @as(u32, @intCast(key.len));
+    h ^= h >> 16;
+    h *%= 0x85ebca6b;
+    h ^= h >> 13;
+    h *%= 0xc2b2ae35;
+    h ^= h >> 16;
+    return h;
+}
+
+test "murmur3_32 matches Solana syscall-registry reference immediates (FEAT-001 PC-SYS)" {
+    // Reference immediates measured byte-exactly from a cargo build-sbf
+    // sBPFv3 artifact (design.md §7 / .build/sbpf-test/refcap). These pin the
+    // seed (0) and the name-string encoding (raw ASCII) of the SIMD-0178
+    // static-syscall hash.
+    try std.testing.expectEqual(@as(u32, 0x207559bd), murmur3_32("sol_log_"));
+    try std.testing.expectEqual(@as(u32, 0x717cc4a3), murmur3_32("sol_memcpy_"));
+    try std.testing.expectEqual(@as(u32, 0xb6fc1a11), murmur3_32("abort"));
+    try std.testing.expectEqual(@as(u32, 0x11f49d86), murmur3_32("sol_sha256"));
+    try std.testing.expectEqual(@as(u32, 0x48504a38), murmur3_32("sol_try_find_program_address"));
+    try std.testing.expectEqual(@as(u32, 0xd56b5fe9), murmur3_32("sol_get_clock_sysvar"));
+    // Empty / short keys exercise the tail-only and length-mix paths.
+    try std.testing.expectEqual(@as(u32, 0x00000000), murmur3_32(""));
+}
+
 pub fn supportsTailCall(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
         .wasm32, .wasm64 => target.cpu.has(.wasm, .tail_call),

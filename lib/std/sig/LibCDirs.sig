@@ -268,6 +268,7 @@ fn libCGenericName(target: *const std.Target) [:0]const u8 {
         .eabi,
         .eabihf,
         .sb0,
+        .solana,
         .abin32,
         .x32,
         .ilp32,

@@ -1805,7 +1805,11 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
 
         const compiler_rt_strat: RtStrat = s: {
             if (options.skip_linker_dependencies) break :s .none;
-            const want = options.want_compiler_rt orelse is_exe_or_dyn_lib;
+            // On-chain Solana sBPF programs must not pull in compiler_rt: the
+            // soft-float helpers (e.g. `__negxf2`) fail to lower for BPF, and the
+            // runtime provides no such symbols. Default compiler_rt off for solana.
+            const want = options.want_compiler_rt orelse
+                (is_exe_or_dyn_lib and target.os.tag != .solana);
             if (!want) break :s .none;
             const need_llvm = switch (target_util.canBuildLibCompilerRt(target)) {
                 .no => break :s .none, // impossible to build
