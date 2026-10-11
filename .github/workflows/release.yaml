@@ -315,6 +315,31 @@ jobs:
               "workflow_run=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
               > "$sb0_runner.provenance.txt"
             sha256sum --check --strict "$sb0_runner.sha256"
+
+            # Solana sBPF on-chain program. Build the entrypoint probe into a
+            # loadable ELF .so for -target sbf-solana-solana and byte-verify the
+            # loader-contract layout (PC3) + the SIMD-0178 static-syscall
+            # immediate (FEAT-004). The LLVM-backed stage3 compiler emits BPF;
+            # the self-hosted ELF linker (Elf2) produces the .so (LLD rejects
+            # EM_BPF). SBPF_SOLANA_OUTPUT publishes the exact byte-verified .so
+            # as the release artifact (same pattern as SB0_RUNNER_OUTPUT above).
+            sbpf_program="sig-${VERSION}-sbpf-solana-program.so"
+            SBPF_SOLANA_OUTPUT="$PWD/$sbpf_program" \
+              bash ci/test-sbpf-solana-target.sh "$compiler" "$PWD" "$LLVM_PREFIX"
+            sha256sum "$sbpf_program" > "$sbpf_program.sha256"
+            printf '%s\n' \
+              'schema=sb0.sig.release-artifact.v1' \
+              "artifact=$sbpf_program" \
+              'platform=sbf-solana-solana' \
+              'target=sbf-solana-solana' \
+              'artifact_kind=SBPF_SOLANA_SO' \
+              "sig_version=${SIG_VERSION}" \
+              "source_commit=${GITHUB_SHA}" \
+              "bootstrap_tag=${BOOTSTRAP_TAG}" \
+              "llvm_artifact_tag=${LLVM_ARTIFACT_TAG}" \
+              "workflow_run=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+              > "$sbpf_program.provenance.txt"
+            sha256sum --check --strict "$sbpf_program.sha256"
           fi
 
       - name: Package Linux toolchain
@@ -380,6 +405,16 @@ jobs:
             sig-${{ env.VERSION }}-aarch64-sb0-runner.sb0k
             sig-${{ env.VERSION }}-aarch64-sb0-runner.sb0k.sha256
             sig-${{ env.VERSION }}-aarch64-sb0-runner.sb0k.provenance.txt
+          compression-level: 0
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: matrix.platform == 'x86_64-linux'
+        with:
+          name: sig-sbpf-solana
+          path: |
+            sig-${{ env.VERSION }}-sbpf-solana-program.so
+            sig-${{ env.VERSION }}-sbpf-solana-program.so.sha256
+            sig-${{ env.VERSION }}-sbpf-solana-program.so.provenance.txt
           compression-level: 0
 
   build-macos:
@@ -738,6 +773,7 @@ jobs:
             "sig-${VERSION}-aarch64-macos.tar.xz"
             "sig-${VERSION}-x86_64-windows.zip"
             "sig-${VERSION}-aarch64-sb0-runner.sb0k"
+            "sig-${VERSION}-sbpf-solana-program.so"
           )
           aliases=(
             sig-x86_64-linux.tar.xz
@@ -745,6 +781,7 @@ jobs:
             sig-aarch64-macos.tar.xz
             sig-x86_64-windows.zip
             sig-aarch64-sb0-runner.sb0k
+            sig-sbpf-solana-program.so
           )
           provenance=(
             "${versioned[0]}.provenance.txt"
@@ -752,6 +789,7 @@ jobs:
             "${versioned[2]}.provenance.txt"
             "${versioned[3]}.provenance.txt"
             "${versioned[4]}.provenance.txt"
+            "${versioned[5]}.provenance.txt"
           )
           for archive in "${versioned[@]}"; do
             test -s "$archive"
@@ -781,7 +819,7 @@ jobs:
             '{schema:$schema, version:$version, sig_version:$sig_version, source_commit:$source_commit, bootstrap_tag:$bootstrap_tag, llvm_artifact_tag:$llvm_artifact_tag, workflow_run:$workflow_run, assets:$assets}' \
             > release-manifest.json
           sha256sum "${versioned[@]}" "${aliases[@]}" "${provenance[@]}" release-manifest.json > SHA256SUMS.txt
-          test "$(wc -l < SHA256SUMS.txt)" -eq 16
+          test "$(wc -l < SHA256SUMS.txt)" -eq 19
           sha256sum --check --strict SHA256SUMS.txt
 
       - name: Build release notes from changelog
@@ -797,9 +835,12 @@ jobs:
           cat > /tmp/release-notes.md <<EOF
           Sig ${VERSION}
 
-          Four LLVM-backed host toolchains plus one allocator-free native SB0K
-          compiler runner, all built by Sig itself. The runner is boot-verified
-          on system QEMU and emits SB0X in-guest. Exact build inputs:
+          Four LLVM-backed host toolchains, one allocator-free native SB0K
+          compiler runner, and one Solana sBPF on-chain program (.so) — all
+          built by Sig itself. The runner is boot-verified on system QEMU and
+          emits SB0X in-guest; the sBPF program is a loadable ELF .so for
+          sbf-solana-solana whose ELF layout and SIMD-0178 static-syscall
+          encoding are byte-verified in CI. Exact build inputs:
 
           - source: ${GITHUB_SHA}
           - bootstrap: ${BOOTSTRAP_TAG}
@@ -831,11 +872,13 @@ jobs:
             "sig-${VERSION}-aarch64-macos.tar.xz"
             "sig-${VERSION}-x86_64-windows.zip"
             "sig-${VERSION}-aarch64-sb0-runner.sb0k"
+            "sig-${VERSION}-sbpf-solana-program.so"
             sig-x86_64-linux.tar.xz
             sig-aarch64-linux.tar.xz
             sig-aarch64-macos.tar.xz
             sig-x86_64-windows.zip
             sig-aarch64-sb0-runner.sb0k
+            sig-sbpf-solana-program.so
             SHA256SUMS.txt
             release-manifest.json
             ./*.provenance.txt
@@ -858,7 +901,7 @@ jobs:
           tag="sig-${VERSION}"
           assets_json="$(gh release view "$tag" --json assets,isDraft,isPrerelease)"
           test "$(jq -r .isDraft <<<"$assets_json")" = true
-          test "$(jq '.assets | length' <<<"$assets_json")" -eq 17
+          test "$(jq '.assets | length' <<<"$assets_json")" -eq 20
           while read -r hash name; do
             remote="$(jq -r --arg name "$name" '.assets[] | select(.name == $name) | .digest' <<<"$assets_json")"
             test "$remote" = "sha256:$hash"
