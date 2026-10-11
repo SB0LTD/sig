@@ -1,0 +1,7 @@
+{
+  "task_id": "task-sbpf-solana",
+  "task_description": "Add a native sBPF (Solana) backend and sBPF-capable link/deploy path to the Sig compiler: a first-class sbf-solana-solana target, self-hosted LLD (Elf2.sig) acceptance of EM_BPF with sBPF relocations and a loadable shared-object layout, a float-free/no-compiler_rt on-chain profile, SIMD-0178 static-syscall lowering, and a documented reproducible build-and-deploy recipe. Compiler/toolchain only; the on-chain zpm library is out of scope.",
+  "status": "pending",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004", "FEAT-005"],
+  "blocked_reason": null
+}

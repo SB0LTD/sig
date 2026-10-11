@@ -1652,6 +1652,10 @@ const SymbolReloc = struct {
         };
 
         fn dependsOnTlsSize(t: SymbolReloc.Type, elf: *const Elf) bool {
+            // sBPF has no TLS at all (single-threaded on-chain code), so no
+            // relocation can depend on a TLS block size. Return false before
+            // consulting targetTlsVariant (which is `unreachable` for BPF).
+            if (elf.ehdrMachine() == .BPF) return false;
             return switch (elf.targetTlsVariant()) {
                 // In TLS variant I, the executable's TLS block starts at a fixed offset from the
                 // thread pointer, so everything is fine...
@@ -4018,8 +4022,21 @@ fn initHeaders(
     const have_dynamic = switch (@"type") {
         .REL => false,
         .EXEC => comp.config.link_mode == .dynamic,
-        .DYN => true,
+        // sBPF (Solana): the artifact is ET_DYN but, per the PC3-measured
+        // loader contract (design §4.4), carries NO .dynamic/.dynsym/.hash/
+        // relocation/PLT/GOT sections — every R_SBF_* reloc is resolved
+        // statically at link time and the loader enters via e_entry. So the
+        // BPF machine is driven through the non-dynamic emission path even
+        // though its ELF type is DYN; this also avoids the no-PLT/no-GOT
+        // panics (PltInfo.fromMachine etc.) that FEAT-003 left as markers.
+        .DYN => machine != .BPF,
     };
+    // Whether the GOT/PLT scaffold (and its sections/segments/symbols) is
+    // emitted. Historically this was exactly `@"type" != .REL`. sBPF is the
+    // sole exception: it is ET_DYN yet emits no GOT/PLT (design §4.4), so the
+    // scaffold is suppressed ONLY for the BPF machine. All other targets —
+    // including non-dynamic static executables — keep the original behavior.
+    const emit_got_plt = @"type" != .REL and machine != .BPF;
     const have_eh_frame = machine == .X86_64 and comp.config.any_unwind_tables;
     const have_debug_frame = machine == .X86_64 and switch (comp.config.debug_format) {
         .strip => false,
@@ -4082,7 +4099,12 @@ fn initHeaders(
             },
             .code_view => unreachable,
         }
-        if (@"type" != .REL) {
+        // sBPF emits no GOT/PLT sections (emit_got_plt == false); the scaffold
+        // creation below is gated on emit_got_plt, so its section count must be
+        // too (otherwise shnum over-counts and the node-count assert in
+        // initHeaders fails). Non-BPF dynamic/exec outputs keep the GOT/PLT
+        // sections exactly as before.
+        if (emit_got_plt) {
             shnum += 1; // .got
             shnum += @intFromBool(plt.got_plt != null); // .got.plt
             shnum += 1; // .plt
@@ -4130,7 +4152,7 @@ fn initHeaders(
                     defer phnum += 1;
                     break :phndx phnum;
                 },
-                .plt = if (plt.got_plt == null) phndx: {
+                .plt = if (emit_got_plt and plt.got_plt == null) phndx: {
                     defer phnum += 1;
                     break :phndx phnum;
                 } else undefined,
@@ -4294,7 +4316,7 @@ fn initHeaders(
         }), .{ .segment = phndx.data });
         elf.phdrs.items[phndx.data] = .wrap(elf.ni.data);
 
-        if (plt.got_plt == null) elf.phdrs.items[phndx.plt] = .wrap(elf.addNodeAssumeCapacity(
+        if (emit_got_plt and plt.got_plt == null) elf.phdrs.items[phndx.plt] = .wrap(elf.addNodeAssumeCapacity(
             try elf.ni.elf.addFloatingChild(gpa, &elf.mf, .{
                 .alignment = node_block_align,
                 .moved = true,
@@ -4506,7 +4528,7 @@ fn initHeaders(
                     .@"align" = @intCast(page_align.toByteUnits()),
                 };
 
-                if (plt.got_plt == null) phdr[phndx.plt] = .{
+                if (emit_got_plt and plt.got_plt == null) phdr[phndx.plt] = .{
                     .type = .NULL,
                     .offset = 0,
                     .vaddr = @intCast(base_vaddr),
@@ -4666,6 +4688,15 @@ fn initHeaders(
         .node_align = node_block_align,
     }));
     if (@"type" != .REL) {
+        // sBPF (Solana) emits a static, relocation-free ET_DYN with no GOT/PLT
+        // and no dynamic sections (design §4.4 / FEAT-001 PC3: the artifact has
+        // only .rodata + .text + the ELF/program headers). The whole GOT/PLT
+        // scaffold below is therefore skipped for the BPF machine — gated on
+        // emit_got_plt, which is false only for BPF — so addSection is never
+        // asked to build a zero-size .got PROGBITS (which asserts size > 0) and
+        // the no-PLT panics are never reached. Non-BPF static executables keep
+        // the scaffold (emit_got_plt stays true for them).
+        if (emit_got_plt) {
         elf.shndx.got = try elf.addSection(elf.ni.data_rel_ro, .{
             .name = ".got",
             .type = .PROGBITS,
@@ -4674,10 +4705,8 @@ fn initHeaders(
                 .AARCH64, .PPC64, .RISCV => @panic(@tagName(machine)),
                 .X86_64 => 3 * elf.targetPtrSize(),
                 .LOONGARCH, .SPARCV9 => elf.targetPtrSize(),
-                // sBPF has no GOT: no globDat/GOT relocations are ever emitted, so the
-                // section stays empty (zero reserved words) and carries no entries
-                // (FEAT-001 PC3: the final artifact has no .got).
-                .BPF => 0,
+                // sBPF has no GOT (unreachable: BPF never enters this block).
+                .BPF => unreachable,
             },
             .flags = .{ .WRITE = true, .ALLOC = true },
             .addralign = addr_align,
@@ -4732,6 +4761,7 @@ fn initHeaders(
             .addralign = plt.@"align",
             .node_align = node_block_align,
         });
+        } // end if (emit_got_plt): GOT/PLT scaffold (skipped for sBPF)
         if (maybe_interp) |interp| {
             const interp_ni = elf.addNodeAssumeCapacity(
                 try elf.ni.rodata.addFloatingChild(gpa, &elf.mf, .{
@@ -5016,17 +5046,22 @@ fn initHeaders(
                 }, .none);
             },
         }
-        switch (elf.shdrPtr(elf.shndx.got)) {
-            inline else => |shdr, ct_class| {
-                const Addr = ct_class.ElfN().Addr;
-                assert(elf.targetLoad(&shdr.size) == elf.got.count() * @sizeOf(Addr));
-            },
-        }
-        if (elf.shndx.dynamic != .UNDEF) {
-            try elf.shndx.rela_dyn.relaEnsureAdditionalCapacity(elf, elf.got.count());
-        }
-        for (0..elf.got.count()) |got_index| {
-            elf.updateGotEntry(got_index);
+        // sBPF has no .got section (shndx.got == .UNDEF), so skip all GOT
+        // sizing/updating. emit_got_plt is false only for BPF (design §4.4);
+        // non-BPF outputs keep this exactly as before.
+        if (emit_got_plt) {
+            switch (elf.shdrPtr(elf.shndx.got)) {
+                inline else => |shdr, ct_class| {
+                    const Addr = ct_class.ElfN().Addr;
+                    assert(elf.targetLoad(&shdr.size) == elf.got.count() * @sizeOf(Addr));
+                },
+            }
+            if (elf.shndx.dynamic != .UNDEF) {
+                try elf.shndx.rela_dyn.relaEnsureAdditionalCapacity(elf, elf.got.count());
+            }
+            for (0..elf.got.count()) |got_index| {
+                elf.updateGotEntry(got_index);
+            }
         }
 
         // Create any always-provided linker-defined symbols. The symbols marking the `INIT_ARRAY`/
@@ -5047,44 +5082,51 @@ fn initHeaders(
         }) catch |err| switch (err) {
             error.MultipleDefinitions => unreachable, // no inputs are processed yet
         };
-        _ = elf.addGlobalSymbolAssumeCapacity(.{
-            .node = .wrap(elf.shndx.plt.get(elf).ni),
-            .name = try .string(elf, "_PROCEDURE_LINKAGE_TABLE_"),
-            .value = elf.shndx.plt.vaddr(elf),
-            .size = 0,
-            .type = .NOTYPE,
-            .bind = .strong,
-            .visibility = .HIDDEN,
-            .shndx = elf.shndx.plt,
-        }) catch |err| switch (err) {
-            error.MultipleDefinitions => unreachable, // no inputs are processed yet
-        };
-        _ = elf.addGlobalSymbolAssumeCapacity(.{
-            .node = .wrap(elf.shndx.got.get(elf).ni),
-            .name = try .string(elf, "_GLOBAL_OFFSET_TABLE_"),
-            .value = switch (machine) {
-                .AARCH64,
-                .LOONGARCH,
-                .PPC64,
-                .RISCV,
-                .SPARCV9,
-                // sBPF has no .got.plt; the (empty) .got section's vaddr is used.
-                .BPF,
-                => elf.shndx.got.vaddr(elf),
+        // The _PROCEDURE_LINKAGE_TABLE_ / _GLOBAL_OFFSET_TABLE_ linker-defined
+        // symbols reference the .plt / .got sections, which do not exist for
+        // sBPF (shndx.plt/.got == .UNDEF). They are dynamic-linking artifacts
+        // the Solana loader neither needs nor consumes, so skip them for BPF.
+        // Non-BPF outputs (incl. static executables) keep them (emit_got_plt).
+        if (emit_got_plt) {
+            _ = elf.addGlobalSymbolAssumeCapacity(.{
+                .node = .wrap(elf.shndx.plt.get(elf).ni),
+                .name = try .string(elf, "_PROCEDURE_LINKAGE_TABLE_"),
+                .value = elf.shndx.plt.vaddr(elf),
+                .size = 0,
+                .type = .NOTYPE,
+                .bind = .strong,
+                .visibility = .HIDDEN,
+                .shndx = elf.shndx.plt,
+            }) catch |err| switch (err) {
+                error.MultipleDefinitions => unreachable, // no inputs are processed yet
+            };
+            _ = elf.addGlobalSymbolAssumeCapacity(.{
+                .node = .wrap(elf.shndx.got.get(elf).ni),
+                .name = try .string(elf, "_GLOBAL_OFFSET_TABLE_"),
+                .value = switch (machine) {
+                    .AARCH64,
+                    .LOONGARCH,
+                    .PPC64,
+                    .RISCV,
+                    .SPARCV9,
+                    => elf.shndx.got.vaddr(elf),
+                    // sBPF never reaches here (have_dynamic is false).
+                    .BPF => unreachable,
 
-                //.QDSP6,
-                //.@"386",
-                .X86_64,
-                => elf.shndx.got_plt.vaddr(elf),
-            },
-            .size = 0,
-            .type = .NOTYPE,
-            .bind = .strong,
-            .visibility = .HIDDEN,
-            .shndx = elf.shndx.got,
-        }) catch |err| switch (err) {
-            error.MultipleDefinitions => unreachable, // no inputs are processed yet
-        };
+                    //.QDSP6,
+                    //.@"386",
+                    .X86_64,
+                    => elf.shndx.got_plt.vaddr(elf),
+                },
+                .size = 0,
+                .type = .NOTYPE,
+                .bind = .strong,
+                .visibility = .HIDDEN,
+                .shndx = elf.shndx.got,
+            }) catch |err| switch (err) {
+                error.MultipleDefinitions => unreachable, // no inputs are processed yet
+            };
+        }
         _ = elf.addGlobalSymbolAssumeCapacity(.{
             .node = .none,
             .name = try .string(elf, "__init_array_start"),
@@ -5780,8 +5822,19 @@ const PltInfo = struct {
 
     fn fromMachine(machine: EhdrMachine) PltInfo {
         return switch (machine) {
-            // sBPF has no PLT (static, relocation-free artifact).
-            .AARCH64, .PPC64, .RISCV, .BPF => @panic(@tagName(machine)),
+            // sBPF has no PLT (static, relocation-free artifact). This value is
+            // consulted during initHeaders before have_dynamic gating; returning
+            // a zeroed no-PLT descriptor (rather than panicking) lets the BPF
+            // non-dynamic path proceed. No .plt/.got.plt content is ever emitted
+            // for BPF because have_dynamic is false (design §4.4).
+            .BPF => .{
+                .got_plt = null,
+                .plt_sec = null,
+                .@"align" = .@"8",
+                .entry_size = 0,
+                .header_entries = 0,
+            },
+            .AARCH64, .PPC64, .RISCV => @panic(@tagName(machine)),
             .LOONGARCH => .{
                 .got_plt = .{ .header_entries = 2 },
                 .plt_sec = null,
@@ -7861,6 +7914,15 @@ fn ensureUnusedRelocCapacity(elf: *Elf, node: MappedFile.Node.Index, len: usize)
             try shndx.get(elf).rela.shndx.relaEnsureAdditionalCapacity(elf, len);
         },
         .EXEC, .DYN => {
+            // sBPF (ET_DYN, EM_BPF) has no GOT and no TLS: syscalls lower to a
+            // static `call imm` (SIMD-0178) and data refs resolve at link time,
+            // so there are no GOT/TLSGD relocations to reserve capacity for.
+            // shndx.got is .UNDEF here, so skip the GOT reservation entirely
+            // (design §4.4). Only symbol/node/got_relocs arrays (reserved
+            // above) are used; the BPF reloc apply path writes section contents
+            // directly.
+            if (elf.ehdrMachine() == .BPF) return;
+
             try elf.tls_size_symbol_relocs.ensureUnusedCapacity(gpa, len);
             const new_got_entries = len * 2; // at worst, every reloc is a new TLSGD
             try elf.got.ensureUnusedCapacity(gpa, new_got_entries);
@@ -8215,14 +8277,25 @@ fn addRelocAssumeCapacity(
                     try elf.addSymbolRelocAssumeCapacity(node, offset, got_sym, addend, .simple(.rel, .{ .dest = .@"32", .cast = .signed, .shift = .@"0" }));
                 },
             },
-            // sBPF programs are self-contained static shared objects; the linker never
-            // consumes an EM_BPF DYN/EXEC *input* carrying runtime relocations (all
-            // R_SBF_* relocations live in REL object inputs and are resolved into the
-            // section contents — see the `.REL` path and FEAT-001 PC3).
+            // sBPF (Solana) produces a static, relocation-free ET_DYN: because
+            // the output has no `.dynamic` section, classifySymbolValue returns
+            // `.static` for every symbol, so each R_SBF_* reloc is resolved to
+            // `S + A` and written directly into the section contents — no
+            // `.rela.dyn`/runtime relocation is emitted (design §4.4 / PC3).
+            // The three types measured in a real sBPFv3 object (FEAT-001 PC2):
+            //   R_SBF_64_64 (1)    : 64-bit addr split across a two-slot `lddw`
+            //   R_SBF_64_ABS64 (2) : full 64-bit absolute at the data slot
+            //   R_SBF_64_32 (10)   : 32-bit value in a single instruction's imm
             .BPF => switch (@"type".BPF) {
                 .NONE => {},
+                // The lddw immediate split (low32 -> slot1 imm, high32 -> slot2
+                // imm) is the FEAT-003 `.sbf_lddw` Special action.
+                .@"64_64" => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .special(.sbf_lddw)),
+                // Full 64-bit absolute written at the relocation offset.
+                .@"64_ABS64" => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .simple(.abs, .{ .dest = .@"64", .cast = .unsigned, .shift = .@"0" })),
+                // 32-bit value written into a single instruction's imm field.
+                .@"64_32" => try elf.addSymbolRelocAssumeCapacity(node, offset, target, addend, .simple(.abs, .{ .dest = .@"32", .cast = .unsigned, .shift = .@"0" })),
                 _ => return error.UnknownRelocation,
-                else => return error.UnimplementedRelocation,
             },
         },
     }
@@ -9372,7 +9445,13 @@ fn flushInner(
         const sym_name_slice: []const u8 = name: switch (elf.options.entry) {
             .default => switch (comp.config.output_mode) {
                 .Exe => continue :name .enabled,
-                .Lib, .Obj => continue :name .disabled,
+                // sBPF (Solana) programs are ET_DYN shared objects that the
+                // loader enters via e_entry, which must point at the exported
+                // `entrypoint` (FEAT-001 PC3: e_entry == &entrypoint, a GLOBAL
+                // FUNC in .text). A normal Lib/Obj has no entry, but the Solana
+                // target does — resolve it to "entrypoint" when present.
+                .Lib => if (elf.ehdrMachine() == .BPF) "entrypoint" else continue :name .disabled,
+                .Obj => continue :name .disabled,
             },
             .disabled => break :entry 0,
             .enabled => "_start",
