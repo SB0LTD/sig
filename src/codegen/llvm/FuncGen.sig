@@ -724,7 +724,7 @@ fn genBodyDebugScope(
     try self.genBody(body, coverage_point);
 }
 
-fn airCall(fg: *FuncGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier) Allocator.Error!Builder.Value {
+fn airCall(fg: *FuncGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier) TodoError!Builder.Value {
     const o = fg.object;
     const zcu = o.zcu;
     const air_call = fg.air.unwrapCall(inst);
@@ -737,6 +737,23 @@ fn airCall(fg: *FuncGen, inst: Air.Inst.Index, modifier: std.lang.CallModifier) 
         else => unreachable,
     };
     const fn_info = zcu.typeToFunc(zig_fn_ty).?;
+
+    // SIMD-0178 static syscalls (Solana sBPF target, design.md §7): a
+    // no-library `extern fn … callconv(.c)` is a syscall. It must lower to a
+    // BPF `call imm` whose immediate is `murmur3_32(name)` with NO relocation,
+    // rather than a normal (symbol-relocated) external call. We detect it here
+    // from the extern callee and emit it via inline asm below.
+    if (zcu.getTarget().os.tag == .solana) {
+        if (air_call.callee.toInterned()) |ip_index| switch (ip.indexToKey(ip_index)) {
+            .@"extern" => |e| if (e.lib_name == .none) {
+                return fg.buildSolanaSyscall(.{
+                    .is_unused = fg.liveness.isUnused(inst),
+                }, e.name.toSlice(ip), .fromIntern(fn_info, ip), args);
+            },
+            else => {},
+        };
+    }
+
     const llvm_fn = llvm_fn: {
         // If the callee is a function *body*, we need to use a pointer to the global.
         if (air_call.callee.toInterned()) |ip_index| switch (ip.indexToKey(ip_index)) {
@@ -1030,6 +1047,120 @@ fn buildCall(
     } else {
         return fg.load(ret_val_ptr, .none, return_type, .normal);
     }
+}
+
+/// Lower a Solana sBPF static syscall (SIMD-0178, design.md §7).
+///
+/// A no-library `extern fn … callconv(.c)` under the `.solana` target is not a
+/// symbol-relocated external call: it is a BPF `call imm` whose 32-bit
+/// immediate is `murmur3_32(name)` and which carries NO relocation. The runtime
+/// resolves it from the fixed immediate. We force exactly that encoding by
+/// emitting the call as inline assembly `call <imm>`; the BPF assembler lowers a
+/// numeric-immediate `call` to opcode 0x85 with src reg 0 (a syscall) and
+/// leaves no relocation behind.
+///
+/// Arguments follow the BPF C calling convention (r1..r5), and the result (if
+/// any) is returned in r0. Solana syscalls take scalar/pointer arguments, so
+/// non-scalar (by-ref) argument or return types are rejected with a clear
+/// codegen error rather than silently mis-lowered.
+fn buildSolanaSyscall(
+    fg: *FuncGen,
+    opts: struct { is_unused: bool = false },
+    name: []const u8,
+    fn_info: Object.FuncInfo,
+    args: []const Air.Inst.Ref,
+) TodoError!Builder.Value {
+    const o = fg.object;
+    const zcu = o.zcu;
+    const return_type: Type = .fromInterned(fn_info.return_type);
+
+    if (args.len > 5) return fg.todo("Solana syscall '{s}' has more than 5 arguments", .{name});
+
+    // BPF C ABI: integer/pointer args in r1..r5. Materialize each as an i64
+    // input bound to the matching register.
+    const arg_regs = [5][]const u8{ "{r1}", "{r2}", "{r3}", "{r4}", "{r5}" };
+    var llvm_args: [5]Builder.Value = undefined;
+    var llvm_arg_tys: [5]Builder.Type = undefined;
+    var n_args: usize = 0;
+
+    for (args) |arg| {
+        const arg_ty = fg.typeOf(arg);
+        if (!arg_ty.hasRuntimeBits(zcu)) continue;
+        if (isByRef(arg_ty, zcu)) {
+            return fg.todo("Solana syscall '{s}' has a by-ref argument; only scalar/pointer syscall args are supported", .{name});
+        }
+        const raw = try fg.resolveInst(arg);
+        // Promote to i64 so every argument occupies a full BPF register.
+        const as_i64 = try fg.castToSyscallReg(raw, arg_ty);
+        llvm_args[n_args] = as_i64;
+        llvm_arg_tys[n_args] = .i64;
+        n_args += 1;
+    }
+
+    const has_ret = fn_info.return_type != .noreturn_type and return_type.hasRuntimeBits(zcu);
+    if (has_ret and isByRef(return_type, zcu)) {
+        return fg.todo("Solana syscall '{s}' has a by-ref return type; only scalar/pointer syscall returns are supported", .{name});
+    }
+
+    const imm = llvm.murmur3_32(name);
+
+    // Build the constraint string: output "={r0}" (if any), then the input
+    // register bindings, then the memory clobber (syscalls read/write memory).
+    var constraints: std.ArrayList(u8) = .empty;
+    defer constraints.deinit(fg.gpa);
+    if (has_ret) try constraints.appendSlice(fg.gpa, "={r0},");
+    for (0..n_args) |i| {
+        try constraints.appendSlice(fg.gpa, arg_regs[i]);
+        try constraints.append(fg.gpa, ',');
+    }
+    // r0 holds the syscall result; clobber it only when we don't bind it as an
+    // output. Memory is always clobbered (syscalls read/write program memory).
+    if (!has_ret) try constraints.appendSlice(fg.gpa, "~{r0},");
+    try constraints.appendSlice(fg.gpa, "~{memory}");
+
+    var template: [32]u8 = undefined;
+    const asm_source = std.fmt.bufPrint(&template, "call {d}", .{imm}) catch unreachable;
+
+    const ret_llvm_ty: Builder.Type = if (has_ret) .i64 else .void;
+    const llvm_fn_ty = try o.builder.fnType(ret_llvm_ty, llvm_arg_tys[0..n_args], .normal);
+
+    const call = try fg.wip.callAsm(
+        .none,
+        llvm_fn_ty,
+        .{ .sideeffect = true },
+        try o.builder.string(asm_source),
+        try o.builder.string(constraints.items),
+        llvm_args[0..n_args],
+        "",
+    );
+
+    if (opts.is_unused or !has_ret) return .none;
+
+    // Narrow the i64 result back to the syscall's declared return type.
+    return fg.castFromSyscallReg(call, return_type);
+}
+
+/// Widen a syscall argument to a full i64 BPF register value.
+fn castToSyscallReg(fg: *FuncGen, val: Builder.Value, ty: Type) Allocator.Error!Builder.Value {
+    const o = fg.object;
+    const zcu = o.zcu;
+    if (ty.isPtrAtRuntime(zcu)) return fg.wip.cast(.ptrtoint, val, .i64, "");
+    const llvm_ty = try o.lowerType(ty, .as_value);
+    if (llvm_ty == .i64) return val;
+    return fg.wip.conv(.unsigned, val, .i64, "");
+}
+
+/// Narrow a syscall's i64 result register back to the declared return type.
+fn castFromSyscallReg(fg: *FuncGen, val: Builder.Value, ty: Type) Allocator.Error!Builder.Value {
+    const o = fg.object;
+    const zcu = o.zcu;
+    if (ty.isPtrAtRuntime(zcu)) {
+        const ptr_ty = try o.lowerType(ty, .as_value);
+        return fg.wip.cast(.inttoptr, val, ptr_ty, "");
+    }
+    const llvm_ty = try o.lowerType(ty, .as_value);
+    if (llvm_ty == .i64) return val;
+    return fg.wip.conv(.unsigned, val, llvm_ty, "");
 }
 
 fn buildSimplePanic(fg: *FuncGen, panic_id: Zcu.SimplePanicId) Allocator.Error!void {
