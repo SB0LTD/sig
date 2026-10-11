@@ -934,6 +934,7 @@ pub const MachineRelocType = union {
     RISCV: std.elf.R_RISCV,
     SPARC: std.elf.R_SPARC,
     X86_64: std.elf.R_X86_64,
+    BPF: std.elf.R_BPF,
 
     pub const Format = struct {
         rt: MachineRelocType,
@@ -947,6 +948,7 @@ pub const MachineRelocType = union {
                 .RISCV => try w.print("R_RISCV_{t}", .{f.rt.RISCV}),
                 .SPARCV9 => try w.print("R_SPARC_{t}", .{f.rt.SPARC}),
                 .X86_64 => try w.print("R_X86_64_{t}", .{f.rt.X86_64}),
+                .BPF => try w.print("R_BPF_{t}", .{f.rt.BPF}),
             }
         }
     };
@@ -963,6 +965,7 @@ pub const MachineRelocType = union {
             .RISCV => .{ .RISCV = .NONE },
             .SPARCV9 => .{ .SPARC = .NONE },
             .X86_64 => .{ .X86_64 = .NONE },
+            .BPF => .{ .BPF = .NONE },
         };
     }
     pub fn copy(elf: *const Elf) MachineRelocType {
@@ -973,6 +976,9 @@ pub const MachineRelocType = union {
             .RISCV => .{ .RISCV = .COPY },
             .SPARCV9 => .{ .SPARC = .COPY },
             .X86_64 => .{ .X86_64 = .COPY },
+            // sBPF has no COPY relocation: on-chain programs import no shared-library
+            // data, so copy relocations are never produced.
+            .BPF => unreachable,
         };
     }
     pub fn relative(elf: *const Elf) MachineRelocType {
@@ -983,6 +989,10 @@ pub const MachineRelocType = union {
             .RISCV => .{ .RISCV = .RELATIVE },
             .SPARCV9 => .{ .SPARC = .RELATIVE },
             .X86_64 => .{ .X86_64 = .RELATIVE },
+            // sBPF has no base-relative dynamic relocation: the deployed artifact is
+            // static and relocation-free (FEAT-001 PC2/PC3), so every absolute
+            // address is resolved at link time rather than left for the loader.
+            .BPF => unreachable,
         };
     }
     pub fn jumpSlot(elf: *const Elf) MachineRelocType {
@@ -993,6 +1003,8 @@ pub const MachineRelocType = union {
             .RISCV => .{ .RISCV = .JUMP_SLOT },
             .SPARCV9 => .{ .SPARC = .JMP_SLOT },
             .X86_64 => .{ .X86_64 = .JUMP_SLOT },
+            // No PLT on sBPF.
+            .BPF => unreachable,
         };
     }
     pub fn globDat(elf: *const Elf) MachineRelocType {
@@ -1011,6 +1023,8 @@ pub const MachineRelocType = union {
             } },
             .SPARCV9 => .{ .SPARC = .GLOB_DAT },
             .X86_64 => .{ .X86_64 = .GLOB_DAT },
+            // No GOT on sBPF.
+            .BPF => unreachable,
         };
     }
     pub fn dtpMod(elf: *const Elf) MachineRelocType {
@@ -1037,6 +1051,8 @@ pub const MachineRelocType = union {
                 .@"64" => .TLS_DTPMOD64,
             } },
             .X86_64 => .{ .X86_64 = .DTPMOD64 },
+            // No TLS on sBPF: on-chain code is single-threaded.
+            .BPF => unreachable,
         };
     }
     pub fn dtpOff(elf: *const Elf) MachineRelocType {
@@ -1063,6 +1079,8 @@ pub const MachineRelocType = union {
                 .@"64" => .TLS_DTPOFF64,
             } },
             .X86_64 => .{ .X86_64 = .DTPOFF64 },
+            // No TLS on sBPF.
+            .BPF => unreachable,
         };
     }
     pub fn tpOff(elf: *const Elf) MachineRelocType {
@@ -1089,6 +1107,8 @@ pub const MachineRelocType = union {
                 .@"64" => .TLS_TPOFF64,
             } },
             .X86_64 => .{ .X86_64 = .TPOFF64 },
+            // No TLS on sBPF.
+            .BPF => unreachable,
         };
     }
     pub fn absAddr(elf: *const Elf) MachineRelocType {
@@ -1106,6 +1126,9 @@ pub const MachineRelocType = union {
             .RISCV => .{ .RISCV = .@"32" },
             .SPARCV9 => .{ .SPARC = .@"32" },
             .X86_64 => .{ .X86_64 = .@"32" },
+            // sBPF spells the 32-bit absolute reloc `R_SBF_64_32` (value 10);
+            // there is no separate `ABS32` type (FEAT-001 PC2).
+            .BPF => .{ .BPF = .@"64_32" },
         };
     }
     pub fn abs64(elf: *const Elf) MachineRelocType {
@@ -1116,6 +1139,7 @@ pub const MachineRelocType = union {
             .RISCV => .{ .RISCV = .@"64" },
             .SPARCV9 => .{ .SPARC = .@"64" },
             .X86_64 => .{ .X86_64 = .@"64" },
+            .BPF => .{ .BPF = .@"64_ABS64" },
         };
     }
     pub fn rel32(elf: *const Elf) MachineRelocType {
@@ -1126,6 +1150,9 @@ pub const MachineRelocType = union {
             .RISCV => .{ .RISCV = .@"32_PCREL" },
             .SPARCV9 => .{ .SPARC = .DISP32 },
             .X86_64 => .{ .X86_64 = .PC32 },
+            // sBPF has no PC-relative data relocation; addresses go through the
+            // `lddw` pair (R_SBF_64_64) resolved at link time.
+            .BPF => unreachable,
         };
     }
     pub fn rel64(elf: *const Elf) MachineRelocType {
@@ -1136,6 +1163,8 @@ pub const MachineRelocType = union {
             .RISCV => unreachable,
             .SPARCV9 => .{ .SPARC = .DISP64 },
             .X86_64 => .{ .X86_64 = .PC64 },
+            // No PC-relative data relocation on sBPF.
+            .BPF => unreachable,
         };
     }
     pub fn size32(elf: *const Elf) ?MachineRelocType {
@@ -1144,6 +1173,7 @@ pub const MachineRelocType = union {
             .LOONGARCH,
             .PPC64,
             .RISCV,
+            .BPF,
             => null,
 
             .SPARCV9 => .{ .SPARC = .SIZE32 },
@@ -1156,6 +1186,7 @@ pub const MachineRelocType = union {
             .LOONGARCH,
             .PPC64,
             .RISCV,
+            .BPF,
             => null,
 
             .SPARCV9 => .{ .SPARC = .SIZE64 },
@@ -1171,6 +1202,7 @@ pub const MachineRelocType = union {
             .RISCV => .{ .RISCV = @fromBackingInt(int) },
             .SPARCV9 => .{ .SPARC = @fromBackingInt(int) },
             .X86_64 => .{ .X86_64 = @fromBackingInt(int) },
+            .BPF => .{ .BPF = @fromBackingInt(int) },
         };
     }
     pub fn unwrap(rt: MachineRelocType, elf: *const Elf) u32 {
@@ -1181,6 +1213,7 @@ pub const MachineRelocType = union {
             .RISCV => @backingInt(rt.RISCV),
             .SPARCV9 => @backingInt(rt.SPARC),
             .X86_64 => @backingInt(rt.X86_64),
+            .BPF => @backingInt(rt.BPF),
         };
     }
 };
@@ -1490,6 +1523,13 @@ const SymbolReloc = struct {
 
             sparc_le_hix22,
 
+            /// sBPF `R_SBF_64_64`: the 64-bit value `S + A` is split across the two
+            /// 8-byte instruction slots of an `lddw` pair. The low 32 bits go into the
+            /// first slot's imm field (bytes [4..8)) and the high 32 bits into the
+            /// following slot's imm field (bytes [12..16)); the opcode/registers in
+            /// bytes [0..4) and [8..12) are left untouched (FEAT-001 PC2).
+            sbf_lddw,
+
             fn applyInner(
                 s: Special,
                 elf: *Elf,
@@ -1603,6 +1643,10 @@ const SymbolReloc = struct {
                             .b22_31 = elf.targetLoad(dest_ptr).b22_31,
                         });
                     },
+                    .sbf_lddw => {
+                        const val = target.value(elf) +% addend;
+                        bpfLddwSplit(val, dest_slice, elf.targetEndian());
+                    },
                 }
             }
         };
@@ -1637,6 +1681,7 @@ const SymbolReloc = struct {
                         .larch_b21,
                         .larch_b26,
                         .larch_call36,
+                        .sbf_lddw,
                         => false,
                     },
                 },
@@ -4340,6 +4385,8 @@ fn initHeaders(
                     },
                 } },
                 .X86_64 => .{ .int = 0 },
+                // sBPFv3 reference objects carry e_flags == 0x3 (FEAT-001 PC3).
+                .BPF => .{ .int = 0x3 },
                 .AARCH64, .PPC64, .RISCV => @panic(@tagName(machine)),
             };
             ehdr.ehsize = @sizeOf(ElfN.Ehdr);
@@ -4382,6 +4429,10 @@ fn initHeaders(
                         .RISCV => 0x10000,
                         .SPARCV9 => 0x100000,
                         .X86_64 => 0x200000,
+                        // sBPF deploys as ET_DYN (base 0); .text lives at the fixed high VA
+                        // 0x100000000 in the Solana contract (FEAT-001 PC3). EXEC output is
+                        // not produced for sBPF, but keep the arm consistent.
+                        .BPF => 0x100000000,
                     },
                 };
 
@@ -4623,6 +4674,10 @@ fn initHeaders(
                 .AARCH64, .PPC64, .RISCV => @panic(@tagName(machine)),
                 .X86_64 => 3 * elf.targetPtrSize(),
                 .LOONGARCH, .SPARCV9 => elf.targetPtrSize(),
+                // sBPF has no GOT: no globDat/GOT relocations are ever emitted, so the
+                // section stays empty (zero reserved words) and carries no entries
+                // (FEAT-001 PC3: the final artifact has no .got).
+                .BPF => 0,
             },
             .flags = .{ .WRITE = true, .ALLOC = true },
             .addralign = addr_align,
@@ -4816,7 +4871,8 @@ fn initHeaders(
             }
 
             switch (machine) {
-                .AARCH64, .PPC64, .RISCV => @panic(@tagName(machine)),
+                // sBPF has no PLT (static, relocation-free artifact).
+                .AARCH64, .PPC64, .RISCV, .BPF => @panic(@tagName(machine)),
                 .X86_64 => {
                     const plt_ni = elf.shndx.plt.get(elf).ni;
                     const got_plt_sym: Symbol.Id = .local(elf.shndx.got_plt.get(elf).lsi);
@@ -4940,6 +4996,9 @@ fn initHeaders(
         // Populate reserved GOT words.
         switch (machine) {
             .AARCH64, .PPC64, .RISCV => @panic(@tagName(machine)),
+            // sBPF has no GOT, so there are no reserved words to populate (the .got
+            // section was created with size 0 above).
+            .BPF => {},
             .X86_64 => {
                 try elf.got.ensureUnusedCapacity(gpa, 3);
                 elf.got.putAssumeCapacityNoClobber(switch (have_dynamic) {
@@ -5009,6 +5068,8 @@ fn initHeaders(
                 .PPC64,
                 .RISCV,
                 .SPARCV9,
+                // sBPF has no .got.plt; the (empty) .got section's vaddr is used.
+                .BPF,
                 => elf.shndx.got.vaddr(elf),
 
                 //.QDSP6,
@@ -5608,6 +5669,7 @@ const EhdrMachine = enum(u16) {
     RISCV = @backingInt(std.elf.EM.RISCV),
     SPARCV9 = @backingInt(std.elf.EM.SPARCV9),
     X86_64 = @backingInt(std.elf.EM.X86_64),
+    BPF = @backingInt(std.elf.EM.BPF),
 
     fn toElf(m: EhdrMachine) std.elf.EM {
         return @bitCast(m);
@@ -5662,12 +5724,14 @@ fn targetPageAlign(elf: *const Elf) Alignment {
         .RISCV => 0x1000,
         .SPARCV9 => 0x100000,
         .X86_64 => 0x1000,
+        // sBPF segments are mapped by the Solana loader with 8-byte alignment, not
+        // OS page granularity (FEAT-001 PC3: both LOAD segments have p_align 0x8).
+        .BPF => 0x8,
 
         //.@"68K" => 0x2000,
         //.AMDGPU => 0x10000,
         //.ARC_COMPACT2 => 0x2000,
         //.AVR => 0x1,
-        //.BPF => 0x100000,
         //.MIPS => 0x10000,
         //.MSP430 => 0x4,
         //.PPC => 0x10000,
@@ -5696,6 +5760,8 @@ fn targetTlsVariant(elf: *const Elf) union(enum) {
         .RISCV => .{ .I_modified = .{ .tp_off = 0 } },
         .SPARCV9 => .II,
         .X86_64 => .II,
+        // sBPF has no TLS: on-chain code is single-threaded.
+        .BPF => unreachable,
     };
 }
 const PltInfo = struct {
@@ -5714,7 +5780,8 @@ const PltInfo = struct {
 
     fn fromMachine(machine: EhdrMachine) PltInfo {
         return switch (machine) {
-            .AARCH64, .PPC64, .RISCV => @panic(@tagName(machine)),
+            // sBPF has no PLT (static, relocation-free artifact).
+            .AARCH64, .PPC64, .RISCV, .BPF => @panic(@tagName(machine)),
             .LOONGARCH => .{
                 .got_plt = .{ .header_entries = 2 },
                 .plt_sec = null,
@@ -5779,6 +5846,7 @@ fn targetSegmentLoadAddressRestrictions(elf: *const Elf) enum {
         .RISCV,
         .X86_64,
         .LOONGARCH,
+        .BPF,
         => .none,
 
         // SPARC uses `R_SPARC_PC{10,22}` relocations to construct pointers to the GOT, but these
@@ -8147,6 +8215,15 @@ fn addRelocAssumeCapacity(
                     try elf.addSymbolRelocAssumeCapacity(node, offset, got_sym, addend, .simple(.rel, .{ .dest = .@"32", .cast = .signed, .shift = .@"0" }));
                 },
             },
+            // sBPF programs are self-contained static shared objects; the linker never
+            // consumes an EM_BPF DYN/EXEC *input* carrying runtime relocations (all
+            // R_SBF_* relocations live in REL object inputs and are resolved into the
+            // section contents — see the `.REL` path and FEAT-001 PC3).
+            .BPF => switch (@"type".BPF) {
+                .NONE => {},
+                _ => return error.UnknownRelocation,
+                else => return error.UnimplementedRelocation,
+            },
         },
     }
 }
@@ -8191,6 +8268,7 @@ fn addSymbolRelocAssumeCapacity(
                 .larch_b26,
                 .larch_call36,
                 .sparc_le_hix22,
+                .sbf_lddw,
                 => false,
             },
         };
@@ -8348,6 +8426,11 @@ fn addNodeRelocAssumeCapacity(
                     .X86_64 => .{ .X86_64 = switch (@"type") {
                         .abs32 => .@"32",
                         .abs64 => .@"64",
+                    } },
+                    .BPF => .{ .BPF = switch (@"type") {
+                        // sBPF spells the 32-bit absolute reloc `R_SBF_64_32` (FEAT-001 PC2).
+                        .abs32 => .@"64_32",
+                        .abs64 => .@"64_ABS64",
                     } },
                 },
                 // This field needs to equal the offset into the section, which is *not* necessarily
@@ -10757,7 +10840,8 @@ fn addPltEntry(elf: *Elf, global_name: String(.strtab), dynsym_index: u32) void 
     elf.plt.putAssumeCapacityNoClobber(global_name, {});
 
     switch (elf.ehdrMachine()) {
-        .AARCH64, .PPC64, .RISCV => |machine| @panic(@tagName(machine)),
+        // sBPF has no PLT (static, relocation-free artifact), so this is never reached.
+        .AARCH64, .PPC64, .RISCV, .BPF => |machine| @panic(@tagName(machine)),
         .X86_64 => {
             const plt_ni = elf.shndx.plt.get(elf).ni;
             const plt_addr = plt_addr: switch (elf.shdrPtr(elf.shndx.plt)) {
@@ -10917,7 +11001,8 @@ fn addPltEntry(elf: *Elf, global_name: String(.strtab), dynsym_index: u32) void 
 fn flushMovedPltSection(elf: *Elf, which: enum { plt, plt_sec, got_plt }, old_addr: u64, addr: u64) void {
     const target_endian = elf.targetEndian();
     switch (elf.ehdrMachine()) {
-        .AARCH64, .PPC64, .RISCV => |machine| @panic(@tagName(machine)),
+        // sBPF has no PLT (static, relocation-free artifact), so this is never reached.
+        .AARCH64, .PPC64, .RISCV, .BPF => |machine| @panic(@tagName(machine)),
         .X86_64 => {
             switch (which) {
                 .plt => return,
@@ -11408,4 +11493,63 @@ fn pltEntryTargetAddr(elf: *Elf, sym: Symbol.Id) ?u64 {
     } else {
         return elf.shndx.plt.vaddr(elf) +% (plt.header_entries + index) * plt.entry_size;
     }
+}
+
+/// Writes the 64-bit `val` across the two 8-byte instruction slots of an sBPF `lddw`
+/// pair in `dest_slice`: the LOW 32 bits go into slot 1's imm field (`dest_slice[4..8]`)
+/// and the HIGH 32 bits into slot 2's imm field (`dest_slice[12..16]`). The opcode and
+/// register bytes ([0..4) and [8..12)) are left untouched. This is the byte-level
+/// contract measured from a real sBPFv3 object (FEAT-001 PC2). Kept at file scope so the
+/// split can be unit-tested without constructing linker state.
+fn bpfLddwSplit(val: u64, dest_slice: []u8, target_endian: std.lang.Endian) void {
+    const lo: u32 = @truncate(val);
+    const hi: u32 = @truncate(val >> 32);
+    std.mem.writeInt(u32, dest_slice[4..8], lo, target_endian);
+    std.mem.writeInt(u32, dest_slice[12..16], hi, target_endian);
+}
+
+test "R_BPF relocation enum carries the PC2-measured sBPF values" {
+    const testing = std.testing;
+    // Measured against a cargo build-sbf sBPFv3 reference object (FEAT-001 PC2).
+    try testing.expectEqual(@as(u32, 0), @intFromEnum(std.elf.R_BPF.NONE));
+    try testing.expectEqual(@as(u32, 1), @intFromEnum(std.elf.R_BPF.@"64_64"));
+    try testing.expectEqual(@as(u32, 2), @intFromEnum(std.elf.R_BPF.@"64_ABS64"));
+    try testing.expectEqual(@as(u32, 10), @intFromEnum(std.elf.R_BPF.@"64_32"));
+}
+
+test "EhdrMachine.fromElf(.BPF) resolves to .BPF (no panic seam for EM_BPF)" {
+    const testing = std.testing;
+    // The closed EhdrMachine enum must now accept EM_BPF (247) so the
+    // `fromElf(...) orelse panic` seam no longer panics for a solana/.bpfel target.
+    const m = EhdrMachine.fromElf(std.elf.EM.BPF) orelse
+        return testing.expect(false);
+    try testing.expectEqual(EhdrMachine.BPF, m);
+    try testing.expectEqual(std.elf.EM.BPF, m.toElf());
+    // A machine we deliberately do not support still returns null.
+    try testing.expect(EhdrMachine.fromElf(std.elf.EM.@"68K") == null);
+}
+
+test "R_BPF_64_64 lddw split matches the PC2-measured byte layout" {
+    const testing = std.testing;
+    // From the reference .so: lddw r3, 0x300000000 is encoded as
+    //   18 03 00 00 00 00 00 00   00 00 00 00 03 00 00 00
+    // i.e. low 32 bits (0x00000000) in slot 1's imm [4..8), high 32 bits
+    // (0x00000003) in slot 2's imm [12..16); opcode/reg bytes untouched.
+    var buf = [_]u8{
+        0x18, 0x03, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF,
+        0x00, 0x00, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF,
+    };
+    bpfLddwSplit(0x0000000300000000, &buf, .little);
+    try testing.expectEqualSlices(u8, &[_]u8{
+        0x18, 0x03, 0xAA, 0xBB, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0xAA, 0xBB, 0x03, 0x00, 0x00, 0x00,
+    }, &buf);
+
+    // A full 64-bit address splits low/high across the two slots.
+    var buf2 = [_]u8{0} ** 16;
+    bpfLddwSplit(0x1122334455667788, &buf2, .little);
+    try testing.expectEqualSlices(u8, &[_]u8{
+        0x00, 0x00, 0x00, 0x00, 0x88, 0x77, 0x66, 0x55,
+        0x00, 0x00, 0x00, 0x00, 0x44, 0x33, 0x22, 0x11,
+    }, &buf2);
 }
