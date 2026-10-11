@@ -299,6 +299,10 @@ pub fn tripleForTarget(allocator: Allocator, target: *const std.Target) ![]const
         .gba,
         .ashetos,
         .sb0,
+        // The Solana sBPF target drives stock LLVM BPF codegen via the `.bpfel`
+        // arch; its loader/ABI-level Solana-ness lives in linking, not the LLVM
+        // triple, so the LLVM OS string is freestanding-like "unknown".
+        .solana,
         => "unknown",
     };
     try llvm_triple.appendSlice(llvm_os);
@@ -360,6 +364,7 @@ pub fn tripleForTarget(allocator: Allocator, target: *const std.Target) ![]const
         .ohos, .ohoseabi => "ohos",
         .call0 => "unknown",
         .sb0 => "unknown",
+        .solana => "unknown",
     };
     try llvm_triple.appendSlice(llvm_abi);
 

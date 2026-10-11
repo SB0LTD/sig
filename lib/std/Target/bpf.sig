@@ -83,4 +83,30 @@ pub const cpu = struct {
             .alu32,
         }),
     };
+
+    // MANUAL ADDITION (not emitted by tools/update_cpu_features.sig): the Solana
+    // sBPF CPU models. These expose Solana loader/ABI versions (sBPFv1/2/3) as
+    // selectable `-mcpu` values whose `llvm_name` maps back to the known-good
+    // upstream BPF ISA generation (`v1`/`v2`/`v3`) so LLVM codegen is driven by
+    // the verified instruction set. A future `update_cpu_features.sig` regen MUST
+    // preserve these three definitions. No synthetic `static_syscalls` feature is
+    // added: the PC-SYS reference capture confirmed static syscalls are a
+    // codegen `call imm` lowering (FEAT-004), not a codegen-visible LLVM feature.
+    pub const sbpfv1: CpuModel = .{
+        .name = "sbpfv1",
+        .llvm_name = "v1",
+        .features = featureSet(&[_]Feature{}),
+    };
+    pub const sbpfv2: CpuModel = .{
+        .name = "sbpfv2",
+        .llvm_name = "v2",
+        .features = featureSet(&[_]Feature{}),
+    };
+    pub const sbpfv3: CpuModel = .{
+        .name = "sbpfv3",
+        .llvm_name = "v3",
+        .features = featureSet(&[_]Feature{
+            .alu32,
+        }),
+    };
 };
