@@ -85,8 +85,8 @@ fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
         if (phdr.offset != 0) continue;
         // This segment holds the ELF header at the start
         const ehdr: *elf.Ehdr = @ptrFromInt(info.addr + phdr.vaddr);
-        if (!mem.eql(u8, ehdr.e_ident[0..4], elf.MAGIC)) return error.BadElfMagic;
-        if (ehdr.e_phnum != info.phnum) return error.PhnumMismatch;
+        if (!mem.eql(u8, &ehdr.ident.magic, elf.MAGIC)) return error.BadElfMagic;
+        if (ehdr.phnum != info.phnum) return error.PhnumMismatch;
         break;
     } else {
         return error.MissingEhdrLoadSegment;
