@@ -4,6 +4,45 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.6.2] — Typed ELF Model: Unified `Elf32`/`Elf64` Structs + Constants
+
+Internal cleanup release with no user-facing behavior change. `lib/std/elf.sig`
+is unified onto the typed `Elf32`/`Elf64` namespaces: every deprecated
+declaration is removed and all of std plus every in-tree consumer is migrated to
+the typed enums and packed structs. ELF output is byte-for-byte identical to
+0.6.1.
+
+### Changed
+- **Removed every `/// Deprecated` declaration from `lib/std/elf.sig`:** the flat
+  `Elf32_*`/`Elf64_*` structs, the `switch(@sizeOf)` struct aliases, the scalar
+  aliases (`Elf*_Addr/Off/Section/Xword/Sxword`), and the deprecated
+  integer-constant aliases `SHT_*`, `SHF_*`, `STB_*`, `STT_*`, `STV_*`,
+  `ELFCLASS*`, `ELFDATA*`, `EI_*`. Niche zero-consumer structs (`Elf*_Move`,
+  `Elf32_gptab`, `Elf32_RegInfo`, `Elf_Options*`, `Elf*_Lib`, `Elf32_Conflict`,
+  `Elf_MIPS_ABIFlags_v0`, and the top-level `Syminfo`/`Nhdr`/`Verneed`/`auxv_t`
+  duplicates) were deleted outright.
+- **Typed model is now authoritative:** section/symbol/program types are enums
+  (`SHT`, `STB`, `STT`, `STV`, `PT`, `ET`, `EM`), section/segment flags are
+  packed structs (`SHF`, `PF`), and relocation records use a packed `Rel.Info`
+  (`type` in the low 32 bits, `sym` in the high 32 — bit-identical to the former
+  `(sym << 32) | type`).
+- **Migrated all consumers:** the self-hosted ELF linker (`src/link/Elf*`), the
+  codegen relocation construction sites (aarch64/loongarch/x86_64/riscv64), the
+  aro ELF backend, `std.debug.ElfFile`, `std.dynamic_library`, the PIE
+  self-relocation path, `objcopy`, `gen_stubs`, and the Linux
+  startup/`Auxv` reads in `start.sig` and `os/linux.sig`.
+
+### Kept (not deprecated)
+- `SHN_*`, `PF_X/W/R`, `DT_*`, `NT_*`, `VER_FLG_*`, `PN_XNUM`, and `Auxv`
+  (now resolving to the `ElfN.Auxv` twin), plus the typed `R_*`/enum items.
+
+### Verified
+- 3-layer gate green (compiler graph type-check, `sig test lib/std/elf.sig`,
+  `sig test lib/std/dynamic_library.sig`) and `compiler/test_all.sig` 224/224.
+- The three highest-risk paths — foreign-endian byte-swap serialization, the
+  Linux process-startup `Auxv` reads, and the reloc `Info` bit-packing — were
+  reviewed and confirmed layout-identical.
+
 ## [0.6.1] — Native sBPF (Solana) Backend + Link/Deploy Path
 
 Sig 0.6.1 adds a first-class Solana sBPF target so the compiler can build and
