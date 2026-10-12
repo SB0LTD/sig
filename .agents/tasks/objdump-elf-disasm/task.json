@@ -1,0 +1,7 @@
+{
+  "task_id": "task-objdump-elf-disasm",
+  "task_description": "Fill the elf/macho/wasm format-dump stubs in lib/compiler/objdump.sig with real snapshot-stable inspection and add a from-scratch sBPF disassembler (design.md Phase 1, 0.6.2). Edit ONLY lib/compiler/objdump.sig and CHANGELOG.md in the worktree; never edit sig-out/ or build-output copies. Phases 2/3 (x86_64/aarch64/riscv/wasm disasm, Mach-O fat/32-bit) are OUT OF SCOPE: emit clear 'not implemented' errors.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004", "FEAT-005"],
+  "blocked_reason": null
+}

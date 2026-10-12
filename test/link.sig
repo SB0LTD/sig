@@ -278,6 +278,47 @@ pub fn addCases(ctx: *LinkContext) void {
         }
     }
 
+    if (ctx.includeTest("elf-objdump")) |case| {
+        // ELF inspection snapshot coverage for `sig objdump` (FEAT-005). Only runs
+        // when the configured link target emits ELF; the current `link_targets`
+        // matrix is Windows-only (COFF), so on a Windows dev box this is skipped and
+        // the ELF/sBPF snapshots are produced by CI once an ELF target is in the
+        // matrix. All views run under `-s` (redact=all) for byte-stable output.
+        if (ctx.target.result.ofmt == .elf) {
+            const obj = case.addObject(.{
+                .name = "elf_objdump",
+                .name_prefix = false,
+                .name_target = false,
+                .sig_source_bytes =
+                \\export var elf_global: usize = 0x1122334411223344;
+                \\export fn elfAdd(a: u32, b: u32) callconv(.c) u32 {
+                \\    return a + b +% @as(u32, @truncate(elf_global));
+                \\}
+                ,
+            });
+
+            case.verifyObjdump(obj.getEmittedBin(), &.{
+                "-s",
+                "--summary",
+            }, .{ .sub_name = "summary", .arch = true });
+
+            case.verifyObjdump(obj.getEmittedBin(), &.{
+                "-s",
+                "--file-headers",
+            }, .{ .sub_name = "file-headers", .arch = true });
+
+            case.verifyObjdump(obj.getEmittedBin(), &.{
+                "-s",
+                "--section-headers",
+            }, .{ .sub_name = "section-headers", .arch = true });
+
+            case.verifyObjdump(obj.getEmittedBin(), &.{
+                "-s",
+                "--relocs",
+            }, .{ .sub_name = "relocs", .arch = true });
+        }
+    }
+
     if (ctx.includeTest("explicit-extern-lib-name")) |case| {
         // TODO: Lld.sig does not look at explicit inputs to resolve explicit extern lib names
         if (ctx.use_llvm) return;

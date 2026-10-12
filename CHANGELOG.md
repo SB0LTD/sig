@@ -12,6 +12,37 @@ declaration is removed and all of std plus every in-tree consumer is migrated to
 the typed enums and packed structs. ELF output is byte-for-byte identical to
 0.6.1.
 
+### Added
+
+- **`sig objdump` now inspects ELF, Mach-O, and Wasm files**, alongside the
+  existing COFF/PE support. The format is auto-detected from the magic bytes;
+  the COFF path is unchanged (byte-identical output). ELF inspection is built on
+  the typed `std.elf` model: file headers (class/data/os-abi/type/machine with
+  decoded `e_flags`, including the sBPF version for `EM.BPF`), section headers,
+  symbol and dynamic-symbol tables, relocations and dynamic relocations with
+  per-architecture symbolic type names (`R_BPF_*`/`R_X86_64_*`/`R_AARCH64_*`/
+  `R_RISCV_*`), and the dynamic section. Mach-O covers 64-bit object/exec/dylib
+  headers, `SEGMENT_64` sections, and the symbol table; fat/universal and 32-bit
+  Mach-O report a clear "unsupported variant" error rather than a stub. Wasm
+  verifies the magic/version and prints a core section inventory. All numeric
+  fields honor the existing `--redact`/`-s` snapshot machinery.
+- **New `sig objdump` flags:** `--program-headers`/`--segments`, `--dynamic`,
+  `--dynamic-symbols`, `--dynamic-relocs`, and `--summary` (a one-line,
+  machine-parseable file summary) for ELF; plus disassembly flags
+  `-d`/`--disassemble`, `--disassemble-all`, and `--disassemble=<symbol>`.
+  `--all-headers` now also composes the program headers and dynamic section.
+- **From-scratch sBPF disassembler.** `-d` disassembles executable sections of a
+  Solana sBPF (`EM.BPF`) ELF, decoding the ALU/ALU64, JMP/JMP32, and LD/LDX/ST/
+  STX classes plus the 16-byte `lddw` immediate-load pair per the authoritative
+  Solana sBPF bytecode table. `call` immediates are annotated with the matching
+  SIMD-0178 static syscall name (resolved via an in-tree `murmur3_32` whose
+  hashes match sig's own codegen) or a local symbol, and load/store/`lddw`
+  addresses get sBPF memory-region notes. A short instruction tail is reported
+  as `<truncated>` without any out-of-bounds read, and an unknown opcode renders
+  inline so the walk continues. Disassembly is sBPF-only for 0.6.2; other
+  machines print a clear "disassembly not implemented for &lt;machine&gt;"
+  message rather than a stub.
+
 ### Changed
 - **Removed every `/// Deprecated` declaration from `lib/std/elf.sig`:** the flat
   `Elf32_*`/`Elf64_*` structs, the `switch(@sizeOf)` struct aliases, the scalar
