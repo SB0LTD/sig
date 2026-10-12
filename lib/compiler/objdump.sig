@@ -1102,6 +1102,11 @@ const disasm = struct {
     };
 
     const syscalls: []const SyscallHash = blk: {
+        // murmur3_32 loops per 4-byte block over ~28 names; the default 1000
+        // backwards-branch comptime budget is exhausted in the JIT objdump and
+        // build-exe pipelines (they use the default quota, unlike `sig test`),
+        // failing before any format handler runs. Raise it for this table only.
+        @setEvalBranchQuota(20000);
         var table: [syscall_names.len]SyscallHash = undefined;
         for (syscall_names, 0..) |nm, idx| {
             table[idx] = .{ .hash = murmur3_32(nm), .name = nm };
@@ -1158,22 +1163,26 @@ const disasm = struct {
     }
 
     /// The branch mnemonic for a JMP/JMP32 opcode's operation nibble, or null.
+    /// The high nibble selects the op per the authoritative Solana sBPF table
+    /// (anza-xyz/sbpf doc/bytecode.md): 0x8 call, 0x9 exit, 0xC jslt, 0xD jsle.
+    /// callx (0x8D) is decoded separately in decodeOne so it does not collide
+    /// with call (0x85).
     fn jmpOp(op: u8) ?[]const u8 {
         return switch (op & 0xf0) {
             0x00 => "ja",
             0x10 => "jeq",
             0x20 => "jgt",
             0x30 => "jge",
-            0x40 => "jlt",
-            0x50 => "jle",
-            0x60 => "jset",
-            0x70 => "jne",
-            0x80 => "jsgt",
-            0x90 => "jsge",
-            0xa0 => "jslt",
-            0xb0 => "jsle",
-            0xc0 => "call",
-            0xd0 => "exit",
+            0x40 => "jset",
+            0x50 => "jne",
+            0x60 => "jsgt",
+            0x70 => "jsge",
+            0x80 => "call",
+            0x90 => "exit",
+            0xa0 => "jlt",
+            0xb0 => "jle",
+            0xc0 => "jslt",
+            0xd0 => "jsle",
             else => null,
         };
     }
@@ -1251,13 +1260,20 @@ const disasm = struct {
                     return 8;
                 };
                 switch (op & 0xf0) {
-                    0xd0 => try w.writeAll("exit"), // exit
+                    0x90 => try w.writeAll("exit"), // exit (opcode 0x95)
                     0x00 => try w.print("ja {d}", .{in.off}), // unconditional
-                    0xc0 => {
-                        // call <imm>; annotate via syscall hash then symbol.
-                        try w.print("call 0x{x}", .{@as(u32, @bitCast(in.imm))});
-                        if (ann.resolve(@as(u64, @as(u32, @bitCast(in.imm))))) |nm|
-                            try w.print(" <{s}>", .{nm});
+                    0x80 => {
+                        // call (0x85, static syscall when src==0) and callx (0x8D,
+                        // indirect through src register) share the 0x80 nibble.
+                        if ((op & 0x08) != 0) {
+                            // callx: target is the src register, not an immediate.
+                            try w.print("callx {s}", .{src});
+                        } else {
+                            // call <imm>; annotate via syscall hash then symbol.
+                            try w.print("call 0x{x}", .{@as(u32, @bitCast(in.imm))});
+                            if (ann.resolve(@as(u64, @as(u32, @bitCast(in.imm))))) |nm|
+                                try w.print(" <{s}>", .{nm});
+                        }
                     },
                     else => {
                         if (source_is_imm)
@@ -3268,3 +3284,75 @@ const usage =
     \\  --disassemble=[symbol]             Disassemble only the named symbol (sBPF only)
     \\
 ;
+
+test "murmur3_32 reference immediates" {
+    // Pins the from-scratch murmur3_32 against the Solana static-syscall registry
+    // reference immediates (SIMD-0178; same vectors as src/codegen/llvm.sig's
+    // pinning test). These are the 32-bit keys an sBPF `call` immediate carries.
+    const expect = std.testing.expectEqual;
+    try expect(@as(u32, 0x207559bd), disasm.murmur3_32("sol_log_"));
+    try expect(@as(u32, 0x717cc4a3), disasm.murmur3_32("sol_memcpy_"));
+    try expect(@as(u32, 0x11f49d86), disasm.murmur3_32("sol_sha256"));
+    try expect(@as(u32, 0xb6fc1a11), disasm.murmur3_32("abort"));
+    try expect(@as(u32, 0x48504a38), disasm.murmur3_32("sol_try_find_program_address"));
+    try expect(@as(u32, 0xd56b5fe9), disasm.murmur3_32("sol_get_clock_sysvar"));
+    try expect(@as(u32, 0x00000000), disasm.murmur3_32(""));
+}
+
+test "sBPF decodeOne" {
+    // Hand-encoded sBPF instructions (eBPF 64-bit little-endian layout:
+    // opcode:u8, regs:u8 [low nibble dst, high nibble src], off:i16, imm:i32).
+    // Opcodes follow the authoritative Solana sBPF table
+    // (anza-xyz/sbpf doc/bytecode.md): ALU64 mov=0xb7/0xbf, add=0x07,
+    // LDX ldxdw=0x79, lddw=0x18 (16-byte pair), call=0x85, exit=0x95.
+    const expectEqualStrings = std.testing.expectEqualStrings;
+    const expectEqual = std.testing.expectEqual;
+
+    // A real syscall table so `call 0x207559bd` resolves to <sol_log_>; no
+    // symbols needed for these cases.
+    const ann: disasm.Annotator = .{
+        .syms = &.{},
+        .syscalls = disasm.syscalls,
+        .machine = .BPF,
+    };
+
+    const Case = struct {
+        code: []const u8,
+        want: []const u8,
+        stride: usize,
+    };
+
+    const cases = [_]Case{
+        // mov r0, 0x2a  (ALU64 mov, immediate; opcode 0xb7, dst=r0)
+        .{ .code = &.{ 0xb7, 0x00, 0x00, 0x00, 0x2a, 0x00, 0x00, 0x00 }, .want = "mov r0, 0x2a", .stride = 8 },
+        // mov r0, r1    (ALU64 mov, src register; opcode 0xbf, dst=r0, src=r1)
+        .{ .code = &.{ 0xbf, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }, .want = "mov r0, r1", .stride = 8 },
+        // add r1, 0x10  (ALU64 add, immediate; opcode 0x07, dst=r1)
+        .{ .code = &.{ 0x07, 0x01, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00 }, .want = "add r1, 0x10", .stride = 8 },
+        // ldxdw r0, [r1+0x8]  (LDX dw; opcode 0x79, dst=r0, src=r1, off=+8)
+        .{ .code = &.{ 0x79, 0x10, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00 }, .want = "ldxdw r0, [r1+0x8]", .stride = 8 },
+        // call 0x207559bd  (opcode 0x85, src=0 static syscall; imm == murmur3(sol_log_))
+        .{ .code = &.{ 0x85, 0x00, 0x00, 0x00, 0xbd, 0x59, 0x75, 0x20 }, .want = "call 0x207559bd <sol_log_>", .stride = 8 },
+        // exit  (opcode 0x95)
+        .{ .code = &.{ 0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }, .want = "exit", .stride = 8 },
+        // lddw r0, 0x1  (opcode 0x18, 16-byte pair; lo imm in bytes 4..8, hi in 12..16)
+        .{ .code = &.{ 0x18, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }, .want = "lddw r0, 0x1", .stride = 16 },
+    };
+
+    for (cases) |c| {
+        var buf: [128]u8 = undefined;
+        var w = std.Io.Writer.fixed(&buf);
+        const stride = try disasm.decodeOne(c.code, 0, &ann, &w);
+        try expectEqual(c.stride, stride);
+        try expectEqualStrings(c.want, w.buffered());
+    }
+
+    // A short tail must be rejected before any out-of-bounds slice: emit
+    // <truncated> plus the raw bytes and return error.ParseFailure.
+    {
+        var buf: [128]u8 = undefined;
+        var w = std.Io.Writer.fixed(&buf);
+        try std.testing.expectError(error.ParseFailure, disasm.decodeOne(&.{ 0x95, 0x00 }, 0, &ann, &w));
+        try expectEqualStrings("<truncated> 95 00", w.buffered());
+    }
+}
