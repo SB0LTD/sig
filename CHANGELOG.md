@@ -43,6 +43,16 @@ the typed enums and packed structs. ELF output is byte-for-byte identical to
   machines print a clear "disassembly not implemented for &lt;machine&gt;"
   message rather than a stub.
 
+### Fixed
+- **`sig objdump -d` now disassembles section-less sBPF `.so` files.** Solana
+  sBPF shared objects are emitted with no section-header table (`e_shoff =
+  e_shnum = 0`, mandated by SIMD-0189), so the section-walking disassembler found
+  nothing and printed only the banner. `-d` now falls back to disassembling the
+  executable `PT_LOAD` program segments (sections when present, segments
+  otherwise), anchoring the entrypoint note and `call` syscall annotations at the
+  segment's `vaddr` (`MM_PROGRAM_START` = `0x100000000`). The emitted sBPF
+  artifact is unchanged.
+
 ### Changed
 - **Removed every `/// Deprecated` declaration from `lib/std/elf.sig`:** the flat
   `Elf32_*`/`Elf64_*` structs, the `switch(@sizeOf)` struct aliases, the scalar
