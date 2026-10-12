@@ -21,6 +21,38 @@
 
 ---
 
+## 0.6.3 — `sig objdump -d` Disassembles Section-less sBPF Programs
+
+Bug-fix release. `sig objdump -d` now disassembles Solana sBPF shared objects,
+which are deliberately emitted without a section table (`shnum=0`) per
+SIMD-0189. The disassembler is now section-aware-or-segment-fallback: when no
+executable section is present it walks the `PT_LOAD` program segments carrying
+the execute flag and decodes from there, so the entrypoint, instruction stream,
+and SIMD-0178 static syscalls are shown for programs the loader reads via
+program headers.
+
+```
+$ sig version
+sig 0.6.3 (zig 0.17.0)
+
+$ sig objdump -d log.so
+log.so: ELF 64 shared object
+
+Disassembly (sbpfv3):
+            ; entrypoint
+100000000:  ...
+            call 0x207559bd  <sol_log_>
+            exit
+```
+
+- `objdump` disassembly falls back to executable `PT_LOAD` segments (base
+  `pc` = segment `vaddr`) when sections are absent; the section path is
+  unchanged when sections are present.
+- The sBPF emitter is unchanged — section stripping is intentional per
+  SIMD-0189 and the loadable artifact stays byte-identical.
+- `call <imm>` static syscalls show the raw immediate alongside the resolved
+  name (e.g. `sol_log_`) via the SIMD-0178 murmur3 hash reverse-map.
+
 ## 0.6.2 — Typed ELF Model: Unified `Elf32`/`Elf64` Structs + Constants
 
 Internal cleanup release. `lib/std/elf.sig` drops every deprecated declaration —

@@ -4,6 +4,32 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.6.3] — `sig objdump -d` Disassembles Section-less sBPF Programs
+
+Bug-fix release. `sig objdump -d` disassembled nothing on Solana sBPF shared
+objects because they are emitted without a section table (`shnum=0`) by design
+(SIMD-0189, loader reads via program headers), and the disassembler only located
+code by walking executable sections. No user-facing behavior change outside
+`objdump`; the sBPF emitter and loadable artifact are unchanged.
+
+### Fixed
+- **`sig objdump -d` now disassembles section-less ELF images.** The disassembler
+  is section-aware-or-segment-fallback: when no `SHF_EXECINSTR` section exists it
+  iterates program headers, selects `PT_LOAD` segments with the execute flag,
+  materializes their bytes (wrap-safe EOF bounds check), and decodes with the
+  decode base `pc` set to the segment's `vaddr`. The section path is unchanged
+  when sections are present (`<no instructions>` only when nothing decodes).
+- For sBPFv3 this surfaces the entrypoint note at `MM_PROGRAM_START`
+  (`0x100000000`), the full instruction stream, and `call <imm>` static syscalls
+  annotated with the resolved SIMD-0178 syscall name alongside the raw immediate
+  (e.g. `call 0x207559bd <sol_log_>`).
+
+### Unchanged (intentional)
+- The sBPF ELF emitter still strips the section table (`e_shoff=e_shnum=0`) per
+  SIMD-0189; the Solana loader ignores sections and the section-less image is
+  validator-verified. `src/link/Elf2.sig` was not modified — tooling reaches code
+  via the segment fallback instead.
+
 ## [0.6.2] — Typed ELF Model: Unified `Elf32`/`Elf64` Structs + Constants
 
 Internal cleanup release with no user-facing behavior change. `lib/std/elf.sig`
