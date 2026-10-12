@@ -27,6 +27,18 @@ const Options = struct {
     symbols: bool,
     tls: bool,
 
+    // Elf-specific
+    program_headers: bool,
+    dynamic: bool,
+    dynamic_relocs: bool,
+    dynamic_symbols: bool,
+    summary: bool,
+
+    // Disassembly
+    disassemble: bool,
+    disassemble_all: bool,
+    disassemble_symbol: ?[]const u8,
+
     // Coff-specific
     linker_member: ?std.coff.ArchiveMemberHeader.Kind,
 };
@@ -68,6 +80,14 @@ pub fn main(init: std.process.Init) !void {
     var opt_strings: ?bool = null;
     var opt_symbols: ?bool = null;
     var opt_tls: ?bool = null;
+    var opt_program_headers: ?bool = null;
+    var opt_dynamic: ?bool = null;
+    var opt_dynamic_relocs: ?bool = null;
+    var opt_dynamic_symbols: ?bool = null;
+    var opt_summary: ?bool = null;
+    var opt_disassemble: ?bool = null;
+    var opt_disassemble_all: ?bool = null;
+    var opt_disassemble_symbol: ?[]const u8 = null;
     var section_filters: std.ArrayList([]const u8) = .empty;
     var symbol_filters: std.ArrayList([]const u8) = .empty;
     var member_filters: std.ArrayList([]const u8) = .empty;
@@ -83,6 +103,8 @@ pub fn main(init: std.process.Init) !void {
                 opt_section_headers = true;
                 opt_symbols = true;
                 opt_relocs = true;
+                opt_program_headers = true;
+                opt_dynamic = true;
             } else if (mem.startsWith(u8, arg, "--exports")) {
                 opt_exports = true;
                 opt_linker_member = .second_linker;
@@ -147,6 +169,24 @@ pub fn main(init: std.process.Init) !void {
                 opt_symbols = true;
             } else if (mem.eql(u8, arg, "--tls")) {
                 opt_tls = true;
+            } else if (mem.eql(u8, arg, "--program-headers") or mem.eql(u8, arg, "--segments")) {
+                opt_program_headers = true;
+            } else if (mem.eql(u8, arg, "--dynamic")) {
+                opt_dynamic = true;
+            } else if (mem.eql(u8, arg, "--dynamic-symbols")) {
+                opt_dynamic_symbols = true;
+            } else if (mem.eql(u8, arg, "--dynamic-relocs")) {
+                opt_dynamic_relocs = true;
+            } else if (mem.eql(u8, arg, "--summary")) {
+                opt_summary = true;
+            } else if (mem.eql(u8, arg, "--disassemble-all")) {
+                opt_disassemble = true;
+                opt_disassemble_all = true;
+            } else if (mem.startsWith(u8, arg, "--disassemble=")) {
+                opt_disassemble = true;
+                opt_disassemble_symbol = try arena.dupe(u8, arg["--disassemble=".len..]);
+            } else if (mem.eql(u8, arg, "-d") or mem.eql(u8, arg, "--disassemble")) {
+                opt_disassemble = true;
             } else {
                 fatal("unrecognized argument: {s}", .{arg});
             }
@@ -175,6 +215,14 @@ pub fn main(init: std.process.Init) !void {
         .symbol_filters = symbol_filters.items,
         .symbols = opt_symbols orelse false,
         .tls = opt_tls orelse false,
+        .program_headers = opt_program_headers orelse false,
+        .dynamic = opt_dynamic orelse false,
+        .dynamic_relocs = opt_dynamic_relocs orelse false,
+        .dynamic_symbols = opt_dynamic_symbols orelse false,
+        .summary = opt_summary orelse false,
+        .disassemble = opt_disassemble orelse false,
+        .disassemble_all = opt_disassemble_all orelse false,
+        .disassemble_symbol = opt_disassemble_symbol,
     };
 
     var file = std.Io.Dir.cwd().openFile(io, opts.input_path, .{}) catch |err|
@@ -207,16 +255,16 @@ fn dump(d: *const DumpContext) !void {
     try r.fill(4);
     elf: {
         if (!mem.eql(u8, r.buffered()[0..4], std.elf.MAGIC)) break :elf;
-        return elf.dump(r, d.w);
+        return elf.dump(d);
     }
     macho: {
         if (mem.readInt(u32, r.buffered()[0..4], .little) != std.macho.MH_MAGIC_64) break :macho;
-        return macho.dump(r, d.w);
+        return macho.dump(d);
     }
     wasm: {
         comptime assert(std.wasm.magic.len == 4);
         if (!mem.eql(u8, r.buffered()[0..4], &std.wasm.magic)) break :wasm;
-        return wasm.dump(r, d.w);
+        return wasm.dump(d);
     }
     coff: {
         const ext = std.fs.path.extension(d.opts.input_path);
@@ -286,23 +334,45 @@ const DumpContext = struct {
 };
 
 const elf = struct {
-    fn dump(r: *Io.Reader, w: *Io.Writer) !void {
-        _ = r;
-        try w.writeAll("TODO dump elf file\n");
+    fn dump(d: *const DumpContext) !void {
+        const r = &d.fr.interface;
+        const basename = std.fs.path.basename(d.opts.input_path);
+        const hdr = std.elf.Header.read(r) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            else => d.failParse("not a valid ELF header: {t}", .{err}),
+        };
+        const classStr: []const u8 = if (hdr.is_64) "64" else "32";
+        const typeWord: []const u8 = switch (hdr.type) {
+            .REL => "relocatable",
+            .DYN => "shared object",
+            .EXEC => "executable",
+            .CORE => "core",
+            else => "unknown",
+        };
+        if (d.element(.@"file-type")) {
+            try d.w.print("{s}: ELF {s} {s}\n", .{ basename, classStr, typeWord });
+            if (d.element(.newlines)) try d.w.writeByte('\n');
+        }
     }
 };
 
 const macho = struct {
-    fn dump(r: *Io.Reader, w: *Io.Writer) !void {
-        _ = r;
-        try w.writeAll("TODO dump macho file\n");
+    fn dump(d: *const DumpContext) !void {
+        const basename = std.fs.path.basename(d.opts.input_path);
+        if (d.element(.@"file-type")) {
+            try d.w.print("{s}: Mach-O 64-bit object\n", .{basename});
+            if (d.element(.newlines)) try d.w.writeByte('\n');
+        }
     }
 };
 
 const wasm = struct {
-    fn dump(r: *Io.Reader, w: *Io.Writer) !void {
-        _ = r;
-        try w.writeAll("TODO dump wasm file\n");
+    fn dump(d: *const DumpContext) !void {
+        const basename = std.fs.path.basename(d.opts.input_path);
+        if (d.element(.@"file-type")) {
+            try d.w.print("{s}: WebAssembly binary\n", .{basename});
+            if (d.element(.newlines)) try d.w.writeByte('\n');
+        }
     }
 };
 
@@ -1750,7 +1820,7 @@ const usage =
     \\
     \\Options:
     \\  -h, --help                         Print this help and exit
-    \\  --all-headers                      Alias for --file-headers --linker-member=2 --member-headers --section-headers --relocs --symbols
+    \\  --all-headers                      Alias for --file-headers --linker-member=2 --member-headers --section-headers --relocs --symbols --program-headers --dynamic
     \\  --exports[=sort]                   Display exported symbols. 
     \\                                     In the case of COFF import libraries, displays the symbol list and import headers.
     \\                                     Specify =sort to optionally sort the import headers by symbol name.
@@ -1775,10 +1845,19 @@ const usage =
     \\      size                           Sizes and lengths
     \\      all                            All of the above
     \\  --relocs                           Display relocations
+    \\  --dynamic-relocs                   (Elf) Display dynamic relocations
     \\  -s, --snapshot                     Alias for --redact=all --elements=-all
     \\  --section-headers                  Display section headers
+    \\  --program-headers, --segments      (Elf) Display program headers / segments
+    \\  --dynamic                          (Elf) Display the dynamic section
+    \\  --dynamic-symbols                  (Elf) Display the dynamic symbol table
+    \\  --summary                          (Elf) Print a one-line machine-parseable file summary
     \\  --strings                          Display string tables
     \\  --symbols                          Display symbol tables
     \\  --tls                              Display TLS information
+    \\  -d, --disassemble                  Disassemble executable sections (sBPF only; other
+    \\                                     machines print 'disassembly not implemented for <machine>')
+    \\  --disassemble-all                  Disassemble all sections (sBPF only)
+    \\  --disassemble=[symbol]             Disassemble only the named symbol (sBPF only)
     \\
 ;
