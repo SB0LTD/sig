@@ -73,6 +73,7 @@ comptime {
             .other,
             .freestanding,
             .sb0,
+            .solana,
             .vulkan,
             .opengl,
             .opencl,
@@ -618,11 +619,11 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
         var i: usize = 0;
         var at_phdr: usize = 0;
         var at_phnum: usize = 0;
-        while (auxv[i].a_type != elf.AT.NULL) : (i += 1) {
-            switch (auxv[i].a_type) {
-                elf.AT.PHNUM => at_phnum = auxv[i].a_un.a_val,
-                elf.AT.PHDR => at_phdr = auxv[i].a_un.a_val,
-                elf.AT.HWCAP => at_hwcap = auxv[i].a_un.a_val,
+        while (auxv[i].type != elf.AT.NULL) : (i += 1) {
+            switch (auxv[i].type) {
+                elf.AT.PHNUM => at_phnum = auxv[i].un.val,
+                elf.AT.PHDR => at_phdr = auxv[i].un.val,
+                elf.AT.HWCAP => at_hwcap = auxv[i].un.val,
                 else => continue,
             }
         }

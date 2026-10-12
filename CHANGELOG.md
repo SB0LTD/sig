@@ -4,6 +4,92 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.6.1] — Native sBPF (Solana) Backend + Link/Deploy Path
+
+Sig 0.6.1 adds a first-class Solana sBPF target so the compiler can build and
+link a loadable on-chain program end-to-end with no external toolchain beyond
+`sig`. A trivial Sig entrypoint deploys and executes on a current
+`solana-test-validator`, and Solana syscalls resolve at runtime via the
+SIMD-0178 static-syscall encoding. Scope is compiler/toolchain only; the
+on-chain library (entrypoint deserializer, `AccountInfo`, PDA, syscall wrappers)
+lives in `SB0LTD/zpm`. See `compiler/SBPF_SOLANA_TARGET.md` for the full
+contract and build/deploy recipe.
+
+### Added
+
+- **First-class `sbf-solana-solana` target.** Reachable as
+  `-target sbf-solana-solana -mcpu sbpfv3`, distinct from generic `bpfel`. The
+  Solana-ness is an OS+ABI+CPU property (`{ .bpfel, .solana, .solana }`), not a
+  new arch, so the verified LLVM BPF codegen path is reused unchanged. Adds
+  `Os.Tag.solana`, `Abi.solana`, `isSolana`, the `sbf` arch alias, a default
+  `-mcpu sbpfv3`, and the `sbpfv1`/`sbpfv2`/`sbpfv3` CPU models. They appear in
+  `sig targets`.
+- **sBPF linking in the self-hosted ELF linker (`src/link/Elf2.sig`).** The
+  linker now accepts `EM_BPF` (247) — the vendored LLD, which rejects it, is
+  bypassed for `os == .solana` — adds the `R_SBF_*` relocation family
+  (`R_BPF_64_64`/`64_ABS64`/`64_32`, PC2-measured values) with the two-slot
+  `lddw` immediate split, and emits a relocation-free `ET_DYN` shaped to the
+  SIMD-0189 stricter-ELF-header contract: `e_phoff = 64`, two ordered `PT_LOAD`
+  segments (ro-data `PF_R` @ vaddr 0, bytecode `PF_X` @ vaddr `0x100000000`),
+  `e_entry` at the `entrypoint` symbol, and no `.dynamic`/`.dynsym`/`.got`/
+  `.plt`/section-header table. A BPF-only finalization pass
+  (`finalizeBpfSolanaObject`) performs this rewrite keyed strictly on
+  `machine == .BPF`, so non-BPF targets are byte-identical to the stage0
+  compiler. The pass rebases absolute `.rodata` pointers to the loader's VA-0
+  rodata base by walking the recorded `R_SBF_64_64` (`.sbf_lddw`) relocation
+  sites — the exact `lddw` slots the linker resolved against `.rodata` —
+  rather than scanning `.text` for `0x18` opcode bytes, so a non-`lddw` qword
+  or an in-range numeric constant can never be mis-rewritten; each site is
+  structurally asserted to be a real `lddw` pair (first-slot `0x18`,
+  second-slot `0x00` pseudo) and the trailing-zero `.text` trim asserts the
+  final slot is a recognized terminator (`exit`/`ja`).
+- **SIMD-0178 static-syscall lowering (`src/codegen/llvm.sig`).** Under
+  `os == .solana`, a no-library `extern fn … callconv(.c)` is lowered to a BPF
+  `call imm` whose 32-bit immediate is `murmur3_32(name)`, with no relocation —
+  so syscalls resolve at runtime without a syscall relocation table.
+- **No-`compiler_rt`, float-free on-chain profile.** `want_compiler_rt` defaults
+  to `false` for `os == .solana`, keeping the soft-float helpers that cannot
+  lower for BPF (`__negxf2` et al.) out of on-chain builds.
+- **Dynamic linking for the Solana target.** `canDynamicLink` is true for BPF
+  iff `os == .solana`, so `sig build-lib -dynamic -target sbf-solana-solana`
+  produces a `.so` (generic `bpfel-freestanding` stays non-dynamic).
+- **Build/deploy driver and docs.** `tools/build-sbpf.ps1` (a pure `sig`
+  invocation, works on Windows and all Sig hosts) and
+  `compiler/SBPF_SOLANA_TARGET.md` (target triple, sBPFv3 decision, flags,
+  float-free profile, syscall contract, measured ELF/relocation layout, and the
+  WSL deploy/invoke recipe).
+
+### Fixed
+
+- **Clearer install-dir discovery failure (`lib/std/sig.sig`).** When
+  `sig build`/`sig env` (and other install-dir-dependent subcommands) cannot
+  locate the standard library, the error now names the concrete marker it
+  probed (`lib/std/std.sig`), states that it searched the executable's
+  directory and each parent above it, and hints that the install may be
+  incomplete (missing `lib/std`) or the executable was moved out of its install
+  tree — instead of a bare `FileNotFound`. Discovery behavior and the happy
+  path are unchanged; only the failure message is more legible.
+- **Windows `-Denable-llvm` build-system fixes (`tools/sig_build`), separable
+  from the sBPF feature.** `Step_Registry.addDep` is now idempotent (a duplicate
+  `sig → config` edge under `-Denable-llvm` was misreported as a dependency
+  cycle); the subprocess compile step wires the ZigLLVM C++ wrapper sources and
+  the LLVM/Clang/LLD/system libraries so a `-Denable-llvm` build links a working
+  `sig.exe`; and the Windows system libraries LLVM Support needs (`ole32`,
+  `uuid`, `advapi32`, `shell32`, `oleaut32`, `psapi`) are added to the LLVM
+  linker args.
+- **sBPF release gate now byte-verifies the SIMD-0189 program-header layout.**
+  `ci/test-sbpf-solana-target.sh` asserted only the ELF header magic/class/
+  data/type/machine and the static-syscall immediate; it now also checks the
+  final `finalizeBpfSolanaObject` shape (`e_phoff = 64`, `e_phnum = 2`,
+  `e_phentsize = 56`, `e_shoff = e_shnum = 0`, and both `PT_LOAD` headers'
+  type/flags/vaddr), so a regression that bypasses the finalizer and reverts to
+  the pre-SIMD-0189 multi-segment layout fails the release build. This gate
+  (wired into `release.yaml`) is the authoritative reproduction of the
+  LLVM-backed `.so` byte-verification; it runs under Linux CI where the LLVM 22
+  toolchain is available (a `-Denable-llvm` build is not reproducible on a
+  Windows dev host that lacks LLVM, though plain `sig build`/`sig build test`
+  pass there).
+
 ## [0.6.0] — 2026-09-15 — Windows Resources: Working `.rc` Compilation + Native `build.sig` Icons
 
 Sig 0.6.0 repairs Windows resource-script (`.rc`) compilation, which was

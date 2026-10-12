@@ -1,0 +1,27 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "severity": "NIT",
+      "title": "arch-spelling alias (sbf) parse site not pinned to a file/function",
+      "location": "design.md \u00a73.2",
+      "problem": "The design states `sbf` is accepted as an input alias for the `.bpfel` arch 'at parse time' and references 'parse/resolveTargetQuery consumers' without naming the concrete function/line, unlike every other edit site which is pinned to a verified line.",
+      "fix": "Name the arch-parse seam (the arch-name lookup used by std.Target.Query.parse / the arch fromName-style table in lib/std/Target.sig) and state exactly where the sbf -> .bpfel alias is added, ensuring sbf-solana-solana round-trips through `sig targets` back to the canonical { .bpfel, .solana, .solana }."
+    },
+    {
+      "severity": "NIT",
+      "title": ".hash/.gnu.hash dynamic-symbol-hash section not in the DSO layout contract",
+      "location": "design.md \u00a74.4 (PC3 capture list)",
+      "problem": "Elf2.sig couples .dynsym to a hash section (ensureDynsymHashCapacity, targetDynsymHashInfo, appendDynsymHashEntry), so an exported entrypoint dynamic symbol implies a hash section, but PC3's readelf -a checklist does not list .hash/.gnu.hash or state whether a Solana loader tolerates it.",
+      "fix": "Add .hash/.gnu.hash to the PC3 capture checklist and record whether the reference Solana .so carries one; if the loader rejects it, note that the hash section must be suppressed for the solana target."
+    },
+    {
+      "severity": "NIT",
+      "title": "R_BPF numeric values and lddw split unverified (carried as PC2)",
+      "location": "design.md \u00a74.3 reloc table; lib/std/elf.sig",
+      "problem": "lib/std/elf.sig has EM.BPF = 247 (line 2223) but no R_BPF enum; the R_BPF_* values and the two-slot lddw immediate layout in the \u00a74.3 table are expected values pinned by PC2, so they are unverified by construction.",
+      "fix": "Run PC2 and overwrite \u00a74.3's table with the measured readelf -r values before writing any src/link/Elf2.sig code, exactly as the design states. No design change required."
+    }
+  ],
+  "reviewDoc": "c:\\Just-Things\\Projects\\sb0\\sig\\.worktrees\\sbpf-solana\\.agents\\tasks\\sbpf-solana\\design-review.md"
+}

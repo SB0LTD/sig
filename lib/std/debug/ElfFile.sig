@@ -228,16 +228,16 @@ pub fn load(
             break :dwarf .{ .sections = sections };
         },
         .eh_frame = if (result.sections.get(.eh_frame)) |s| .{
-            .vaddr = s.header.sh_addr,
+            .vaddr = s.header.addr,
             .bytes = s.bytes,
         } else null,
         .debug_frame = if (result.sections.get(.debug_frame)) |s| .{
-            .vaddr = s.header.sh_addr,
+            .vaddr = s.header.addr,
             .bytes = s.bytes,
         } else null,
         .strtab = if (result.sections.get(.strtab)) |s| s.bytes else null,
         .symtab = if (result.sections.get(.symtab)) |s| .{
-            .entry_size = s.header.sh_entsize,
+            .entry_size = s.header.entsize,
             .bytes = s.bytes,
         } else null,
         .symbol_search_table = null,
@@ -262,7 +262,7 @@ pub fn searchSymtab(ef: *ElfFile, gpa: Allocator, vaddr: u64) error{
 
     switch (ef.is_64) {
         inline true, false => |is_64| {
-            const Sym = if (is_64) elf.Elf64_Sym else elf.Elf32_Sym;
+            const Sym = if (is_64) elf.Elf64.Sym else elf.Elf32.Sym;
             if (symtab.entry_size != @sizeOf(Sym)) return error.BadSymtab;
             const symbols: []align(1) const Sym = @ptrCast(symtab.bytes);
             if (ef.symbol_search_table == null) {
@@ -280,7 +280,7 @@ pub fn searchSymtab(ef: *ElfFile, gpa: Allocator, vaddr: u64) error{
                     // the logic in `buildSymbolSearchTable` which sorts by *end* address.
                     var sym = ctx.symbols[sym_index];
                     if (ctx.swap_endian) std.mem.byteSwapAllFields(Sym, &sym);
-                    const sym_end = sym.st_value + sym.st_size;
+                    const sym_end = sym.value + sym.size;
                     return ctx.target >= sym_end;
                 }
             };
@@ -292,9 +292,9 @@ pub fn searchSymtab(ef: *ElfFile, gpa: Allocator, vaddr: u64) error{
             if (sym_index_index == search_table.len) return .unknown;
             var sym = symbols[search_table[sym_index_index]];
             if (swap_endian) std.mem.byteSwapAllFields(Sym, &sym);
-            if (vaddr < sym.st_value or vaddr >= sym.st_value + sym.st_size) return .unknown;
+            if (vaddr < sym.value or vaddr >= sym.value + sym.size) return .unknown;
             return .{
-                .name = std.mem.sliceTo(strtab[sym.st_name..], 0),
+                .name = std.mem.sliceTo(strtab[sym.name..], 0),
                 .compile_unit_name = null,
                 .source_location = null,
             };
@@ -314,8 +314,8 @@ fn buildSymbolSearchTable(gpa: Allocator, endian: Endian, comptime Sym: type, sy
     for (symbols, 0..) |sym_orig, sym_index| {
         var sym = sym_orig;
         if (swap_endian) std.mem.byteSwapAllFields(Sym, &sym);
-        if (sym.st_name == 0) continue;
-        if (sym.st_shndx == elf.SHN_UNDEF) continue;
+        if (sym.name == 0) continue;
+        if (sym.shndx == elf.SHN_UNDEF) continue;
         try result.append(gpa, sym_index);
     }
 
@@ -330,8 +330,8 @@ fn buildSymbolSearchTable(gpa: Allocator, endian: Endian, comptime Sym: type, sy
                 std.mem.byteSwapAllFields(Sym, &lhs_sym);
                 std.mem.byteSwapAllFields(Sym, &rhs_sym);
             }
-            const lhs_val = lhs_sym.st_value + lhs_sym.st_size;
-            const rhs_val = rhs_sym.st_value + rhs_sym.st_size;
+            const lhs_val = lhs_sym.value + lhs_sym.size;
+            const rhs_val = rhs_sym.value + rhs_sym.size;
             return lhs_val < rhs_val;
         }
     };
@@ -345,7 +345,7 @@ fn buildSymbolSearchTable(gpa: Allocator, endian: Endian, comptime Sym: type, sy
 
 /// Only used locally, during `load`.
 const Section = struct {
-    header: elf.Elf64_Shdr,
+    header: elf.Elf64.Shdr,
     bytes: []const u8,
     const Id = enum {
         // DWARF sections: see `Dwarf.Section.Id`.
@@ -482,22 +482,22 @@ fn loadInner(
     );
     fr.seek = std.math.cast(usize, shstrtab_shdr_off) orelse return error.Overflow;
     const shstrtab: []const u8 = if (header.is_64) shstrtab: {
-        const shdr = fr.takeStruct(elf.Elf64_Shdr, endian) catch return error.TruncatedElfFile;
-        if (shdr.sh_offset + shdr.sh_size > mapped_mem.len) return error.TruncatedElfFile;
-        break :shstrtab mapped_mem[@intCast(shdr.sh_offset)..][0..@intCast(shdr.sh_size)];
+        const shdr = fr.takeStruct(elf.Elf64.Shdr, endian) catch return error.TruncatedElfFile;
+        if (shdr.offset + shdr.size > mapped_mem.len) return error.TruncatedElfFile;
+        break :shstrtab mapped_mem[@intCast(shdr.offset)..][0..@intCast(shdr.size)];
     } else shstrtab: {
-        const shdr = fr.takeStruct(elf.Elf32_Shdr, endian) catch return error.TruncatedElfFile;
-        if (shdr.sh_offset + shdr.sh_size > mapped_mem.len) return error.TruncatedElfFile;
-        break :shstrtab mapped_mem[@intCast(shdr.sh_offset)..][0..@intCast(shdr.sh_size)];
+        const shdr = fr.takeStruct(elf.Elf32.Shdr, endian) catch return error.TruncatedElfFile;
+        if (shdr.offset + shdr.size > mapped_mem.len) return error.TruncatedElfFile;
+        break :shstrtab mapped_mem[@intCast(shdr.offset)..][0..@intCast(shdr.size)];
     };
 
     var sections: Section.Array = .initFill(null);
 
     var it = header.iterateSectionHeadersBuffer(mapped_mem);
     while (it.next() catch return error.TruncatedElfFile) |shdr| {
-        if (shdr.sh_type == elf.SHT_NULL or shdr.sh_type == elf.SHT_NOBITS) continue;
-        if (shdr.sh_name > shstrtab.len) return error.TruncatedElfFile;
-        const name = std.mem.sliceTo(shstrtab[@intCast(shdr.sh_name)..], 0);
+        if (shdr.type == .NULL or shdr.type == .NOBITS) continue;
+        if (shdr.name > shstrtab.len) return error.TruncatedElfFile;
+        const name = std.mem.sliceTo(shstrtab[@intCast(shdr.name)..], 0);
 
         const section_id: Section.Id = inline for (
             @typeInfo(Section.Id).@"enum".field_names,
@@ -510,18 +510,18 @@ fn loadInner(
 
         if (sections.get(section_id) != null) continue;
 
-        if (shdr.sh_offset + shdr.sh_size > mapped_mem.len) return error.TruncatedElfFile;
-        const raw_section_bytes = mapped_mem[@intCast(shdr.sh_offset)..][0..@intCast(shdr.sh_size)];
+        if (shdr.offset + shdr.size > mapped_mem.len) return error.TruncatedElfFile;
+        const raw_section_bytes = mapped_mem[@intCast(shdr.offset)..][0..@intCast(shdr.size)];
         const section_bytes: []const u8 = bytes: {
-            if ((shdr.sh_flags & elf.SHF_COMPRESSED) == 0) break :bytes raw_section_bytes;
+            if (!shdr.flags.shf.COMPRESSED) break :bytes raw_section_bytes;
 
             var section_reader: std.Io.Reader = .fixed(raw_section_bytes);
             const ch_type: elf.COMPRESS, const ch_size: u64 = if (header.is_64) ch: {
-                const chdr = section_reader.takeStruct(elf.Elf64_Chdr, endian) catch return error.InvalidCompressedSection;
-                break :ch .{ chdr.ch_type, chdr.ch_size };
+                const chdr = section_reader.takeStruct(elf.Elf64.Chdr, endian) catch return error.InvalidCompressedSection;
+                break :ch .{ chdr.type, chdr.size };
             } else ch: {
-                const chdr = section_reader.takeStruct(elf.Elf32_Chdr, endian) catch return error.InvalidCompressedSection;
-                break :ch .{ chdr.ch_type, chdr.ch_size };
+                const chdr = section_reader.takeStruct(elf.Elf32.Chdr, endian) catch return error.InvalidCompressedSection;
+                break :ch .{ chdr.type, chdr.size };
             };
             if (ch_type != .ZLIB) {
                 // The compression algorithm is unsupported, but don't make that a hard error; the

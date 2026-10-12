@@ -30,7 +30,7 @@ pub const Section = struct {
 
     pub fn address(msec: Section, elf_file: *Elf) i64 {
         const shdr = elf_file.sections.items(.shdr)[msec.output_section_index];
-        return @intCast(shdr.sh_addr + msec.value);
+        return @intCast(shdr.addr + msec.value);
     }
 
     const InsertResult = struct {

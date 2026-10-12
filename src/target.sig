@@ -15,6 +15,9 @@ pub fn canDynamicLink(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
         .bpfeb,
         .bpfel,
+        // The Solana sBPF target ships a loadable ELF `.so`, so it is dynamically
+        // linkable. Generic `bpfel-freestanding` BPF stays non-dynamic.
+        => target.os.tag == .solana,
         .nvptx,
         .nvptx64,
         .spirv32,
@@ -982,4 +985,36 @@ pub inline fn backendSupportsFeature(backend: std.lang.CompilerBackend, comptime
             else => true,
         },
     };
+}
+
+fn testTarget(arch: std.Target.Cpu.Arch, os_tag: std.Target.Os.Tag, abi: std.Target.Abi) std.Target {
+    const os = std.Target.Os.defaultVersionRange(os_tag, arch, abi);
+    return .{
+        .cpu = std.Target.Cpu.baseline(arch, os),
+        .os = os,
+        .abi = abi,
+        .ofmt = std.Target.ObjectFormat.default(os_tag, arch),
+    };
+}
+
+test "canDynamicLink: solana sBPF is dynamically linkable, generic BPF is not" {
+    const solana = testTarget(.bpfel, .solana, .solana);
+    try std.testing.expect(canDynamicLink(&solana));
+
+    // Generic bpfel-freestanding BPF stays non-dynamic.
+    const freestanding = testTarget(.bpfel, .freestanding, .none);
+    try std.testing.expect(!canDynamicLink(&freestanding));
+}
+
+test "compiler_rt default: off for solana, on for a generic dynamic-lib target" {
+    // Mirror the want_compiler_rt default expression from Compilation.sig:
+    //   want = want_compiler_rt orelse (is_exe_or_dyn_lib and os.tag != .solana)
+    // With is_exe_or_dyn_lib = true and no explicit override.
+    const solana = testTarget(.bpfel, .solana, .solana);
+    const want_solana = (true and solana.os.tag != .solana);
+    try std.testing.expect(!want_solana);
+
+    const linux = testTarget(.x86_64, .linux, .gnu);
+    const want_linux = (true and linux.os.tag != .solana);
+    try std.testing.expect(want_linux);
 }

@@ -168,6 +168,19 @@ pub const Step_Registry = struct {
         if (step_idx >= self.count) return error.CapacityExceeded;
 
         var entry = &self.entries[step_idx];
+
+        // Idempotent: a duplicate edge (e.g. `sig` depending on `config`
+        // both from the explicit addDependency in build.sig and again from
+        // addLlvmLinkStep under -Denable-llvm) must not be stored twice.
+        // Kahn's algorithm in findReady/findCyclePath counts an edge once per
+        // adjacency slot but decrements in-degree only once per completed
+        // dependency (the inner loop breaks after the first match), so a
+        // duplicate edge leaves in-degree stuck above zero and is misreported
+        // as a dependency cycle. Deduplicating here keeps the graph correct.
+        for (entry.deps[0..entry.dep_count]) |existing| {
+            if (existing == dep) return;
+        }
+
         if (entry.dep_count >= MAX_DEPS_PER_STEP) return error.CapacityExceeded;
 
         entry.deps[entry.dep_count] = dep;
@@ -3166,11 +3179,22 @@ pub fn appendLlvmLinkerArgs(cmd: *Command_Buffer, build_ctx: *const Build_Contex
         try cmd.appendArg(lib_buf[0..total]);
     }
 
-    // ── 8.5: Windows: add ntdll, ws2_32, version ───────────────────────
+    // ── 8.5: Windows: add the system libs LLVM's Support layer needs ────
+    // LLVM Windows Support references COM (ole32/uuid: CoInitializeEx,
+    // CoCreateInstance, CoTaskMemFree, getKnownFolderPath), the shell/registry
+    // (shell32/advapi32), process/version/sockets APIs, and oleaut32. Without
+    // these the LLVM-linked `sig.exe` fails with lld-link undefined-symbol
+    // errors for the COM entry points.
     if (builtin.os.tag == .windows) {
         try cmd.appendArg("-lntdll");
         try cmd.appendArg("-lws2_32");
         try cmd.appendArg("-lversion");
+        try cmd.appendArg("-lole32");
+        try cmd.appendArg("-luuid");
+        try cmd.appendArg("-ladvapi32");
+        try cmd.appendArg("-lshell32");
+        try cmd.appendArg("-loleaut32");
+        try cmd.appendArg("-lpsapi");
     }
 
     // ── 8.6: macOS: link c++ (libc++) ───────────────────────────────────
@@ -3610,6 +3634,59 @@ pub const Build_Context = struct {
             try cmd.appendArg(entry.win32_resource[0..entry.win32_resource_len]);
         }
 
+        // ── LLVM backend wiring: ZigLLVM C++ wrapper sources ─────────────
+        // These must be positionals in the ROOT module's active block (right
+        // after -Mroot=, before any dependency -M declaration) or the compiler
+        // rejects them with "C source file ... has no parent module". The
+        // engine (compileReceiptStepFn) path attaches the same sources, include
+        // dirs, and defines to its in-process Compilation_Context; the
+        // registered subprocess path (this function) previously omitted them,
+        // so a `-Denable-llvm` build linked sig.exe with no LLVM symbols
+        // (undefined ZigLLVM*/LLVMInitialize*). The library -L/-l args are
+        // appended later via appendLlvmLinkerArgs.
+        if (build_ctx.llvm_config.discovered) {
+            const llvm_cfg = &build_ctx.llvm_config;
+
+            // -cflags <shared flags> -I<include dirs> -D<defs> -- <cpp sources>
+            try cmd.appendArg("-cflags");
+            const shared_flags = [_][]const u8{
+                "-std=c++17",         "-fno-exceptions",
+                "-fno-rtti",          "-fno-stack-protector",
+                "-fvisibility-inlines-hidden", "-Wno-type-limits",
+                "-Wno-missing-braces", "-Wno-comment",
+                "-D__STDC_CONSTANT_MACROS", "-D__STDC_FORMAT_MACROS",
+                "-D__STDC_LIMIT_MACROS", "-D_GNU_SOURCE",
+                "-DLLVM_BUILD_STATIC", "-DNDEBUG=1",
+            };
+            for (shared_flags) |flag| try cmd.appendArg(flag);
+
+            const inc_dirs = [_]struct { ptr: []const u8, len: usize }{
+                .{ .ptr = &llvm_cfg.llvm_include_dir, .len = llvm_cfg.llvm_include_dir_len },
+                .{ .ptr = &llvm_cfg.clang_include_dir, .len = llvm_cfg.clang_include_dir_len },
+                .{ .ptr = &llvm_cfg.lld_include_dir, .len = llvm_cfg.lld_include_dir_len },
+            };
+            for (inc_dirs) |d| {
+                if (d.len == 0) continue;
+                var inc_buf: [PATH_BUF_SIZE]u8 = undefined;
+                inc_buf[0] = '-';
+                inc_buf[1] = 'I';
+                if (2 + d.len > inc_buf.len) return error.BufferTooSmall;
+                @memcpy(inc_buf[2..][0..d.len], d.ptr[0..d.len]);
+                try cmd.appendArg(inc_buf[0 .. 2 + d.len]);
+            }
+
+            try cmd.appendArg("--");
+
+            const cpp_stems = [_][]const u8{
+                "src/zig_llvm.cpp",
+                "src/zig_llvm-ar.cpp",
+                "src/zig_clang_driver.cpp",
+                "src/zig_clang_cc1_main.cpp",
+                "src/zig_clang_cc1as_main.cpp",
+            };
+            for (cpp_stems) |stem| try cmd.appendArg(stem);
+        }
+
         // Select the transitive closure and attach each dependency list to its
         // own -M declaration, matching Sig/Sig module CLI semantics.
         var selected: [MAX_MODULES]bool = @splat(false);
@@ -3678,6 +3755,15 @@ pub const Build_Context = struct {
         @memcpy(emit_flag[0..emit_prefix.len], emit_prefix);
         @memcpy(emit_flag[emit_prefix.len..][0..output.len], output);
         try cmd.appendArg(emit_flag[0 .. emit_prefix.len + output.len]);
+
+        // ── LLVM backend wiring: libraries ──────────────────────────────
+        // The ZigLLVM C++ wrapper sources are attached as positionals inside
+        // the root module block above (see the LLVM C++ block after -Mroot).
+        // Here we append the global linker args: -L<lib dir> and -l<lib> for
+        // every discovered LLVM/Clang/LLD/system library + libc++.
+        if (build_ctx.llvm_config.discovered) {
+            try appendLlvmLinkerArgs(&cmd, build_ctx);
+        }
 
         printMsg(io, "compile: {s} -> {s} ({d} modules)", .{ source_path, output, build_ctx.modules.count });
         var stderr_buf: [STDERR_CAPTURE_SIZE]u8 = undefined;

@@ -1,6 +1,6 @@
 index: File.Index,
 
-symtab: std.ArrayList(elf.Elf64_Sym) = .empty,
+symtab: std.ArrayList(elf.Elf64.Sym) = .empty,
 strtab: std.ArrayList(u8) = .empty,
 
 symbols: std.ArrayList(Symbol) = .empty,
@@ -46,12 +46,12 @@ fn newSymbolAssumeCapacity(self: *LinkerDefined, name_off: u32, elf_file: *Elf) 
     const esym_index: u32 = @intCast(self.symtab.items.len);
     const esym = self.symtab.addOneAssumeCapacity();
     esym.* = .{
-        .st_name = name_off,
-        .st_info = @as(u8, elf.STB_WEAK) << 4,
-        .st_other = @backingInt(elf.STV.HIDDEN),
-        .st_shndx = elf.SHN_ABS,
-        .st_value = 0,
-        .st_size = 0,
+        .name = name_off,
+        .info = .{ .bind = .WEAK, .type = .NOTYPE },
+        .other = .{ .visibility = .HIDDEN },
+        .shndx = elf.SHN_ABS,
+        .value = 0,
+        .size = 0,
     };
     const index = self.addSymbolAssumeCapacity();
     const symbol = &self.symbols.items[index];
@@ -179,7 +179,7 @@ pub fn resolveSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
         }
         resolv.* = gop.index;
 
-        if (esym.st_shndx == elf.SHN_UNDEF) continue;
+        if (esym.shndx == elf.SHN_UNDEF) continue;
         if (elf_file.symbol(gop.ref.*) == null) {
             gop.ref.* = .{ .index = @intCast(i), .file = self.index };
             continue;
@@ -207,7 +207,7 @@ pub fn allocateSymbols(self: *LinkerDefined, elf_file: *Elf) void {
     // _DYNAMIC
     if (elf_file.section_indexes.dynamic) |shndx| {
         const shdr = shdrs[shndx];
-        allocSymbol(self, self.dynamic_index.?, shdr.sh_addr, shndx, elf_file);
+        allocSymbol(self, self.dynamic_index.?, shdr.addr, shndx, elf_file);
     }
 
     // __ehdr_start
@@ -216,63 +216,63 @@ pub fn allocateSymbols(self: *LinkerDefined, elf_file: *Elf) void {
     // __init_array_start, __init_array_end
     if (elf_file.sectionByName(".init_array")) |shndx| {
         const shdr = shdrs[shndx];
-        allocSymbol(self, self.init_array_start_index.?, shdr.sh_addr, shndx, elf_file);
-        allocSymbol(self, self.init_array_end_index.?, shdr.sh_addr + shdr.sh_size, shndx, elf_file);
+        allocSymbol(self, self.init_array_start_index.?, shdr.addr, shndx, elf_file);
+        allocSymbol(self, self.init_array_end_index.?, shdr.addr + shdr.size, shndx, elf_file);
     }
 
     // __fini_array_start, __fini_array_end
     if (elf_file.sectionByName(".fini_array")) |shndx| {
         const shdr = shdrs[shndx];
-        allocSymbol(self, self.fini_array_start_index.?, shdr.sh_addr, shndx, elf_file);
-        allocSymbol(self, self.fini_array_end_index.?, shdr.sh_addr + shdr.sh_size, shndx, elf_file);
+        allocSymbol(self, self.fini_array_start_index.?, shdr.addr, shndx, elf_file);
+        allocSymbol(self, self.fini_array_end_index.?, shdr.addr + shdr.size, shndx, elf_file);
     }
 
     // __preinit_array_start, __preinit_array_end
     if (elf_file.sectionByName(".preinit_array")) |shndx| {
         const shdr = shdrs[shndx];
-        allocSymbol(self, self.preinit_array_start_index.?, shdr.sh_addr, shndx, elf_file);
-        allocSymbol(self, self.preinit_array_end_index.?, shdr.sh_addr + shdr.sh_size, shndx, elf_file);
+        allocSymbol(self, self.preinit_array_start_index.?, shdr.addr, shndx, elf_file);
+        allocSymbol(self, self.preinit_array_end_index.?, shdr.addr + shdr.size, shndx, elf_file);
     }
 
     // _GLOBAL_OFFSET_TABLE_
     if (elf_file.getTarget().cpu.arch == .x86_64) {
         if (elf_file.section_indexes.got_plt) |shndx| {
             const shdr = shdrs[shndx];
-            allocSymbol(self, self.got_index.?, shdr.sh_addr, shndx, elf_file);
+            allocSymbol(self, self.got_index.?, shdr.addr, shndx, elf_file);
         }
     } else {
         if (elf_file.section_indexes.got) |shndx| {
             const shdr = shdrs[shndx];
-            allocSymbol(self, self.got_index.?, shdr.sh_addr, shndx, elf_file);
+            allocSymbol(self, self.got_index.?, shdr.addr, shndx, elf_file);
         }
     }
 
     // _PROCEDURE_LINKAGE_TABLE_
     if (elf_file.section_indexes.plt) |shndx| {
         const shdr = shdrs[shndx];
-        allocSymbol(self, self.plt_index.?, shdr.sh_addr, shndx, elf_file);
+        allocSymbol(self, self.plt_index.?, shdr.addr, shndx, elf_file);
     }
 
     // __dso_handle
     if (self.dso_handle_index) |index| {
         if (self.resolveSymbol(index, elf_file).file == self.index) {
             const shdr = shdrs[1];
-            allocSymbol(self, index, shdr.sh_addr, 0, elf_file);
+            allocSymbol(self, index, shdr.addr, 0, elf_file);
         }
     }
 
     // __GNU_EH_FRAME_HDR
     if (elf_file.section_indexes.eh_frame_hdr) |shndx| {
         const shdr = shdrs[shndx];
-        allocSymbol(self, self.gnu_eh_frame_hdr_index.?, shdr.sh_addr, shndx, elf_file);
+        allocSymbol(self, self.gnu_eh_frame_hdr_index.?, shdr.addr, shndx, elf_file);
     }
 
     // __rela_iplt_start, __rela_iplt_end
     if (elf_file.section_indexes.rela_dyn) |shndx| blk: {
         if (link_mode != .static or comp.config.pie) break :blk;
         const shdr = shdrs[shndx];
-        const end_addr = shdr.sh_addr + shdr.sh_size;
-        const start_addr = end_addr - elf_file.calcNumIRelativeRelocs() * @sizeOf(elf.Elf64_Rela);
+        const end_addr = shdr.addr + shdr.size;
+        const start_addr = end_addr - elf_file.calcNumIRelativeRelocs() * @sizeOf(elf.Elf64.Rela);
         allocSymbol(self, self.rela_iplt_start_index.?, start_addr, shndx, elf_file);
         allocSymbol(self, self.rela_iplt_end_index.?, end_addr, shndx, elf_file);
     }
@@ -282,8 +282,8 @@ pub fn allocateSymbols(self: *LinkerDefined, elf_file: *Elf) void {
         var value: u64 = 0;
         var osec: u32 = 0;
         for (shdrs, 0..) |shdr, shndx| {
-            if (shdr.sh_flags & elf.SHF_ALLOC != 0) {
-                value = shdr.sh_addr + shdr.sh_size;
+            if (shdr.flags.shf.ALLOC) {
+                value = shdr.addr + shdr.size;
                 osec = @intCast(shndx);
             }
         }
@@ -293,7 +293,7 @@ pub fn allocateSymbols(self: *LinkerDefined, elf_file: *Elf) void {
     // __global_pointer$
     if (self.global_pointer_index) |index| {
         const value, const osec = if (elf_file.sectionByName(".sdata")) |shndx| .{
-            shdrs[shndx].sh_addr + 0x800,
+            shdrs[shndx].addr + 0x800,
             shndx,
         } else .{ 0, 0 };
         allocSymbol(self, index, value, osec, elf_file);
@@ -310,9 +310,9 @@ pub fn allocateSymbols(self: *LinkerDefined, elf_file: *Elf) void {
             const stop = elf_file.symbol(stop_ref).?;
             const shndx = elf_file.sectionByName(name["__start_".len..]).?;
             const shdr = shdrs[shndx];
-            start.value = @intCast(shdr.sh_addr);
+            start.value = @intCast(shdr.addr);
             start.output_section_index = shndx;
-            stop.value = @intCast(shdr.sh_addr + shdr.sh_size);
+            stop.value = @intCast(shdr.addr + shdr.size);
             stop.output_section_index = shndx;
         }
     }
@@ -345,7 +345,7 @@ pub fn writeSymtab(self: *LinkerDefined, elf_file: *Elf) void {
         elf_file.strtab.appendSliceAssumeCapacity(global.name(elf_file));
         elf_file.strtab.appendAssumeCapacity(0);
         const out_sym = &elf_file.symtab.items[idx];
-        out_sym.st_name = st_name;
+        out_sym.name = st_name;
         global.setOutputSym(elf_file, out_sym);
     }
 }

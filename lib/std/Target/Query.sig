@@ -221,10 +221,15 @@ pub fn parse(args: ParseOptions) !Query {
     const arch_name = it.first();
     const arch_is_native = mem.eql(u8, arch_name, "native");
     if (!arch_is_native) {
-        result.cpu_arch = std.meta.stringToEnum(Target.Cpu.Arch, arch_name) orelse {
-            diags.unknown_architecture_name = arch_name;
-            return error.UnknownArchitecture;
-        };
+        // `sbf` is the Solana ecosystem spelling of the sBPF arch; it maps to the
+        // canonical little-endian BPF arch `.bpfel` (so `sbf-solana-solana` parses).
+        result.cpu_arch = if (mem.eql(u8, arch_name, "sbf"))
+            .bpfel
+        else
+            std.meta.stringToEnum(Target.Cpu.Arch, arch_name) orelse {
+                diags.unknown_architecture_name = arch_name;
+                return error.UnknownArchitecture;
+            };
     }
     const arch = result.cpu_arch orelse builtin.cpu.arch;
     diags.arch = arch;
@@ -332,6 +337,9 @@ pub fn parseCpuArch(args: ParseOptions) ?Target.Cpu.Arch {
     const arch_is_native = mem.eql(u8, arch_name, "native");
     if (arch_is_native) {
         return builtin.cpu.arch;
+    } else if (mem.eql(u8, arch_name, "sbf")) {
+        // `sbf` is the Solana spelling of the little-endian BPF arch `.bpfel`.
+        return .bpfel;
     } else {
         return std.meta.stringToEnum(Target.Cpu.Arch, arch_name);
     }
@@ -682,6 +690,31 @@ test parse {
         const query = try Query.parse(.{ .arch_os_abi = "aarch64-sb0-sb0" });
         const target = try std.sig.system.resolveTargetQuery(io, query);
         try std.testing.expect(target.isSb0());
+    }
+    {
+        // `sbf-solana-solana` is the Solana ecosystem spelling of the sBPF
+        // on-chain target. `sbf` aliases to `.bpfel`; os and abi are `.solana`;
+        // the default CPU is `sbpfv3`; and the object format stays ELF (not raw).
+        const query = try Query.parse(.{ .arch_os_abi = "sbf-solana-solana" });
+        const target = try std.sig.system.resolveTargetQuery(io, query);
+
+        try std.testing.expectEqual(Target.Cpu.Arch.bpfel, target.cpu.arch);
+        try std.testing.expectEqual(Target.Os.Tag.solana, target.os.tag);
+        try std.testing.expectEqual(Target.Abi.solana, target.abi);
+        try std.testing.expectEqual(Target.ObjectFormat.elf, target.ofmt);
+        try std.testing.expect(target.dynamic_linker.get() == null);
+        try std.testing.expect(target.isSolana());
+        // Default CPU model is sBPFv3 for the solana os.
+        try std.testing.expectEqualSlices(u8, "sbpfv3", target.cpu.model.name);
+    }
+    {
+        // A bare `bpfel-solana` triple defaults its ABI to `.solana` and still
+        // resolves to the Solana sBPF target with the sBPFv3 default CPU.
+        const query = try Query.parse(.{ .arch_os_abi = "bpfel-solana" });
+        const target = try std.sig.system.resolveTargetQuery(io, query);
+        try std.testing.expectEqual(Target.Abi.solana, target.abi);
+        try std.testing.expect(target.isSolana());
+        try std.testing.expectEqualSlices(u8, "sbpfv3", target.cpu.model.name);
     }
     {
         const query = try Query.parse(.{

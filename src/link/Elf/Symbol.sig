@@ -31,7 +31,7 @@ extra_index: u32 = 0,
 
 pub fn isAbs(symbol: Symbol, elf_file: *Elf) bool {
     const file_ptr = symbol.file(elf_file).?;
-    if (file_ptr == .shared_object) return symbol.elfSym(elf_file).st_shndx == elf.SHN_ABS;
+    if (file_ptr == .shared_object) return symbol.elfSym(elf_file).shndx == elf.SHN_ABS;
     return !symbol.flags.import and symbol.atom(elf_file) == null and
         symbol.mergeSubsection(elf_file) == null and symbol.outputShndx(elf_file) == null and
         file_ptr != .linker_defined;
@@ -47,19 +47,19 @@ pub fn outputShndx(symbol: Symbol, elf_file: *Elf) ?u32 {
 }
 
 pub fn isLocal(symbol: Symbol, elf_file: *Elf) bool {
-    if (elf_file.base.isRelocatable()) return symbol.elfSym(elf_file).st_bind() == elf.STB_LOCAL;
+    if (elf_file.base.isRelocatable()) return symbol.elfSym(elf_file).info.bind == elf.STB.LOCAL;
     return !(symbol.flags.import or symbol.flags.@"export");
 }
 
 pub fn isIFunc(symbol: Symbol, elf_file: *Elf) bool {
-    return symbol.type(elf_file) == elf.STT_GNU_IFUNC;
+    return symbol.type(elf_file) == elf.STT.GNU_IFUNC;
 }
 
-pub fn @"type"(symbol: Symbol, elf_file: *Elf) u4 {
+pub fn @"type"(symbol: Symbol, elf_file: *Elf) elf.STT {
     const esym = symbol.elfSym(elf_file);
     const file_ptr = symbol.file(elf_file).?;
-    if (esym.st_type() == elf.STT_GNU_IFUNC and file_ptr == .shared_object) return elf.STT_FUNC;
-    return esym.st_type();
+    if (esym.info.type == elf.STT.GNU_IFUNC and file_ptr == .shared_object) return elf.STT.FUNC;
+    return esym.info.type;
 }
 
 pub fn name(symbol: Symbol, elf_file: *Elf) [:0]const u8 {
@@ -84,7 +84,7 @@ pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
     return elf_file.file(symbol.file_index);
 }
 
-pub fn elfSym(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
+pub fn elfSym(symbol: Symbol, elf_file: *Elf) elf.Elf64.Sym {
     return switch (symbol.file(elf_file).?) {
         .zig_object => |x| x.symtab.items(.elf_sym)[symbol.esym_index],
         .shared_object => |so| so.parsed.symtab[symbol.esym_index],
@@ -131,12 +131,12 @@ pub fn address(symbol: Symbol, opts: struct { plt: bool = true, trampoline: bool
                 const sh_addr, const sh_size = blk: {
                     const shndx = elf_file.section_indexes.eh_frame orelse break :blk .{ 0, 0 };
                     const shdr = elf_file.sections.items(.shdr)[shndx];
-                    break :blk .{ shdr.sh_addr, shdr.sh_size };
+                    break :blk .{ shdr.addr, shdr.size };
                 };
                 if (mem.startsWith(u8, sym_name, "__EH_FRAME_BEGIN__") or
                     mem.startsWith(u8, sym_name, "__EH_FRAME_LIST__") or
                     mem.startsWith(u8, sym_name, ".eh_frame_seg") or
-                    symbol.elfSym(elf_file).st_type() == elf.STT_SECTION)
+                    symbol.elfSym(elf_file).info.type == elf.STT.SECTION)
                 {
                     return @intCast(sh_addr);
                 }
@@ -179,7 +179,7 @@ pub fn pltGotAddress(symbol: Symbol, elf_file: *Elf) i64 {
     const extras = symbol.extra(elf_file);
     const shdr = elf_file.sections.items(.shdr)[elf_file.section_indexes.plt_got.?];
     const cpu_arch = elf_file.getTarget().cpu.arch;
-    return @intCast(shdr.sh_addr + extras.plt_got * PltGotSection.entrySize(cpu_arch));
+    return @intCast(shdr.addr + extras.plt_got * PltGotSection.entrySize(cpu_arch));
 }
 
 pub fn pltAddress(symbol: Symbol, elf_file: *Elf) i64 {
@@ -187,20 +187,20 @@ pub fn pltAddress(symbol: Symbol, elf_file: *Elf) i64 {
     const extras = symbol.extra(elf_file);
     const shdr = elf_file.sections.items(.shdr)[elf_file.section_indexes.plt.?];
     const cpu_arch = elf_file.getTarget().cpu.arch;
-    return @intCast(shdr.sh_addr + extras.plt * PltSection.entrySize(cpu_arch) + PltSection.preambleSize(cpu_arch));
+    return @intCast(shdr.addr + extras.plt * PltSection.entrySize(cpu_arch) + PltSection.preambleSize(cpu_arch));
 }
 
 pub fn gotPltAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_plt) return 0;
     const extras = symbol.extra(elf_file);
     const shdr = elf_file.sections.items(.shdr)[elf_file.section_indexes.got_plt.?];
-    return @intCast(shdr.sh_addr + extras.plt * 8 + GotPltSection.preamble_size);
+    return @intCast(shdr.addr + extras.plt * 8 + GotPltSection.preamble_size);
 }
 
 pub fn copyRelAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_copy_rel) return 0;
     const shdr = elf_file.sections.items(.shdr)[elf_file.section_indexes.copy_rel.?];
-    return @as(i64, @intCast(shdr.sh_addr)) + symbol.value;
+    return @as(i64, @intCast(shdr.addr)) + symbol.value;
 }
 
 pub fn tlsGdAddress(symbol: Symbol, elf_file: *Elf) i64 {
@@ -236,12 +236,12 @@ pub fn dsoAlignment(symbol: Symbol, elf_file: *Elf) !u64 {
     assert(file_ptr == .shared_object);
     const shared_object = file_ptr.shared_object;
     const esym = symbol.elfSym(elf_file);
-    const shdr = shared_object.parsed.sections[esym.st_shndx];
-    const alignment = @max(1, shdr.sh_addralign);
-    return if (esym.st_value == 0)
+    const shdr = shared_object.parsed.sections[esym.shndx];
+    const alignment = @max(1, shdr.addralign);
+    return if (esym.value == 0)
         alignment
     else
-        @min(alignment, try std.math.powi(u64, 2, @ctz(esym.st_value)));
+        @min(alignment, try std.math.powi(u64, 2, @ctz(esym.value)));
 }
 
 const AddExtraOpts = struct {
@@ -279,48 +279,49 @@ pub fn setExtra(symbol: Symbol, extras: Extra, elf_file: *Elf) void {
     };
 }
 
-pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
+pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64.Sym) void {
     const file_ptr = symbol.file(elf_file).?;
     const esym = symbol.elfSym(elf_file);
     const st_type = symbol.type(elf_file);
-    const st_bind: u8 = blk: {
-        if (symbol.isLocal(elf_file)) break :blk 0;
-        if (symbol.flags.weak) break :blk elf.STB_WEAK;
-        if (file_ptr == .shared_object) break :blk elf.STB_GLOBAL;
-        break :blk esym.st_bind();
+    const st_bind: elf.STB = blk: {
+        if (symbol.isLocal(elf_file)) break :blk .LOCAL;
+        if (symbol.flags.weak) break :blk .WEAK;
+        if (file_ptr == .shared_object) break :blk .GLOBAL;
+        break :blk esym.info.bind;
     };
     const st_shndx: u16 = blk: {
         if (symbol.flags.has_copy_rel) break :blk @intCast(elf_file.section_indexes.copy_rel.?);
-        if (file_ptr == .shared_object or esym.st_shndx == elf.SHN_UNDEF) break :blk elf.SHN_UNDEF;
-        if (elf_file.base.isRelocatable() and esym.st_shndx == elf.SHN_COMMON) break :blk elf.SHN_COMMON;
+        if (file_ptr == .shared_object or esym.shndx == elf.SHN_UNDEF) break :blk elf.SHN_UNDEF;
+        if (elf_file.base.isRelocatable() and esym.shndx == elf.SHN_COMMON) break :blk elf.SHN_COMMON;
         if (symbol.mergeSubsection(elf_file)) |msub| break :blk @intCast(msub.mergeSection(elf_file).output_section_index);
         if (symbol.atom(elf_file) == null and file_ptr != .linker_defined) break :blk elf.SHN_ABS;
         break :blk @intCast(symbol.outputShndx(elf_file) orelse elf.SHN_UNDEF);
     };
     const st_value = blk: {
         if (symbol.flags.has_copy_rel) break :blk symbol.address(.{}, elf_file);
-        if (file_ptr == .shared_object or esym.st_shndx == elf.SHN_UNDEF) {
+        if (file_ptr == .shared_object or esym.shndx == elf.SHN_UNDEF) {
             if (symbol.flags.is_canonical) break :blk symbol.address(.{}, elf_file);
             break :blk 0;
         }
         if (st_shndx == elf.SHN_ABS or st_shndx == elf.SHN_COMMON) break :blk symbol.address(.{ .plt = false }, elf_file);
         const shdr = elf_file.sections.items(.shdr)[st_shndx];
-        if (shdr.sh_flags & elf.SHF_TLS != 0 and file_ptr != .linker_defined)
+        if (shdr.flags.shf.TLS and file_ptr != .linker_defined)
             break :blk symbol.address(.{ .plt = false }, elf_file) - elf_file.tlsAddress();
         break :blk symbol.address(.{ .plt = false, .trampoline = false }, elf_file);
     };
-    const st_other = blk: {
-        const vis = @as(elf.STV, @fromBackingInt(@intCast(@as(u3, @truncate(esym.st_other)))));
-        if (file_ptr != .shared_object or vis != elf.STV.PROTECTED) break :blk esym.st_other;
+    const st_other: elf.Elf64.Sym.Other = blk: {
+        if (file_ptr != .shared_object or esym.other.visibility != elf.STV.PROTECTED) break :blk esym.other;
         // Reset protected visibility to default for symbols originating in shared objects
-        break :blk esym.st_other & 0b11111000;
+        var other = esym.other;
+        other.visibility = .DEFAULT;
+        break :blk other;
     };
 
-    out.st_info = (st_bind << 4) | st_type;
-    out.st_other = st_other;
-    out.st_shndx = st_shndx;
-    out.st_value = @intCast(st_value);
-    out.st_size = esym.st_size;
+    out.info = .{ .bind = st_bind, .type = st_type };
+    out.other = st_other;
+    out.shndx = st_shndx;
+    out.value = @intCast(st_value);
+    out.size = esym.size;
 }
 
 const Format = struct {
@@ -352,7 +353,7 @@ const Format = struct {
         });
         if (symbol.file(elf_file)) |file_ptr| {
             if (symbol.isAbs(elf_file)) {
-                if (symbol.elfSym(elf_file).st_shndx == elf.SHN_UNDEF) {
+                if (symbol.elfSym(elf_file).shndx == elf.SHN_UNDEF) {
                     try writer.writeAll(" : undef");
                 } else {
                     try writer.writeAll(" : absolute");

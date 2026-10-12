@@ -58,15 +58,15 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const lo_r_type: u32 = @backingInt(std.elf.R_RISCV.LO12_I);
 
                     try atom_ptr.addReloc(gpa, .{
-                        .r_offset = start_offset,
-                        .r_info = (@as(u64, @backingInt(symbol.sym_index)) << 32) | hi_r_type,
-                        .r_addend = 0,
+                        .offset = start_offset,
+                        .info = .{ .type = hi_r_type, .sym = @intCast(@backingInt(symbol.sym_index)) },
+                        .addend = 0,
                     }, zo);
 
                     try atom_ptr.addReloc(gpa, .{
-                        .r_offset = start_offset + 4,
-                        .r_info = (@as(u64, @backingInt(symbol.sym_index)) << 32) | lo_r_type,
-                        .r_addend = 0,
+                        .offset = start_offset + 4,
+                        .info = .{ .type = lo_r_type, .sym = @intCast(@backingInt(symbol.sym_index)) },
+                        .addend = 0,
                     }, zo);
                 },
                 .load_tlv_reloc => |symbol| {
@@ -78,21 +78,21 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const R_RISCV = std.elf.R_RISCV;
 
                     try atom_ptr.addReloc(gpa, .{
-                        .r_offset = start_offset,
-                        .r_info = (@as(u64, @backingInt(symbol.sym_index)) << 32) | @backingInt(R_RISCV.TPREL_HI20),
-                        .r_addend = 0,
+                        .offset = start_offset,
+                        .info = .{ .type = @intCast(@backingInt(R_RISCV.TPREL_HI20)), .sym = @intCast(@backingInt(symbol.sym_index)) },
+                        .addend = 0,
                     }, zo);
 
                     try atom_ptr.addReloc(gpa, .{
-                        .r_offset = start_offset + 4,
-                        .r_info = (@as(u64, @backingInt(symbol.sym_index)) << 32) | @backingInt(R_RISCV.TPREL_ADD),
-                        .r_addend = 0,
+                        .offset = start_offset + 4,
+                        .info = .{ .type = @intCast(@backingInt(R_RISCV.TPREL_ADD)), .sym = @intCast(@backingInt(symbol.sym_index)) },
+                        .addend = 0,
                     }, zo);
 
                     try atom_ptr.addReloc(gpa, .{
-                        .r_offset = start_offset + 8,
-                        .r_info = (@as(u64, @backingInt(symbol.sym_index)) << 32) | @backingInt(R_RISCV.TPREL_LO12_I),
-                        .r_addend = 0,
+                        .offset = start_offset + 8,
+                        .info = .{ .type = @intCast(@backingInt(R_RISCV.TPREL_LO12_I)), .sym = @intCast(@backingInt(symbol.sym_index)) },
+                        .addend = 0,
                     }, zo);
                 },
                 .call_extern_fn_reloc => |symbol| {
@@ -103,9 +103,9 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const r_type: u32 = @backingInt(std.elf.R_RISCV.CALL_PLT);
 
                     try atom_ptr.addReloc(gpa, .{
-                        .r_offset = start_offset,
-                        .r_info = (@as(u64, @backingInt(symbol.sym_index)) << 32) | r_type,
-                        .r_addend = 0,
+                        .offset = start_offset,
+                        .info = .{ .type = r_type, .sym = @intCast(@backingInt(symbol.sym_index)) },
+                        .addend = 0,
                     }, zo);
                 },
             };

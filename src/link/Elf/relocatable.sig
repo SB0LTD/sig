@@ -242,11 +242,11 @@ fn initSections(elf_file: *Elf) !void {
             elf_file.section_indexes.eh_frame = elf_file.sectionByName(".eh_frame") orelse
                 try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".eh_frame"),
-                    .type = if (elf_file.getTarget().cpu.arch == .x86_64)
-                        elf.SHT_X86_64_UNWIND
+                    .type = @intFromEnum(if (elf_file.getTarget().cpu.arch == .x86_64)
+                        elf.SHT.X86_64_UNWIND
                     else
-                        elf.SHT_PROGBITS,
-                    .flags = elf.SHF_ALLOC,
+                        elf.SHT.PROGBITS),
+                    .flags = @as(u64, @as(elf.Word, @bitCast(elf.SHF{ .ALLOC = true }))),
                     .addralign = elf_file.ptrWidthBytes(),
                 });
         }
@@ -273,7 +273,7 @@ fn initGroups(elf_file: *Elf) !void {
             cg_sec.* = .{
                 .shndx = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".group"),
-                    .type = elf.SHT_GROUP,
+                    .type = @intFromEnum(elf.SHT.GROUP),
                     .entsize = @sizeOf(u32),
                     .addralign = @alignOf(u32),
                 }),
@@ -295,24 +295,24 @@ fn updateSectionSizes(elf_file: *Elf) !void {
 
     for (slice.items(.shdr), 0..) |*shdr, shndx| {
         const atom_list = slice.items(.atom_list)[shndx];
-        if (shdr.sh_type != elf.SHT_RELA) continue;
+        if (shdr.type != .RELA) continue;
         if (@as(u32, @intCast(shndx)) == elf_file.section_indexes.eh_frame) continue;
         for (atom_list.items) |ref| {
             const atom_ptr = elf_file.atom(ref) orelse continue;
             if (!atom_ptr.alive) continue;
             const relocs = atom_ptr.relocs(elf_file);
-            shdr.sh_size += shdr.sh_entsize * relocs.len;
+            shdr.size += shdr.entsize * relocs.len;
         }
 
-        if (shdr.sh_size == 0) shdr.sh_offset = 0;
+        if (shdr.size == 0) shdr.offset = 0;
     }
 
     if (elf_file.section_indexes.eh_frame) |index| {
-        slice.items(.shdr)[index].sh_size = try eh_frame.calcEhFrameSize(elf_file);
+        slice.items(.shdr)[index].size = try eh_frame.calcEhFrameSize(elf_file);
     }
     if (elf_file.section_indexes.eh_frame_rela) |index| {
         const shdr = &slice.items(.shdr)[index];
-        shdr.sh_size = eh_frame.calcEhFrameRelocs(elf_file) * shdr.sh_entsize;
+        shdr.size = eh_frame.calcEhFrameRelocs(elf_file) * shdr.entsize;
     }
 
     try elf_file.updateSymtabSize();
@@ -323,41 +323,41 @@ fn updateSectionSizes(elf_file: *Elf) !void {
 fn updateGroupsSizes(elf_file: *Elf) void {
     for (elf_file.group_sections.items) |cg| {
         const shdr = &elf_file.sections.items(.shdr)[cg.shndx];
-        shdr.sh_size = cg.size(elf_file);
-        shdr.sh_link = elf_file.section_indexes.symtab.?;
+        shdr.size = cg.size(elf_file);
+        shdr.link = elf_file.section_indexes.symtab.?;
 
         const sym = cg.symbol(elf_file);
-        shdr.sh_info = sym.outputSymtabIndex(elf_file) orelse sym.outputShndx(elf_file).?;
+        shdr.info = sym.outputSymtabIndex(elf_file) orelse sym.outputShndx(elf_file).?;
     }
 }
 
 /// Allocates alloc sections when merging relocatable objects files together.
 fn allocateAllocSections(elf_file: *Elf) !void {
     for (elf_file.sections.items(.shdr), 0..) |*shdr, shndx| {
-        if (shdr.sh_type == elf.SHT_NULL) continue;
-        if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
-        if (shdr.sh_type == elf.SHT_NOBITS) {
-            shdr.sh_offset = 0;
+        if (shdr.type == .NULL) continue;
+        if (!shdr.flags.shf.ALLOC) continue;
+        if (shdr.type == .NOBITS) {
+            shdr.offset = 0;
             continue;
         }
-        const needed_size = shdr.sh_size;
-        if (needed_size > elf_file.allocatedSize(shdr.sh_offset)) {
-            shdr.sh_size = 0;
-            const new_offset = try elf_file.findFreeSpace(needed_size, shdr.sh_addralign);
+        const needed_size = shdr.size;
+        if (needed_size > elf_file.allocatedSize(shdr.offset)) {
+            shdr.size = 0;
+            const new_offset = try elf_file.findFreeSpace(needed_size, shdr.addralign);
 
             log.debug("moving {s} from 0x{x} to 0x{x}", .{
-                elf_file.getShString(shdr.sh_name),
-                shdr.sh_offset,
+                elf_file.getShString(shdr.name),
+                shdr.offset,
                 new_offset,
             });
 
-            if (shdr.sh_offset > 0) {
+            if (shdr.offset > 0) {
                 const existing_size = elf_file.sectionSize(@intCast(shndx));
-                try elf_file.base.copyRangeAll(shdr.sh_offset, new_offset, existing_size);
+                try elf_file.base.copyRangeAll(shdr.offset, new_offset, existing_size);
             }
 
-            shdr.sh_offset = new_offset;
-            shdr.sh_size = needed_size;
+            shdr.offset = new_offset;
+            shdr.size = needed_size;
         }
     }
 }
@@ -370,7 +370,7 @@ fn writeAtoms(elf_file: *Elf) !void {
 
     const slice = elf_file.sections.slice();
     for (slice.items(.shdr), slice.items(.atom_list_2)) |shdr, atom_list| {
-        if (shdr.sh_type == elf.SHT_NOBITS) continue;
+        if (shdr.type == .NOBITS) continue;
         if (atom_list.atoms.keys().len == 0) continue;
         try atom_list.writeRelocatable(&buffer, elf_file);
     }
@@ -383,20 +383,20 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
     const slice = elf_file.sections.slice();
 
     const SortRelocs = struct {
-        pub fn lessThan(ctx: void, lhs: elf.Elf64_Rela, rhs: elf.Elf64_Rela) bool {
+        pub fn lessThan(ctx: void, lhs: elf.Elf64.Rela, rhs: elf.Elf64.Rela) bool {
             _ = ctx;
-            return lhs.r_offset < rhs.r_offset;
+            return lhs.offset < rhs.offset;
         }
     };
 
     for (slice.items(.shdr), slice.items(.atom_list), 0..) |shdr, atom_list, shndx| {
-        if (shdr.sh_type != elf.SHT_RELA) continue;
+        if (shdr.type != .RELA) continue;
         if (atom_list.items.len == 0) continue;
         if (@as(u32, @intCast(shndx)) == elf_file.section_indexes.eh_frame) continue;
 
-        const num_relocs = math.cast(usize, @divExact(shdr.sh_size, shdr.sh_entsize)) orelse
+        const num_relocs = math.cast(usize, @divExact(shdr.size, shdr.entsize)) orelse
             return error.Overflow;
-        var relocs = try std.array_list.Managed(elf.Elf64_Rela).initCapacity(gpa, num_relocs);
+        var relocs = try std.array_list.Managed(elf.Elf64.Rela).initCapacity(gpa, num_relocs);
         defer relocs.deinit();
 
         for (atom_list.items) |ref| {
@@ -407,15 +407,15 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
         assert(relocs.items.len == num_relocs);
         // Sort output relocations by r_offset which is usually an expected (and desired) condition
         // by the linkers.
-        mem.sortUnstable(elf.Elf64_Rela, relocs.items, {}, SortRelocs.lessThan);
+        mem.sortUnstable(elf.Elf64.Rela, relocs.items, {}, SortRelocs.lessThan);
 
         log.debug("writing {s} from 0x{x} to 0x{x}", .{
-            elf_file.getShString(shdr.sh_name),
-            shdr.sh_offset,
-            shdr.sh_offset + shdr.sh_size,
+            elf_file.getShString(shdr.name),
+            shdr.offset,
+            shdr.offset + shdr.size,
         });
 
-        try elf_file.base.file.?.writePositionalAll(io, @ptrCast(relocs.items), shdr.sh_offset);
+        try elf_file.base.file.?.writePositionalAll(io, @ptrCast(relocs.items), shdr.offset);
     }
 
     if (elf_file.section_indexes.eh_frame) |shndx| {
@@ -425,35 +425,35 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
             break :existing_size sym.atom(elf_file).?.size;
         };
         const shdr = slice.items(.shdr)[shndx];
-        const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
+        const sh_size = math.cast(usize, shdr.size) orelse return error.Overflow;
         const buffer = try gpa.alloc(u8, @intCast(sh_size - existing_size));
         defer gpa.free(buffer);
         var writer: std.Io.Writer = .fixed(buffer);
         try eh_frame.writeEhFrameRelocatable(elf_file, &writer);
         log.debug("writing .eh_frame from 0x{x} to 0x{x}", .{
-            shdr.sh_offset + existing_size,
-            shdr.sh_offset + sh_size,
+            shdr.offset + existing_size,
+            shdr.offset + sh_size,
         });
         assert(writer.buffered().len == sh_size - existing_size);
-        try elf_file.base.file.?.writePositionalAll(io, writer.buffered(), shdr.sh_offset + existing_size);
+        try elf_file.base.file.?.writePositionalAll(io, writer.buffered(), shdr.offset + existing_size);
     }
     if (elf_file.section_indexes.eh_frame_rela) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        const num_relocs = math.cast(usize, @divExact(shdr.sh_size, shdr.sh_entsize)) orelse
+        const num_relocs = math.cast(usize, @divExact(shdr.size, shdr.entsize)) orelse
             return error.Overflow;
-        var relocs = try std.array_list.Managed(elf.Elf64_Rela).initCapacity(gpa, num_relocs);
+        var relocs = try std.array_list.Managed(elf.Elf64.Rela).initCapacity(gpa, num_relocs);
         defer relocs.deinit();
         try eh_frame.writeEhFrameRelocs(elf_file, &relocs);
         assert(relocs.items.len == num_relocs);
         // Sort output relocations by r_offset which is usually an expected (and desired) condition
         // by the linkers.
-        mem.sortUnstable(elf.Elf64_Rela, relocs.items, {}, SortRelocs.lessThan);
+        mem.sortUnstable(elf.Elf64.Rela, relocs.items, {}, SortRelocs.lessThan);
 
         log.debug("writing .rela.eh_frame from 0x{x} to 0x{x}", .{
-            shdr.sh_offset,
-            shdr.sh_offset + shdr.sh_size,
+            shdr.offset,
+            shdr.offset + shdr.size,
         });
-        try elf_file.base.file.?.writePositionalAll(io, @ptrCast(relocs.items), shdr.sh_offset);
+        try elf_file.base.file.?.writePositionalAll(io, @ptrCast(relocs.items), shdr.offset);
     }
 
     try writeGroups(elf_file);
@@ -467,16 +467,16 @@ fn writeGroups(elf_file: *Elf) !void {
     const gpa = comp.gpa;
     for (elf_file.group_sections.items) |cgs| {
         const shdr = elf_file.sections.items(.shdr)[cgs.shndx];
-        const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
+        const sh_size = math.cast(usize, shdr.size) orelse return error.Overflow;
         const buffer = try gpa.alloc(u8, sh_size);
         defer gpa.free(buffer);
         var writer: std.Io.Writer = .fixed(buffer);
         try cgs.write(elf_file, &writer);
         assert(writer.buffered().len == sh_size);
         log.debug("writing group from 0x{x} to 0x{x}", .{
-            shdr.sh_offset,
-            shdr.sh_offset + shdr.sh_size,
+            shdr.offset,
+            shdr.offset + shdr.size,
         });
-        try elf_file.base.file.?.writePositionalAll(io, writer.buffered(), shdr.sh_offset);
+        try elf_file.base.file.?.writePositionalAll(io, writer.buffered(), shdr.offset);
     }
 }

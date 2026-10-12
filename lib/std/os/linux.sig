@@ -991,9 +991,9 @@ fn getauxvalImpl(index: usize) callconv(.c) usize {
     @disableInstrumentation();
     const auxv = elf_aux_maybe orelse return 0;
     var i: usize = 0;
-    while (auxv[i].a_type != std.elf.AT.NULL) : (i += 1) {
-        if (auxv[i].a_type == index)
-            return auxv[i].a_un.a_val;
+    while (auxv[i].type != std.elf.AT.NULL) : (i += 1) {
+        if (auxv[i].type == index)
+            return auxv[i].un.val;
     }
     return 0;
 }
