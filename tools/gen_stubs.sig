@@ -248,8 +248,8 @@ const MultiSym = struct {
             const arch: Arch = @fromBackingInt(@intCast(field_value));
             const arch_index = archIndex(arch);
             const binding: u4 = switch (arch.ptrSize()) {
-                4 => std.elf.STB_GLOBAL,
-                8 => std.elf.STB_WEAK,
+                4 => @intFromEnum(elf.STB.GLOBAL),
+                8 => @intFromEnum(elf.STB.WEAK),
                 else => unreachable,
             };
             if (ms.present[arch_index] and ms.binding[arch_index] != binding) {
@@ -263,7 +263,7 @@ const MultiSym = struct {
         inline for (@typeInfo(Arch).@"enum".field_values) |field_value| {
             const arch: Arch = @fromBackingInt(@intCast(field_value));
             const arch_index = archIndex(arch);
-            const binding: u4 = if (arch.isTime32()) std.elf.STB_GLOBAL else std.elf.STB_WEAK;
+            const binding: u4 = if (arch.isTime32()) @intFromEnum(elf.STB.GLOBAL) else @intFromEnum(elf.STB.WEAK);
             if (ms.present[arch_index] and ms.binding[arch_index] != binding) {
                 return false;
             }
@@ -276,7 +276,7 @@ const Parse = struct {
     arena: mem.Allocator,
     sym_table: *std.array_hash_map.String(MultiSym),
     sections: *std.array_hash_map.String(void),
-    elf_bytes: []align(@alignOf(elf.Elf64_Ehdr)) u8,
+    elf_bytes: []align(@alignOf(elf.Elf64.Ehdr)) u8,
     header: elf.Header,
     arch: Arch,
 };
@@ -301,7 +301,7 @@ pub fn main(init: std.process.Init) !void {
             libc_so_path,
             arena,
             .limited(100 * 1024 * 1024),
-            .of(elf.Elf64_Ehdr),
+            .of(elf.Elf64.Ehdr),
             null,
         ) catch |err| {
             std.debug.panic("unable to read '{s}/{s}': {t}", .{ build_all_path, libc_so_path, err });
@@ -473,10 +473,10 @@ pub fn main(init: std.process.Init) !void {
 
         if (multi_sym.commonBinding()) |binding| {
             switch (binding) {
-                elf.STB_GLOBAL => {
+                @intFromEnum(elf.STB.GLOBAL) => {
                     try stdout.print(".globl {s}\n", .{name});
                 },
-                elf.STB_WEAK => {
+                @intFromEnum(elf.STB.WEAK) => {
                     try stdout.print(".weak {s}\n", .{name});
                 },
                 else => unreachable,
@@ -494,12 +494,12 @@ pub fn main(init: std.process.Init) !void {
         }
 
         switch (multi_sym.ty) {
-            elf.STT_NOTYPE => {},
-            elf.STT_FUNC => {
+            @intFromEnum(elf.STT.NOTYPE) => {},
+            @intFromEnum(elf.STT.FUNC) => {
                 try stdout.print(".type {s}, %function;\n", .{name});
                 // omitting the size is OK for functions
             },
-            elf.STT_OBJECT => {
+            @intFromEnum(elf.STT.OBJECT) => {
                 try stdout.print(".type {s}, %object;\n", .{name});
                 if (multi_sym.commonSize()) |size| {
                     try stdout.print(".size {s}, {d}\n", .{ name, size });
@@ -540,7 +540,7 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: std.builtin.End
     const arena = parse.arena;
     const elf_bytes = parse.elf_bytes;
     const header = parse.header;
-    const Sym = if (is_64) elf.Elf64_Sym else elf.Elf32_Sym;
+    const Sym = if (is_64) elf.Elf64.Sym else elf.Elf32.Sym;
     const S = struct {
         fn endianSwap(x: anytype) @TypeOf(x) {
             if (endian != native_endian) {
@@ -550,18 +550,18 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: std.builtin.End
             }
         }
         fn symbolAddrLessThan(_: void, lhs: Sym, rhs: Sym) bool {
-            return endianSwap(lhs.st_value) < endianSwap(rhs.st_value);
+            return endianSwap(lhs.value) < endianSwap(rhs.value);
         }
     };
     // A little helper to do endian swapping.
     const s = S.endianSwap;
 
     // Obtain list of sections.
-    const Shdr = if (is_64) elf.Elf64_Shdr else elf.Elf32_Shdr;
+    const Shdr = if (is_64) elf.Elf64.Shdr else elf.Elf32.Shdr;
     const shdrs = mem.bytesAsSlice(Shdr, elf_bytes[header.shoff..])[0..header.shnum];
 
     // Obtain the section header string table.
-    const shstrtab_offset = s(shdrs[header.shstrndx].sh_offset);
+    const shstrtab_offset = s(shdrs[header.shstrndx].offset);
     log.debug("shstrtab is at offset {d}", .{shstrtab_offset});
     const shstrtab = elf_bytes[shstrtab_offset..];
 
@@ -571,7 +571,7 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: std.builtin.End
     // Find the offset of the dynamic symbol table.
     var dynsym_index: u16 = 0;
     for (shdrs, 0..) |shdr, i| {
-        const sh_name = try arena.dupe(u8, mem.sliceTo(shstrtab[s(shdr.sh_name)..], 0));
+        const sh_name = try arena.dupe(u8, mem.sliceTo(shstrtab[s(shdr.name)..], 0));
         log.debug("found section: {s}", .{sh_name});
         if (mem.eql(u8, sh_name, ".dynsym")) {
             dynsym_index = @as(u16, @intCast(i));
@@ -584,11 +584,11 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: std.builtin.End
     log.debug("found .dynsym section at index {d}", .{dynsym_index});
 
     // Read the dynamic symbols into a list.
-    const dyn_syms_off = s(shdrs[dynsym_index].sh_offset);
-    const dyn_syms_size = s(shdrs[dynsym_index].sh_size);
+    const dyn_syms_off = s(shdrs[dynsym_index].offset);
+    const dyn_syms_size = s(shdrs[dynsym_index].size);
     const dyn_syms = mem.bytesAsSlice(Sym, elf_bytes[dyn_syms_off..][0..dyn_syms_size]);
 
-    const dynstr_offset = s(shdrs[s(shdrs[dynsym_index].sh_link)].sh_offset);
+    const dynstr_offset = s(shdrs[s(shdrs[dynsym_index].link)].offset);
     const dynstr = elf_bytes[dynstr_offset..];
 
     // Sort the list by address, ascending.
@@ -601,18 +601,18 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: std.builtin.End
     mem.sort(Sym, copied_dyn_syms, {}, S.symbolAddrLessThan);
 
     for (copied_dyn_syms) |sym| {
-        const this_section = s(sym.st_shndx);
-        const name = try arena.dupe(u8, mem.sliceTo(dynstr[s(sym.st_name)..], 0));
-        const ty = @as(u4, @truncate(sym.st_info));
-        const binding = @as(u4, @truncate(sym.st_info >> 4));
-        const visib = @as(elf.STV, @fromBackingInt(@intCast(@as(u3, @truncate(sym.st_other)))));
-        const size = s(sym.st_size);
+        const this_section = s(sym.shndx);
+        const name = try arena.dupe(u8, mem.sliceTo(dynstr[s(sym.name)..], 0));
+        const ty: u4 = @intFromEnum(sym.info.type);
+        const binding: u4 = @intFromEnum(sym.info.bind);
+        const visib = sym.other.visibility;
+        const size = s(sym.size);
 
         if (size == 0) {
             log.warn("{s}: symbol '{s}' has size 0", .{ @tagName(parse.arch), name });
         }
 
-        if (sym.st_shndx == elf.SHN_UNDEF) {
+        if (sym.shndx == elf.SHN_UNDEF) {
             log.debug("{s}: skipping '{s}' due to it being undefined", .{
                 @tagName(parse.arch), name,
             });
@@ -620,7 +620,7 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: std.builtin.End
         }
 
         switch (binding) {
-            elf.STB_GLOBAL, elf.STB_WEAK => {},
+            @intFromEnum(elf.STB.GLOBAL), @intFromEnum(elf.STB.WEAK) => {},
             else => {
                 log.debug("{s}: skipping '{s}' due to it having binding '{d}'", .{
                     @tagName(parse.arch), name, binding,
@@ -630,7 +630,7 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: std.builtin.End
         }
 
         switch (ty) {
-            elf.STT_NOTYPE, elf.STT_FUNC, elf.STT_OBJECT => {},
+            @intFromEnum(elf.STT.NOTYPE), @intFromEnum(elf.STT.FUNC), @intFromEnum(elf.STT.OBJECT) => {},
             else => {
                 log.debug("{s}: skipping '{s}' due to it having type '{d}'", .{
                     @tagName(parse.arch), name, ty,
@@ -652,7 +652,7 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: std.builtin.End
         const gop = try parse.sym_table.getOrPut(arena, name);
         if (gop.found_existing) {
             if (gop.value_ptr.section != section_index_map[this_section]) {
-                const sh_name = mem.sliceTo(shstrtab[s(shdrs[this_section].sh_name)..], 0);
+                const sh_name = mem.sliceTo(shstrtab[s(shdrs[this_section].name)..], 0);
                 fatal("symbol '{s}' in arch {s} is in section {s} but in arch {s} is in section {s}", .{
                     name,
                     @tagName(parse.arch),
@@ -662,7 +662,7 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: std.builtin.End
                 });
             }
             if (gop.value_ptr.ty != ty) blk: {
-                if (ty == elf.STT_NOTYPE) {
+                if (ty == @intFromEnum(elf.STT.NOTYPE)) {
                     log.warn("symbol '{s}' in arch {s} has type {d} but in arch {s} has type {d}. going with the one that is not STT_NOTYPE", .{
                         name,
                         @tagName(parse.arch),
@@ -672,7 +672,7 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: std.builtin.End
                     });
                     break :blk;
                 }
-                if (gop.value_ptr.ty == elf.STT_NOTYPE) {
+                if (gop.value_ptr.ty == @intFromEnum(elf.STT.NOTYPE)) {
                     log.warn("symbol '{s}' in arch {s} has type {d} but in arch {s} has type {d}. going with the one that is not STT_NOTYPE", .{
                         name,
                         @tagName(parse.arch),
