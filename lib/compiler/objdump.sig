@@ -1359,10 +1359,62 @@ const disasm = struct {
         return std.enums.tagName(std.elf.EM, m) orelse "unknown";
     }
 
+    /// Decode ONE contiguous code blob and render it: print the per-pc symbol
+    /// and entrypoint banners, then run the decodeOne cursor loop. `base` is the
+    /// vaddr of `codebytes[0]`. Shared by the section path and the segment
+    /// fallback so both annotate and format identically. `name` is a section
+    /// name (section path) or a synthesized "segmentN" label (segment path);
+    /// it is printed as the blob header when header-name elements are enabled.
+    fn decodeBlob(
+        d: *const DumpContext,
+        ann: *const Annotator,
+        syms: []const SymName,
+        name: []const u8,
+        base: u64,
+        codebytes: []const u8,
+    ) !void {
+        const w = d.w;
+
+        if (d.element(.@"header-name")) try w.print("{s}:\n", .{name});
+
+        var cursor: usize = 0;
+        while (cursor < codebytes.len) {
+            const pc = base + cursor;
+
+            // Section/symbol/entry banner when a symbol starts here.
+            for (syms) |s| {
+                if (s.value == pc and s.name.len != 0) {
+                    try w.print("{f} <{s}>:\n", .{ coff.fmtIntField(d, pc, .{ .kind = .va }), s.name });
+                    break;
+                }
+            }
+            if (pc == MM_PROGRAM_START and d.element(.@"header-name"))
+                try w.writeAll("; entrypoint\n");
+
+            // Address + raw-byte prefix.
+            try w.print("  {f}:  ", .{coff.fmtIntField(d, pc, .{ .kind = .va })});
+
+            const stride = decodeOne(codebytes[cursor..], pc, ann, w) catch |err| switch (err) {
+                error.ParseFailure => {
+                    try w.writeByte('\n');
+                    // Short/undecodable tail already rendered; stop this blob.
+                    break;
+                },
+                else => |e| return e,
+            };
+            try w.writeByte('\n');
+            cursor += stride;
+        }
+        if (d.element(.newlines)) try w.writeByte('\n');
+    }
+
     /// Drive disassembly for the ELF path. SINGLE Annotator construction site:
     /// pairs the FEAT-002 value->name symbol table with the comptime syscall
-    /// table and the header machine, then walks each executable section.
-    /// Non-sBPF machines emit a clear "not implemented" error.
+    /// table and the header machine, then walks each executable section. When
+    /// no executable section is present (section-less sBPF `.so` with
+    /// shnum == 0, per SIMD-0189), falls back to disassembling executable
+    /// PT_LOAD program segments. Non-sBPF machines emit a clear "not
+    /// implemented" error.
     fn run(
         d: *const DumpContext,
         hdr: *const std.elf.Header,
@@ -1394,20 +1446,79 @@ const disasm = struct {
             try w.print("Disassembly ({s}):\n", .{elf.sbpfVersionName(e_flags, &vbuf)});
         }
 
+        // --- Source selection (design §3): sections when present, segments
+        // otherwise. Count executable sections first so the fallback only runs
+        // when there is genuinely no section-based code to walk. ---
+        var exec_sections: usize = 0;
         for (sections.items) |shdr| {
-            if (!shdr.flags.shf.EXECINSTR) continue;
-            if (shdr.size == 0) continue;
+            if (shdr.flags.shf.EXECINSTR and shdr.size != 0) exec_sections += 1;
+        }
 
-            const name = elf.sectionName(d, shstrtab, shdr.name);
-            if (!filterMatches(d.opts.section_filters, name)) continue;
+        if (exec_sections != 0) {
+            // Section path (unchanged behavior): walk each executable section.
+            for (sections.items) |shdr| {
+                if (!shdr.flags.shf.EXECINSTR) continue;
+                if (shdr.size == 0) continue;
 
-            // If a specific symbol was requested, only disassemble sections that
-            // contain it (the symbol-range view); otherwise all exec sections.
+                const name = elf.sectionName(d, shstrtab, shdr.name);
+                if (!filterMatches(d.opts.section_filters, name)) continue;
+
+                // If a specific symbol was requested, only disassemble sections
+                // that contain it (the symbol-range view); otherwise all exec
+                // sections.
+                if (d.opts.disassemble_symbol) |want| {
+                    var hit = false;
+                    for (syms) |s| {
+                        if (std.mem.eql(u8, s.name, want) and
+                            s.value >= shdr.addr and s.value < shdr.addr + shdr.size)
+                        {
+                            hit = true;
+                            break;
+                        }
+                    }
+                    if (!hit) continue;
+                }
+
+                // EOF/bounds guard before reading section bytes. Compare against
+                // the remaining space (file_size - offset) so a crafted size
+                // cannot wrap the addition.
+                if (shdr.offset > file_size or shdr.size > file_size - shdr.offset)
+                    d.failParse("section '{s}' bytes out of bounds", .{name});
+
+                try fr.seekTo(shdr.offset);
+                const codebytes = try r.readAlloc(d.gpa, shdr.size);
+                defer d.gpa.free(codebytes);
+
+                try decodeBlob(d, &ann, syms, name, shdr.addr, codebytes);
+            }
+            return;
+        }
+
+        // --- Segment fallback (design §3.2): no executable section (shnum == 0
+        // for section-less sBPF `.so`, or no EXECINSTR section). Reach the code
+        // through executable PT_LOAD program segments instead. ---
+        var it = hdr.iterateProgramHeaders(fr);
+        var seg_index: usize = 0;
+        var decoded_any = false;
+        while (try it.next()) |ph| : (seg_index += 1) {
+            if (ph.type != .LOAD) continue; // PT_LOAD only
+            if (!ph.flags.X) continue; // executable segments only (rodata PF_R skipped)
+            if (ph.filesz == 0) continue; // nothing on disk to decode
+
+            // Bounds guard: offset in-range AND filesz within the remaining
+            // file. Compare against (file_size - offset) so a crafted filesz
+            // cannot wrap the addition. Use filesz (bytes on disk), never memsz
+            // (which may include zero-fill not backed by file bytes).
+            if (ph.offset > file_size or ph.filesz > file_size - ph.offset)
+                d.failParse("segment {d} bytes out of bounds", .{seg_index});
+
+            // --disassemble=<sym> scoping: only decode the segment whose vaddr
+            // range contains the requested symbol (mirrors the section path).
             if (d.opts.disassemble_symbol) |want| {
                 var hit = false;
                 for (syms) |s| {
                     if (std.mem.eql(u8, s.name, want) and
-                        s.value >= shdr.addr and s.value < shdr.addr + shdr.size)
+                        s.value >= ph.vaddr and s.value < ph.vaddr + ph.memsz)
                     {
                         hit = true;
                         break;
@@ -1416,49 +1527,21 @@ const disasm = struct {
                 if (!hit) continue;
             }
 
-            // EOF/bounds guard before reading section bytes. Compare against the
-            // remaining space (file_size - offset) so a crafted size cannot wrap
-            // the addition.
-            if (shdr.offset > file_size or shdr.size > file_size - shdr.offset)
-                d.failParse("section '{s}' bytes out of bounds", .{name});
-
-            try fr.seekTo(shdr.offset);
-            const codebytes = try r.readAlloc(d.gpa, shdr.size);
+            try fr.seekTo(ph.offset);
+            const codebytes = try r.readAlloc(d.gpa, @intCast(ph.filesz));
             defer d.gpa.free(codebytes);
 
-            if (d.element(.@"header-name")) try w.print("{s}:\n", .{name});
+            // Synthesize a stable label (there is no section name without a
+            // shstrtab). Fixed stack buffer, no allocation.
+            var namebuf: [32]u8 = undefined;
+            const name = std.fmt.bufPrint(&namebuf, "segment{d}", .{seg_index}) catch "segment";
 
-            const base = shdr.addr;
-            var cursor: usize = 0;
-            while (cursor < codebytes.len) {
-                const pc = base + cursor;
-
-                // Section/symbol/entry banner when a symbol starts here.
-                for (syms) |s| {
-                    if (s.value == pc and s.name.len != 0) {
-                        try w.print("{f} <{s}>:\n", .{ coff.fmtIntField(d, pc, .{ .kind = .va }), s.name });
-                        break;
-                    }
-                }
-                if (pc == MM_PROGRAM_START and d.element(.@"header-name"))
-                    try w.writeAll("; entrypoint\n");
-
-                // Address + raw-byte prefix.
-                try w.print("  {f}:  ", .{coff.fmtIntField(d, pc, .{ .kind = .va })});
-
-                const stride = decodeOne(codebytes[cursor..], pc, &ann, w) catch |err| switch (err) {
-                    error.ParseFailure => {
-                        try w.writeByte('\n');
-                        // Short/undecodable tail already rendered; stop this section.
-                        break;
-                    },
-                    else => |e| return e,
-                };
-                try w.writeByte('\n');
-                cursor += stride;
-            }
-            if (d.element(.newlines)) try w.writeByte('\n');
+            try decodeBlob(d, &ann, syms, name, ph.vaddr, codebytes);
+            decoded_any = true;
         }
+
+        if (!decoded_any and d.element(.@"header-name"))
+            try w.writeAll("  <no instructions>\n");
     }
 };
 
@@ -3366,4 +3449,78 @@ test "sBPF decodeOne" {
         try std.testing.expectError(error.ParseFailure, disasm.decodeOne(&.{ 0x95, 0x00 }, 0, &ann, &w));
         try expectEqualStrings("<truncated> 95 00", w.buffered());
     }
+}
+
+test "sBPF segment fallback decodeBlob" {
+    // Proves the shared decodeBlob helper (the unit both the section path and the
+    // new PT_LOAD segment fallback funnel through) renders a section-less sBPF
+    // code blob correctly when the base vaddr is MM_PROGRAM_START (0x1_0000_0000),
+    // i.e. the exact base the segment fallback uses for the PF_X PT_LOAD segment:
+    //   - the `; entrypoint` note fires at pc == MM_PROGRAM_START,
+    //   - a `call <imm>` immediate resolves via the Annotator (syscall hash) even
+    //     with an EMPTY symbol table (section-less sBPF `.so` are symbol-stripped),
+    //   - the raw immediate is ALWAYS shown alongside the resolved name,
+    //   - `exit` terminates the blob.
+    // decodeBlob only touches d.w and d.opts (element/redact); it never reads
+    // d.fr or d.gpa, so those are left undefined here.
+    const elements: std.enums.EnumArray(Element, bool) = .initFill(true);
+    const opts: Options = .{
+        .exports = false,
+        .exports_sort = false,
+        .file_headers = false,
+        .imports = false,
+        .input_path = "fixture.so",
+        .member_headers = false,
+        .elements = elements,
+        .redact = .initFill(false),
+        .relocs = false,
+        .section_headers = false,
+        .strings = false,
+        .symbols = false,
+        .tls = false,
+        .program_headers = false,
+        .dynamic = false,
+        .dynamic_relocs = false,
+        .dynamic_symbols = false,
+        .summary = false,
+        .disassemble = true,
+        .disassemble_all = false,
+        .disassemble_symbol = null,
+        .linker_member = null,
+    };
+
+    var buf: [512]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    const d: DumpContext = .{
+        .gpa = undefined,
+        .opts = &opts,
+        .fr = undefined,
+        .w = &w,
+    };
+
+    const ann: disasm.Annotator = .{
+        .syms = &.{},
+        .syscalls = disasm.syscalls,
+        .machine = .BPF,
+    };
+
+    // Hand-encoded, section-less-style instruction stream placed at the PF_X
+    // segment base: mov r1, 0 ; call sol_log_ (hash 0x207559bd) ; exit.
+    const codebytes = [_]u8{
+        0xb7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mov r1, 0x0
+        0x85, 0x00, 0x00, 0x00, 0xbd, 0x59, 0x75, 0x20, // call 0x207559bd <sol_log_>
+        0x95, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // exit
+    };
+
+    try disasm.decodeBlob(&d, &ann, &.{}, "segment1", disasm.MM_PROGRAM_START, &codebytes);
+
+    const out = w.buffered();
+    // Synthesized segment label banner.
+    try std.testing.expect(std.mem.indexOf(u8, out, "segment1:\n") != null);
+    // Entry note at the segment's MM_PROGRAM_START base.
+    try std.testing.expect(std.mem.indexOf(u8, out, "; entrypoint\n") != null);
+    // call immediate shown raw AND annotated with the resolved syscall name.
+    try std.testing.expect(std.mem.indexOf(u8, out, "call 0x207559bd <sol_log_>") != null);
+    // exit renders.
+    try std.testing.expect(std.mem.indexOf(u8, out, "exit") != null);
 }
