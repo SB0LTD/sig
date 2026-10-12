@@ -1300,12 +1300,19 @@ pub const Vernaux = extern struct {
     name: Word,
     next: Word,
 };
+pub const Addr = ElfN.Addr;
+pub const Off = ElfN.Off;
 pub const Auxv = ElfN.Auxv;
 pub const Dyn = ElfN.Dyn;
+pub const Ehdr = ElfN.Ehdr;
+pub const Phdr = ElfN.Phdr;
 pub const Rel = ElfN.Rel;
 pub const Rela = ElfN.Rela;
 pub const Relr = ElfN.Relr;
 pub const Shdr = ElfN.Shdr;
+pub const Sym = ElfN.Sym;
+pub const Chdr = ElfN.Chdr;
+pub const Nhdr = ElfN.Nhdr;
 
 pub const Ident = extern struct {
     magic: [MAGIC.len]u8 = MAGIC.*,
