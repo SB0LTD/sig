@@ -1654,8 +1654,8 @@ fn rewriteElfAsRaw(comp: *Compilation, arena: Allocator, output: Cache.Path) !vo
     var sections = header.iterateSectionHeaders(&reader);
     while (try sections.next()) |section| {
         if (!rawSectionPayload(section)) continue;
-        base_addr = @min(base_addr, section.sh_addr);
-        end_addr = @max(end_addr, std.math.add(u64, section.sh_addr, section.sh_size) catch
+        base_addr = @min(base_addr, section.addr);
+        end_addr = @max(end_addr, std.math.add(u64, section.addr, section.size) catch
             return diags.fail("raw output address range overflows", .{}));
     }
 
@@ -1673,10 +1673,10 @@ fn rewriteElfAsRaw(comp: *Compilation, arena: Allocator, output: Cache.Path) !vo
     sections = header.iterateSectionHeaders(&reader);
     while (try sections.next()) |section| {
         if (!rawSectionPayload(section)) continue;
-        const output_offset: usize = @intCast(section.sh_addr - base_addr);
-        const section_size: usize = @intCast(section.sh_size);
+        const output_offset: usize = @intCast(section.addr - base_addr);
+        const section_size: usize = @intCast(section.size);
         const destination = image[output_offset..][0..section_size];
-        const amount = output_file.readPositionalAll(io, destination, section.sh_offset) catch |err|
+        const amount = output_file.readPositionalAll(io, destination, section.offset) catch |err|
             return diags.fail("failed to read linked section for raw output: {t}", .{err});
         if (amount != section_size) {
             return diags.fail("short read while producing raw output: expected {d} bytes, found {d}", .{
@@ -1692,11 +1692,11 @@ fn rewriteElfAsRaw(comp: *Compilation, arena: Allocator, output: Cache.Path) !vo
         return diags.fail("failed to set raw output length: {t}", .{err});
 }
 
-fn rawSectionPayload(section: std.elf.Elf64_Shdr) bool {
-    return section.sh_type != std.elf.SHT_NULL and
-        section.sh_type != std.elf.SHT_NOBITS and
-        section.sh_size != 0 and
-        section.sh_flags & std.elf.SHF_ALLOC != 0;
+fn rawSectionPayload(section: std.elf.Elf64.Shdr) bool {
+    return section.type != .NULL and
+        section.type != .NOBITS and
+        section.size != 0 and
+        section.flags.shf.ALLOC;
 }
 
 fn spawnLld(comp: *Compilation, arena: Allocator, argv: []const []const u8) !void {

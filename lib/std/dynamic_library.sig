@@ -93,8 +93,8 @@ const RDebug = extern struct {
 };
 
 /// TODO fix comparisons of extern symbol pointers so we don't need this helper function.
-pub fn get_DYNAMIC() ?[*]const elf.Dyn {
-    return @extern([*]const elf.Dyn, .{
+pub fn get_DYNAMIC() ?[*]const elf.ElfN.Dyn {
+    return @extern([*]const elf.ElfN.Dyn, .{
         .name = "_DYNAMIC",
         .linkage = .weak,
         .visibility = .hidden,
@@ -109,17 +109,17 @@ pub fn linkmap_iterator() error{InvalidExe}!LinkMap.Iterator {
 
     const link_map_ptr = init: {
         var i: usize = 0;
-        while (_DYNAMIC[i].d_tag != elf.DT_NULL) : (i += 1) {
-            switch (_DYNAMIC[i].d_tag) {
+        while (_DYNAMIC[i].tag != elf.DT_NULL) : (i += 1) {
+            switch (_DYNAMIC[i].tag) {
                 elf.DT_DEBUG => {
-                    const ptr = @as(?*RDebug, @ptrFromInt(_DYNAMIC[i].d_val));
+                    const ptr = @as(?*RDebug, @ptrFromInt(_DYNAMIC[i].val));
                     if (ptr) |r_debug| {
                         if (r_debug.version != 1) return error.InvalidExe;
                         break :init r_debug.map;
                     }
                 },
                 elf.DT_PLTGOT => {
-                    const ptr = @as(?[*]usize, @ptrFromInt(_DYNAMIC[i].d_val));
+                    const ptr = @as(?[*]usize, @ptrFromInt(_DYNAMIC[i].val));
                     if (ptr) |got_table| {
                         // The address to the link_map structure is stored in
                         // the second slot
@@ -151,7 +151,7 @@ const ElfDynLibError = error{
 
 pub const ElfDynLib = struct {
     strings: [*:0]u8,
-    syms: [*]elf.Sym,
+    syms: [*]elf.ElfN.Sym,
     hash_table: HashTable,
     versym: ?[*]elf.Versym,
     verdef: ?*elf.Verdef,
@@ -244,9 +244,9 @@ pub const ElfDynLib = struct {
         );
         defer posix.munmap(file_bytes);
 
-        const eh = @as(*elf.Ehdr, @ptrCast(file_bytes.ptr));
-        if (!mem.eql(u8, eh.e_ident[0..4], elf.MAGIC)) return error.NotElfFile;
-        if (eh.e_type != elf.ET.DYN) return error.NotDynamicLibrary;
+        const eh = @as(*elf.ElfN.Ehdr, @ptrCast(file_bytes.ptr));
+        if (!mem.eql(u8, eh.ident.magic[0..], elf.MAGIC)) return error.NotElfFile;
+        if (eh.type != elf.ET.DYN) return error.NotDynamicLibrary;
 
         const elf_addr = @intFromPtr(file_bytes.ptr);
 
@@ -256,10 +256,10 @@ pub const ElfDynLib = struct {
         var virt_addr_end: usize = 0;
         {
             var i: usize = 0;
-            var ph_addr: usize = elf_addr + eh.e_phoff;
-            while (i < eh.e_phnum) : ({
+            var ph_addr: usize = elf_addr + eh.phoff;
+            while (i < eh.phnum) : ({
                 i += 1;
-                ph_addr += eh.e_phentsize;
+                ph_addr += eh.phentsize;
             }) {
                 const ph = @as(*elf.ElfN.Phdr, @ptrFromInt(ph_addr));
                 switch (ph.type) {
@@ -287,10 +287,10 @@ pub const ElfDynLib = struct {
         // Now iterate again and actually load all the program sections.
         {
             var i: usize = 0;
-            var ph_addr: usize = elf_addr + eh.e_phoff;
-            while (i < eh.e_phnum) : ({
+            var ph_addr: usize = elf_addr + eh.phoff;
+            while (i < eh.phnum) : ({
                 i += 1;
-                ph_addr += eh.e_phentsize;
+                ph_addr += eh.phentsize;
             }) {
                 const ph = @as(*elf.ElfN.Phdr, @ptrFromInt(ph_addr));
                 switch (ph.type) {
@@ -317,7 +317,7 @@ pub const ElfDynLib = struct {
         }
 
         var maybe_strings: ?[*:0]u8 = null;
-        var maybe_syms: ?[*]elf.Sym = null;
+        var maybe_syms: ?[*]elf.ElfN.Sym = null;
         var maybe_hashtab: ?[*]posix.Elf_Symndx = null;
         var maybe_gnu_hash: ?*elf.gnu_hash.Header = null;
         var maybe_versym: ?[*]elf.Versym = null;
@@ -434,22 +434,22 @@ pub const ElfDynLib = struct {
     pub fn lookupAddress(self: *const ElfDynLib, vername: []const u8, name: []const u8) ?usize {
         const maybe_versym = if (self.verdef == null) null else self.versym;
 
-        const OK_TYPES = (1 << elf.STT_NOTYPE | 1 << elf.STT_OBJECT | 1 << elf.STT_FUNC | 1 << elf.STT_COMMON);
-        const OK_BINDS = (1 << elf.STB_GLOBAL | 1 << elf.STB_WEAK | 1 << elf.STB_GNU_UNIQUE);
+        const OK_TYPES = (1 << @intFromEnum(elf.STT.NOTYPE) | 1 << @intFromEnum(elf.STT.OBJECT) | 1 << @intFromEnum(elf.STT.FUNC) | 1 << @intFromEnum(elf.STT.COMMON));
+        const OK_BINDS = (1 << @intFromEnum(elf.STB.GLOBAL) | 1 << @intFromEnum(elf.STB.WEAK) | 1 << @intFromEnum(elf.STB.GNU_UNIQUE));
 
         switch (self.hash_table) {
             .dt_hash => |hashtab| {
                 var i: usize = 0;
                 while (i < hashtab[1]) : (i += 1) {
-                    if (0 == (@as(u32, 1) << @as(u5, @intCast(self.syms[i].st_info & 0xf)) & OK_TYPES)) continue;
-                    if (0 == (@as(u32, 1) << @as(u5, @intCast(self.syms[i].st_info >> 4)) & OK_BINDS)) continue;
-                    if (0 == self.syms[i].st_shndx) continue;
-                    if (!mem.eql(u8, name, mem.sliceTo(self.strings + self.syms[i].st_name, 0))) continue;
+                    if (0 == (@as(u32, 1) << @as(u5, @intCast(@intFromEnum(self.syms[i].info.type))) & OK_TYPES)) continue;
+                    if (0 == (@as(u32, 1) << @as(u5, @intCast(@intFromEnum(self.syms[i].info.bind))) & OK_BINDS)) continue;
+                    if (0 == self.syms[i].shndx) continue;
+                    if (!mem.eql(u8, name, mem.sliceTo(self.strings + self.syms[i].name, 0))) continue;
                     if (maybe_versym) |versym| {
                         if (!checkver(self.verdef.?, versym[i], vername, self.strings))
                             continue;
                     }
-                    return @intFromPtr(self.memory.ptr) + self.syms[i].st_value;
+                    return @intFromPtr(self.memory.ptr) + self.syms[i].value;
                 }
             },
             .dt_gnu_hash => |gnu_hash_header| {
@@ -494,11 +494,11 @@ pub const ElfDynLib = struct {
                     const symbol_index = current_index + gnu_hash_header.symoffset;
                     const symbol = self.syms[symbol_index];
 
-                    if (0 == (@as(u32, 1) << @as(u5, @intCast(symbol.st_info & 0xf)) & OK_TYPES)) continue;
-                    if (0 == (@as(u32, 1) << @as(u5, @intCast(symbol.st_info >> 4)) & OK_BINDS)) continue;
-                    if (0 == symbol.st_shndx) continue;
+                    if (0 == (@as(u32, 1) << @as(u5, @intCast(@intFromEnum(symbol.info.type))) & OK_TYPES)) continue;
+                    if (0 == (@as(u32, 1) << @as(u5, @intCast(@intFromEnum(symbol.info.bind))) & OK_BINDS)) continue;
+                    if (0 == symbol.shndx) continue;
 
-                    const symbol_name = mem.sliceTo(self.strings + symbol.st_name, 0);
+                    const symbol_name = mem.sliceTo(self.strings + symbol.name, 0);
                     if (!mem.eql(u8, name, symbol_name)) {
                         continue;
                     }
@@ -509,7 +509,7 @@ pub const ElfDynLib = struct {
                         }
                     }
 
-                    return @intFromPtr(self.memory.ptr) + symbol.st_value;
+                    return @intFromPtr(self.memory.ptr) + symbol.value;
                 }
             },
         }

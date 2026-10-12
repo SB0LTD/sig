@@ -1,0 +1,24 @@
+{
+  "id": "FEAT-005",
+  "type": "refactor",
+  "description": "Convert the tooling consumers: tools/gen_stubs.sig (STB_* used as u4, @alignOf/@sizeOf(elf.Elf64_Ehdr)) and ensure lib/compiler/objdump.sig still compiles against the current structs WITHOUT implementing the disassembler. Covers spec steps 9 and 10. Last consumer FEAT before the deprecated-block deletion.",
+  "status": "completed",
+  "steps": [
+    "Read A1-migration-spec.md steps 9-10 and plan.md. Gate after each change.",
+    "tools/gen_stubs.sig: std.elf.STB_GLOBAL/STB_WEAK used as u4 -> @intFromEnum(elf.STB.GLOBAL)/@intFromEnum(elf.STB.WEAK) (or elf.STB.GLOBAL where an enum fits); @alignOf(elf.Elf64_Ehdr)/@sizeOf(elf.Elf64_Ehdr) -> elf.Elf64.Ehdr; convert any .st_* writes per the WRITE mapping (out.st_info=(bind<<4)|type -> out.info = .{ .bind=B, .type=T }; out.st_other=v -> out.other=@bitCast(v)).",
+    "lib/compiler/objdump.sig: with Header/iterators already on current structs, only touch references the elf.sig changes break. Do NOT implement the ELF disassembler; leave the three TODO stubs in place. Goal: it still type-checks.",
+    "Recount DONE checks 1/2/3 on tools/gen_stubs.sig after conversion."
+  ],
+  "acceptance_criteria": [
+    "gate.ps1 prints GATE: GREEN.",
+    "`rg -c -g \"*.sig\" \"Elf(32|64)_[A-Za-z]|elf\\.(SHT|SHF|STB|STT)_[A-Z]|\\.(st_info|st_other|st_name|st_value|st_size)\" tools/gen_stubs.sig` returns 0.",
+    "lib/compiler/objdump.sig compiles (its TODO stubs remain; disassembler NOT implemented)."
+  ],
+  "verification": [
+    "cd c:\\Just-Things\\Projects\\sb0\\sig\\.worktrees\\sbpf-solana",
+    "Run the 3-layer gate; confirm GATE: GREEN.",
+    "rg -g \"*.sig\" \"Elf(32|64)_[A-Za-z]|elf\\.(SHT|SHF|STB|STT)_[A-Z]\" tools/gen_stubs.sig  (expect no output)"
+  ],
+  "blocked_reason": null,
+  "findings": "tools/gen_stubs.sig fully converted (spec step 9): Elf64_Ehdr->Elf64.Ehdr in @alignOf/.of; Elf64_Sym/Elf32_Sym->Elf64.Sym/Elf32.Sym and Elf64_Shdr/Elf32_Shdr->Elf64.Shdr/Elf32.Shdr type tokens; all .sh_* reads (.sh_offset->.offset, .sh_name->.name, .sh_size->.size, .sh_link->.link) and .st_* reads (.st_value->.value, .st_shndx->.shndx, .st_name->.name, .st_size->.size) renamed. The u4 MultiSym.binding/.ty fields were kept as integers; sym.st_info/.st_other reads replaced by @intFromEnum(sym.info.bind)/@intFromEnum(sym.info.type) and sym.other.visibility (packed Info{type:STT,bind:STB} is bit-identical to the old u8 so no behavior change). All STB_*/STT_* const refs (switch labels in commonBinding/ty switches, isWeak64/isWeakTime64 binding selectors, parseElf binding/ty switches, STT_NOTYPE comparisons) replaced with @intFromEnum(elf.STB.X)/@intFromEnum(elf.STT.X). SHN_UNDEF kept (non-deprecated). No .st_* writes exist in this file. elf.STV comparisons were already enum members (unchanged). lib/compiler/objdump.sig (spec step 10): its inline `elf` namespace is a TODO stub that writes \"TODO dump elf file\" and references no elf.sig structs, so it was untouched and still compiles; the three TODO stubs (elf/macho/wasm dump) remain and the disassembler was NOT implemented. GATE: GREEN -- layer1 compiler-graph type-check exit 0; `sig test lib/std/elf.sig` all 0 tests passed; `sig test lib/std/dynamic_library.sig` 2 skipped 0 failed. Additionally type-checked both tools directly as standalone roots (sig build-exe -fno-emit-bin -Mroot=tools/gen_stubs.sig and =lib/compiler/objdump.sig against std) -- both exit 0. rg DONE checks 1/2/3 on tools/gen_stubs.sig and objdump.sig return zero matches."
+}

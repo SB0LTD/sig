@@ -9547,28 +9547,42 @@ fn finalizeBpfSolanaObject(elf: *Elf, entry_vaddr: u64) !void {
     // Rebase absolute rodata pointers to the loader's rodata VA (0).
     //
     // The generic linker placed `.rodata` at `rodata_vaddr` and resolved every
-    // absolute rodata reference (a `lddw rN, <abs>` immediate) against it. But
-    // SIMD-0189 maps the read-only-data segment at VA 0, so those immediates must
-    // be made rodata-relative. sBPF on-chain code has no GOT and its only absolute
-    // addresses are rodata data pointers (text is PC-relative), so remapping every
-    // `lddw` immediate that falls in `[rodata_vaddr, rodata_vaddr + rodata_size)`
-    // to `imm - rodata_vaddr` is well-defined and complete. An `lddw` is a 16-byte
-    // instruction pair: opcode 0x18 in the first slot, the low 32 bits of the
-    // immediate in bytes [4..8) and the high 32 bits in the following slot's bytes
-    // [12..16) (FEAT-001 PC2).
+    // absolute rodata reference (a `lddw rN, <abs>` immediate) against it via an
+    // `R_SBF_64_64` relocation (the `.sbf_lddw` special action). But SIMD-0189
+    // maps the read-only-data segment at VA 0, so those immediates must be made
+    // rodata-relative. Rather than scan `.text` for a 0x18 opcode byte and guess
+    // which slots are address-carrying `lddw`s — which can mis-handle a non-lddw
+    // qword whose first byte happens to be 0x18, or a genuine `lddw` loading a
+    // numeric constant that coincidentally falls in the rodata VA window — drive
+    // the rebase from the recorded `.sbf_lddw` relocation sites. Those relocations
+    // identify EXACTLY the `lddw` slots the linker resolved against `.rodata`, so
+    // there is no heuristic and no false positive. (See `bpfRebaseRodataLddwAt`.)
+    //
+    // An `lddw` is a 16-byte instruction pair: opcode 0x18 in the first slot, the
+    // low 32 bits of the immediate in bytes [4..8) and the high 32 bits in the
+    // following slot's bytes [12..16); the second slot's opcode byte is the 0x00
+    // pseudo marker (FEAT-001 PC2). Each matched reloc site is asserted to have
+    // this shape before it is rewritten, so a reloc offset that does not land on a
+    // real `lddw` pair is a hard linker-internal error rather than silent
+    // corruption.
     if (rodata_size > 0) {
-        var i: usize = 0;
-        while (i + 16 <= text_copy.len) : (i += 8) {
-            if (text_copy[i] != 0x18) continue; // not an lddw
-            const lo: u64 = std.mem.readInt(u32, text_copy[i + 4 ..][0..4], .little);
-            const hi: u64 = std.mem.readInt(u32, text_copy[i + 12 ..][0..4], .little);
-            const imm = (hi << 32) | lo;
-            if (imm >= rodata_vaddr and imm < rodata_vaddr + rodata_size) {
-                const rebased = imm - rodata_vaddr; // rodata base is 0 for the loader
-                std.mem.writeInt(u32, text_copy[i + 4 ..][0..4], @truncate(rebased), .little);
-                std.mem.writeInt(u32, text_copy[i + 12 ..][0..4], @truncate(rebased >> 32), .little);
-            }
-            i += 8; // consume the second lddw slot
+        for (elf.symbol_relocs.items) |*reloc| {
+            // Only `.sbf_lddw` (R_SBF_64_64) relocations carry an rodata pointer in
+            // an lddw pair. Everything else (ABS64 data, 64_32 call targets) is
+            // either not in `.text` or not an address slot.
+            const node = reloc.node.unwrap() orelse continue; // deleted
+            if (reloc.type.target != .special) continue;
+            if (reloc.type.action.special != .sbf_lddw) continue;
+
+            // Map the reloc's destination vaddr to an offset within the copied
+            // `.text` bytes. A `.sbf_lddw` reloc that resolved against `.rodata`
+            // points at an lddw in `.text`; skip any that fall outside it.
+            const dest_vaddr = elf.getNodeVAddr(node) + reloc.offset;
+            if (dest_vaddr < text_vaddr) continue;
+            const off = dest_vaddr - text_vaddr;
+            if (off + 16 > text_copy.len) continue;
+
+            try bpfRebaseRodataLddwAt(text_copy, @intCast(off), rodata_vaddr, rodata_size);
         }
     }
 
@@ -9586,6 +9600,18 @@ fn finalizeBpfSolanaObject(elf: *Elf, entry_vaddr: u64) !void {
         if (!std.mem.allEqual(u8, w, 0)) break; // last real instruction found
 
         text_used -= 8;
+    }
+
+    // Invariant guard: after trimming, the final 8-byte slot must be a recognized
+    // control-flow terminator so a future codegen change that legitimately emits
+    // trailing zero-filled bytes inside `.text` cannot silently truncate real
+    // instructions. sBPF functions end in `exit` (opcode 0x95) or a `ja` back-edge
+    // (0x05); either is a valid last instruction. (A non-empty `.text` with no
+    // recognized terminator means the trim ate into real code.)
+    if (text_used >= 8) {
+        const last_op = text_copy[@intCast(text_used - 8)];
+        if (last_op != 0x95 and last_op != 0x05)
+            return error.SbpfTextMissingTerminator;
     }
 
     // Lay out the new file: ehdr | phdr[0] | phdr[1] | rodata (pad8) | text (pad8).
@@ -11783,6 +11809,89 @@ fn bpfLddwSplit(val: u64, dest_slice: []u8, target_endian: std.lang.Endian) void
     const hi: u32 = @truncate(val >> 32);
     std.mem.writeInt(u32, dest_slice[4..8], lo, target_endian);
     std.mem.writeInt(u32, dest_slice[12..16], hi, target_endian);
+}
+
+/// SIMD-0189 rodata-pointer rebase for a SINGLE recorded `.sbf_lddw` relocation
+/// site. `text` is the full bytecode buffer and `i` is the byte offset of the
+/// `lddw` first slot (derived from the relocation's destination vaddr, never from
+/// a scan). The generic linker already resolved the slot to the absolute rodata
+/// address `imm`; if that address is inside `[rodata_vaddr, rodata_vaddr+size)`,
+/// it is rewritten to be rodata-relative (loader maps rodata at VA 0). If the
+/// resolved immediate is NOT in the rodata window the site is left untouched (the
+/// reloc targeted another section). A reloc offset that does not land on a real
+/// `lddw` pair (first opcode 0x18, second-slot opcode 0x00 pseudo marker) is a
+/// linker-internal invariant break and is reported rather than silently rewritten.
+/// Kept at file scope so the rebase decision can be unit-tested without linker
+/// state (the review's "non-address 0x18-leading slot / constant-in-window" cases).
+fn bpfRebaseRodataLddwAt(text: []u8, i: usize, rodata_vaddr: u64, rodata_size: u64) !void {
+    const lo: u64 = std.mem.readInt(u32, text[i + 4 ..][0..4], .little);
+    const hi: u64 = std.mem.readInt(u32, text[i + 12 ..][0..4], .little);
+    const imm = (hi << 32) | lo;
+    // Only addresses that fall in the rodata window are rebased; a lddw loading a
+    // numeric constant that happens to equal a rodata VA is NOT reachable here
+    // because the caller only visits recorded R_SBF_64_64 rodata-reloc sites, but
+    // the window check keeps the helper correct in isolation too.
+    if (imm < rodata_vaddr or imm >= rodata_vaddr + rodata_size) return;
+
+    // Structural guard: the site must be a real lddw pair.
+    if (text[i] != 0x18 or text[i + 8] != 0x00)
+        return error.SbpfRodataRelocNotLddw;
+
+    const rebased = imm - rodata_vaddr; // rodata base is 0 for the loader
+    std.mem.writeInt(u32, text[i + 4 ..][0..4], @truncate(rebased), .little);
+    std.mem.writeInt(u32, text[i + 12 ..][0..4], @truncate(rebased >> 32), .little);
+}
+
+test "sBPF rodata lddw rebase only touches real lddw pairs in the rodata window" {
+    const testing = std.testing;
+    const rodata_vaddr: u64 = 0x1_0000; // generic layout rodata base
+    const rodata_size: u64 = 0x40;
+
+    // Slot 0: a genuine lddw loading a rodata address (0x1_0010). Must rebase to
+    //         0x10 (rodata-relative, loader maps rodata at VA 0).
+    // Slot 1: a lddw whose immediate (0x5000) is OUTSIDE the rodata window — a
+    //         numeric constant. Must be left exactly as-is.
+    var text = [_]u8{0} ** 32;
+    // lddw r1, 0x1_0010  -> 18 01 00 00 10 00 01 00 | 00 00 00 00 00 00 00 00
+    text[0] = 0x18;
+    text[1] = 0x01;
+    bpfLddwSplit(0x1_0010, text[0..16], .little);
+    // lddw r2, 0x5000 (constant, out of window) -> 18 02 ...
+    text[16] = 0x18;
+    text[17] = 0x02;
+    bpfLddwSplit(0x5000, text[16..32], .little);
+
+    // Rebase each recorded site; both offsets come from reloc metadata, not a scan.
+    try bpfRebaseRodataLddwAt(&text, 0, rodata_vaddr, rodata_size);
+    try bpfRebaseRodataLddwAt(&text, 16, rodata_vaddr, rodata_size); // no-op (out of window)
+
+    // Slot 0 rebased to 0x10.
+    try testing.expectEqual(@as(u32, 0x10), std.mem.readInt(u32, text[4..8], .little));
+    try testing.expectEqual(@as(u32, 0), std.mem.readInt(u32, text[12..16], .little));
+    // Slot 1 untouched (still 0x5000, opcode/reg bytes intact).
+    try testing.expectEqual(@as(u8, 0x18), text[16]);
+    try testing.expectEqual(@as(u32, 0x5000), std.mem.readInt(u32, text[20..24], .little));
+}
+
+test "sBPF rodata lddw rebase rejects a reloc site that is not an lddw pair" {
+    const testing = std.testing;
+    const rodata_vaddr: u64 = 0x1_0000;
+    const rodata_size: u64 = 0x40;
+
+    // A non-lddw 8-byte slot whose first byte is coincidentally 0x18, immediately
+    // followed by a slot whose immediate lands in the rodata window. Reading the
+    // "immediate" out of bytes [4..8)/[12..16) yields a value in-window, so the
+    // old opcode-scan heuristic would have corrupted it. Driving from reloc
+    // metadata means this offset is only ever visited if a reloc claims it is an
+    // lddw; if it is not actually one (second-slot opcode != 0x00), the hardened
+    // guard reports it instead of silently rewriting.
+    var text = [_]u8{0} ** 16;
+    text[0] = 0x18; // 0x18-leading but NOT an lddw...
+    text[8] = 0x95; // ...second slot opcode is `exit`, not the 0x00 pseudo marker.
+    std.mem.writeInt(u32, text[4..8], 0x0010, .little); // "imm low" inside window
+    std.mem.writeInt(u32, text[12..16], 0x0001, .little); // "imm high" -> 0x1_0010
+
+    try testing.expectError(error.SbpfRodataRelocNotLddw, bpfRebaseRodataLddwAt(&text, 0, rodata_vaddr, rodata_size));
 }
 
 test "R_BPF relocation enum carries the PC2-measured sBPF values" {

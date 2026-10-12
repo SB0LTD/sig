@@ -494,8 +494,8 @@ pub const Section = struct {
                 atom.value += len;
             } else {
                 const shdr = &elf_file.sections.items(.shdr)[atom.output_section_index];
-                shdr.sh_offset += len;
-                shdr.sh_size -= len;
+                shdr.offset += len;
+                shdr.size -= len;
                 atom.value = 0;
             }
             atom.size -= len;
@@ -1088,7 +1088,7 @@ const Entry = struct {
             .eh_frame => return if (dwarf.bin_file.cast(.elf)) |elf_file| {
                 const zo = elf_file.zigObjectPtr().?;
                 const shndx = zo.symbol(sec.index).atom(elf_file).?.output_section_index;
-                const entry_addr: i64 = @intCast(entry_off - sec.off(dwarf) + elf_file.shdrs.items[shndx].sh_addr);
+                const entry_addr: i64 = @intCast(entry_off - sec.off(dwarf) + elf_file.shdrs.items[shndx].addr);
                 for (entry.external_relocs.items) |reloc| {
                     const symbol = zo.symbol(reloc.target_sym);
                     try dwarf.resolveReloc(

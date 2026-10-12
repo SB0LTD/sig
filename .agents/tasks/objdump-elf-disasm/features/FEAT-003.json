@@ -1,0 +1,26 @@
+{
+  "id": "FEAT-003",
+  "type": "refactor",
+  "description": "Convert the non-linker ELF consumers: the aro backend, the std debug ELF reader, and the std runtime/system consumers (including the HIGH-SENSITIVITY runtime paths lib/std/dynamic_library.sig and lib/std/pie.sig). Depends on FEAT-001/002 only insofar as all consumers must be converted before FEAT-006 deletes the deprecated block; functionally independent of the linker cluster. Covers spec steps 6, 7, 8.",
+  "status": "completed",
+  "steps": [
+    "Read A1-migration-spec.md steps 6-8 and plan.md. Gate after each file.",
+    "lib/compiler/aro/backend/Object/Elf.sig — Shdr/Sym/Ehdr field renames, underscore type tokens -> Elf64.*/Elf32.*, SHT_*/SHF_*/STB_*/STT_* const refs.",
+    "lib/std/debug/ElfFile.sig — Shdr/Sym fields, underscore type tokens, consts. Note it already uses std.mem.ln(Sym,...) byteSwap over the typed Sym — verify it still compiles.",
+    "lib/std/dynamic_library.sig (RUNTIME std, gate layer 3): .st_name->name on syms; _DYNAMIC[i].d_tag->tag / .d_val->val (DT_NULL stays, it is a kept comptime_int); the bit-shift index consts `1 << elf.STT_NOTYPE|OBJECT|FUNC|COMMON` -> `1 << @intFromEnum(elf.STT.NOTYPE)` etc. and `1 << elf.STB_GLOBAL|WEAK|GNU_UNIQUE` -> `1 << @intFromEnum(elf.STB.GLOBAL)` etc. (~437-438). elf.Verdef / elf.Versym stay.",
+    "lib/std/pie.sig (RUNTIME self-relocation — sensitive): dynv[i].d_tag->tag / .d_val->val (keep DT_NULL/DT_NUM/DT_MIPS_LOCAL_GOTNO comptime_ints); r.r_type()->r.info.type, r.r_offset->r.offset, r.r_addend->r.addend (~378-390).",
+    "lib/std/sig/system.sig — .sh_size/.sh_offset/.sh_name -> size/offset/name; dyn.d_tag->tag / dyn.d_val->val (DT_RUNPATH stays).",
+    "lib/std/os/linux/vdso.sig, lib/compiler/objcopy.sig, lib/sig/os.sig — apply mapping; keep kept consts."
+  ],
+  "acceptance_criteria": [
+    "gate.ps1 prints GATE: GREEN (layer 3 `sig test lib/std/dynamic_library.sig` passes specifically).",
+    "`rg -c -g \"*.sig\" \"Elf(32|64)_[A-Za-z]|elf\\.(SHT|SHF|STB|STT|STV|ELFCLASS|ELFDATA|EI)_[A-Z]|\\.(sh_|st_info|st_other|st_shndx|st_value|st_name|r_info|r_addend|d_tag|d_val)\" lib/compiler/aro/backend/Object/Elf.sig lib/std/debug/ElfFile.sig lib/std/dynamic_library.sig lib/std/pie.sig lib/std/sig/system.sig lib/std/os/linux/vdso.sig lib/compiler/objcopy.sig lib/sig/os.sig` returns 0."
+  ],
+  "verification": [
+    "cd c:\\Just-Things\\Projects\\sb0\\sig\\.worktrees\\sbpf-solana",
+    "Run the 3-layer gate; confirm GATE: GREEN.",
+    "rg -g \"*.sig\" \"elf\\.(SHT|SHF|STB|STT)_[A-Z]|\\.(sh_|st_info|st_other|d_tag|d_val|r_info|r_addend)\" lib/compiler/aro/backend/Object/Elf.sig lib/std/debug/ElfFile.sig lib/std/dynamic_library.sig lib/std/pie.sig lib/std/sig/system.sig lib/compiler/objcopy.sig  (expect no genuine-ELF output)"
+  ],
+  "blocked_reason": null,
+  "findings": "All 8 FEAT-003 files converted to the typed ELF model (spec steps 6-8):\n- lib/compiler/aro/backend/Object/Elf.sig: Section.flags/type now elf.SHF/elf.SHT; Symbol.info now Elf64.Sym.Info; getSection builds typed SHF/SHT; declareSymbol builds STB/STT enums and info=.{.bind,.type}; finish() uses Elf64.Ehdr/Shdr/Sym/Rela with new fields (ident struct, flags=.{.shf=..}, rela info=.{.sym,.type}); Elf64.Off/@sizeOf tokens renamed.\n- lib/std/debug/ElfFile.sig: Sym = Elf64/Elf32.Sym; st_value/size/name/shndx -> value/size/name/shndx; Section.header = Elf64.Shdr; shstrtab/section loop use Elf64/Elf32.Shdr with offset/size/name/type (.NULL/.NOBITS) and flags.shf.COMPRESSED; Chdr = Elf64/Elf32.Chdr with type/size. byteSwapAllFields over typed Sym compiles.\n- lib/std/dynamic_library.sig (layer-3 gate target): get_DYNAMIC/syms use elf.ElfN.Dyn/ElfN.Sym; eh = ElfN.Ehdr with ident.magic/type/phoff/phnum/phentsize; _DYNAMIC tag/val; OK_TYPES/OK_BINDS via @intFromEnum(elf.STT/STB.*); sym info.type/info.bind/shndx/name/value. DT_* and Verdef/Versym kept.\n- lib/std/pie.sig (RUNTIME self-reloc): getDynamicSymbol/all asm returns -> [*]const elf.ElfN.Dyn; dynv tag/val; Rel/Rela/Relr -> ElfN.* with info.type/offset/addend; DT_* kept. Behavior-preserving (field names only; same backing layout).\n- lib/std/sig/system.sig: both dynstr-scan blocks use shdr.name/offset/size and shstr.size/offset; dyn.tag/val; DT_RUNPATH kept.\n- lib/std/os/linux/vdso.sig: eh = ElfN.Ehdr; syms = ElfN.Sym; OK_TYPES/OK_BINDS via @intFromEnum; info.type/bind/shndx/name/value.\n- lib/compiler/objcopy.sig: shdr offset/size/name; sectionValidForOutput uses type != .NOBITS and flags.shf.ALLOC.\n- lib/sig/os.sig: no genuine ELF usage (only .st_size on fstat struct = false positive); no change.\n\nVerification: FEAT-003 rg acceptance count = 0 over all 8 files. Gate layer 2 (sig test lib/std/elf.sig) GREEN. Gate layer 3 (sig test lib/std/dynamic_library.sig) GREEN. Full-graph gate layer 1 analyzes every FEAT-003 file with ZERO errors; the only remaining layer-1 errors are 4 codegen reloc-literal sites (src/codegen/aarch64/Mir.sig:224, riscv64/Emit.sig:61, x86_64/Emit.sig:707+825) which are explicitly FEAT-004's scope (spec step 8c), NOT FEAT-003. gate.ps1 will print GATE: GREEN once FEAT-004 lands; FEAT-003's own work is complete and clean."
+}

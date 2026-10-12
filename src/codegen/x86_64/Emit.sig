@@ -704,15 +704,15 @@ pub fn emitMir(emit: *Emit) Error!void {
             const atom = zo.symbol(@backingInt(emit.atom_id)).atom(elf_file).?;
 
             for (emit.table_relocs.items) |table_reloc| try atom.addReloc(gpa, .{
-                .r_offset = table_reloc.source_offset,
-                .r_info = @as(u64, @backingInt(emit.atom_id)) << 32 | @backingInt(std.elf.R_X86_64.@"32S"),
-                .r_addend = @as(i64, table_offset) + table_reloc.target_offset,
+                .offset = table_reloc.source_offset,
+                .info = .{ .type = @intCast(@backingInt(std.elf.R_X86_64.@"32S")), .sym = @intCast(@backingInt(emit.atom_id)) },
+                .addend = @as(i64, table_offset) + table_reloc.target_offset,
             }, zo);
             for (emit.lower.mir.table) |entry| {
                 try atom.addReloc(gpa, .{
-                    .r_offset = table_offset,
-                    .r_info = @as(u64, @backingInt(emit.atom_id)) << 32 | @backingInt(std.elf.R_X86_64.@"64"),
-                    .r_addend = emit.code_offset_mapping.items[entry],
+                    .offset = table_offset,
+                    .info = .{ .type = @intCast(@backingInt(std.elf.R_X86_64.@"64")), .sym = @intCast(@backingInt(emit.atom_id)) },
+                    .addend = emit.code_offset_mapping.items[entry],
                 }, zo);
                 table_offset += ptr_size;
             }
@@ -822,9 +822,9 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             else
                 .PC32;
             try atom.addReloc(gpa, .{
-                .r_offset = end_offset - 4,
-                .r_info = @as(u64, @backingInt(target.symbol)) << 32 | @backingInt(r_type),
-                .r_addend = if (emit.pic) reloc.off - 4 else reloc.off,
+                .offset = end_offset - 4,
+                .info = .{ .type = @intCast(@backingInt(r_type)), .sym = @intCast(@backingInt(target.symbol)) },
+                .addend = if (emit.pic) reloc.off - 4 else reloc.off,
             }, zo);
         } else if (emit.bin_file.cast(.macho)) |macho_file| {
             const zo = macho_file.getZigObject().?;
@@ -864,9 +864,9 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             const atom = zo.symbol(@backingInt(emit.atom_id)).atom(elf_file).?;
             const r_type: std.elf.R_X86_64 = .PLT32;
             try atom.addReloc(gpa, .{
-                .r_offset = end_offset - 4,
-                .r_info = @as(u64, @backingInt(target.symbol)) << 32 | @backingInt(r_type),
-                .r_addend = reloc.off - 4,
+                .offset = end_offset - 4,
+                .info = .{ .type = @intCast(@backingInt(r_type)), .sym = @intCast(@backingInt(target.symbol)) },
+                .addend = reloc.off - 4,
             }, zo);
         } else if (emit.bin_file.cast(.elf2)) |elf| try elf.addReloc(
             emit.atom_id,
@@ -904,9 +904,9 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             const atom = zo.symbol(@backingInt(emit.atom_id)).atom(elf_file).?;
             const r_type: std.elf.R_X86_64 = if (emit.pic) .TLSLD else unreachable;
             try atom.addReloc(gpa, .{
-                .r_offset = end_offset - 4,
-                .r_info = @as(u64, @backingInt(target_symbol)) << 32 | @backingInt(r_type),
-                .r_addend = reloc.off - 4,
+                .offset = end_offset - 4,
+                .info = .{ .type = @intCast(@backingInt(r_type)), .sym = @intCast(@backingInt(target_symbol)) },
+                .addend = reloc.off - 4,
             }, zo);
         } else if (emit.bin_file.cast(.elf2)) |elf| try elf.addReloc(
             emit.atom_id,
@@ -922,9 +922,9 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             const atom = zo.symbol(@backingInt(emit.atom_id)).atom(elf_file).?;
             const r_type: std.elf.R_X86_64 = if (emit.pic) .DTPOFF32 else .TPOFF32;
             try atom.addReloc(gpa, .{
-                .r_offset = end_offset - 4,
-                .r_info = @as(u64, @backingInt(target.symbol)) << 32 | @backingInt(r_type),
-                .r_addend = reloc.off,
+                .offset = end_offset - 4,
+                .info = .{ .type = @intCast(@backingInt(r_type)), .sym = @intCast(@backingInt(target.symbol)) },
+                .addend = reloc.off,
             }, zo);
         } else if (emit.bin_file.cast(.elf2)) |elf| try elf.addReloc(
             emit.atom_id,

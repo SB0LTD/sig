@@ -74,6 +74,48 @@ test "$e_type" = 0300       # ET_DYN, u16 LE
 test "$e_machine" = f700    # EM_BPF (247), u16 LE
 echo "sbpf-solana: ELF header assertions passed"
 
+# ── SIMD-0189 program-header shape (finalizeBpfSolanaObject output) ───────
+# The sBPF finalizer rewrites the generic multi-segment image into the strict
+# SIMD-0189 layout the loader's header parser requires. Assert that shape here
+# so this gate matches the committed finalizer and a regression that bypasses
+# it (reverting to the pre-SIMD-0189 e_phoff=65536 / 7-phdr layout) fails CI:
+#   +32 e_phoff     (u64 LE) == 64   -> "40 00 00 00 00 00 00 00"
+#   +40 e_shoff     (u64 LE) == 0    (no section headers; loader ignores them)
+#   +54 e_phentsize (u16 LE) == 56   -> "38 00"
+#   +56 e_phnum     (u16 LE) == 2    -> "02 00"
+#   +60 e_shnum     (u16 LE) == 0
+# The two program headers are PT_LOAD (p_type==1): phdr[0] PF_R at vaddr 0,
+# phdr[1] PF_X at vaddr 0x1_0000_0000. phdr table starts at offset 64, each
+# Elf64_Phdr is 56 bytes: p_type@+0 (u32), p_flags@+4 (u32), p_vaddr@+16 (u64).
+e_phoff="$(od -An -tx1 -j32 -N8 "$OUT" | tr -d ' \n')"
+e_shoff="$(od -An -tx1 -j40 -N8 "$OUT" | tr -d ' \n')"
+e_phentsize="$(od -An -tx1 -j54 -N2 "$OUT" | tr -d ' \n')"
+e_phnum="$(od -An -tx1 -j56 -N2 "$OUT" | tr -d ' \n')"
+e_shnum="$(od -An -tx1 -j60 -N2 "$OUT" | tr -d ' \n')"
+echo "sbpf-solana: e_phoff=$e_phoff e_shoff=$e_shoff e_phentsize=$e_phentsize e_phnum=$e_phnum e_shnum=$e_shnum"
+test "$e_phoff" = 4000000000000000      # 64, u64 LE
+test "$e_shoff" = 0000000000000000      # 0  (no section headers)
+test "$e_phentsize" = 3800              # 56, u16 LE
+test "$e_phnum" = 0200                  # 2,  u16 LE
+test "$e_shnum" = 0000                  # 0,  u16 LE
+
+# phdr[0] @ file offset 64: PT_LOAD (p_type==1) PF_R (p_flags==4) vaddr 0.
+p0_type="$(od -An -tx1 -j64 -N4 "$OUT" | tr -d ' \n')"
+p0_flags="$(od -An -tx1 -j68 -N4 "$OUT" | tr -d ' \n')"
+p0_vaddr="$(od -An -tx1 -j80 -N8 "$OUT" | tr -d ' \n')"
+# phdr[1] @ file offset 120 (64+56): PT_LOAD PF_X (p_flags==1) vaddr 1<<32.
+p1_type="$(od -An -tx1 -j120 -N4 "$OUT" | tr -d ' \n')"
+p1_flags="$(od -An -tx1 -j124 -N4 "$OUT" | tr -d ' \n')"
+p1_vaddr="$(od -An -tx1 -j136 -N8 "$OUT" | tr -d ' \n')"
+echo "sbpf-solana: phdr[0] type=$p0_type flags=$p0_flags vaddr=$p0_vaddr | phdr[1] type=$p1_type flags=$p1_flags vaddr=$p1_vaddr"
+test "$p0_type" = 01000000               # PT_LOAD
+test "$p0_flags" = 04000000              # PF_R
+test "$p0_vaddr" = 0000000000000000      # rodata segment mapped at VA 0
+test "$p1_type" = 01000000               # PT_LOAD
+test "$p1_flags" = 01000000              # PF_X
+test "$p1_vaddr" = 0000000001000000      # bytecode segment at 0x1_0000_0000, u64 LE
+echo "sbpf-solana: SIMD-0189 program-header layout assertions passed"
+
 # ── SIMD-0178 static-syscall immediate (FEAT-004 / PC-SYS) ────────────────
 # A BPF static syscall is the 8-byte instruction:
 #   opcode 0x85 | regs 0x00 (src reg 0) | off 0x0000 | imm32 (LE)

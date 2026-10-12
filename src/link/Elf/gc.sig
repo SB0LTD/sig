@@ -47,11 +47,11 @@ fn collectRoots(roots: *std.array_list.Managed(*Atom), elf_file: *Elf) !void {
                 const shdr = atom.inputShdr(ef);
                 const name = atom.name(ef);
                 const is_gc_root = blk: {
-                    if (shdr.sh_flags & elf.SHF_GNU_RETAIN != 0) break :blk true;
-                    if (shdr.sh_type == elf.SHT_NOTE) break :blk true;
-                    if (shdr.sh_type == elf.SHT_PREINIT_ARRAY) break :blk true;
-                    if (shdr.sh_type == elf.SHT_INIT_ARRAY) break :blk true;
-                    if (shdr.sh_type == elf.SHT_FINI_ARRAY) break :blk true;
+                    if (shdr.flags.shf.OS.GNU.RETAIN) break :blk true;
+                    if (shdr.type == .NOTE) break :blk true;
+                    if (shdr.type == .PREINIT_ARRAY) break :blk true;
+                    if (shdr.type == .INIT_ARRAY) break :blk true;
+                    if (shdr.type == .FINI_ARRAY) break :blk true;
                     if (mem.startsWith(u8, name, ".ctors")) break :blk true;
                     if (mem.startsWith(u8, name, ".dtors")) break :blk true;
                     if (mem.startsWith(u8, name, ".init")) break :blk true;
@@ -60,13 +60,13 @@ fn collectRoots(roots: *std.array_list.Managed(*Atom), elf_file: *Elf) !void {
                     break :blk false;
                 };
                 if (is_gc_root and markAtom(atom)) try rs.append(atom);
-                if (shdr.sh_flags & elf.SHF_ALLOC == 0) atom.visited = true;
+                if (!shdr.flags.shf.ALLOC) atom.visited = true;
             }
 
             // Mark every atom referenced by CIE as alive.
             for (file.cies()) |cie| {
                 for (cie.relocs(ef)) |rel| {
-                    const ref = file.resolveSymbol(rel.r_sym(), ef);
+                    const ref = file.resolveSymbol(rel.info.sym, ef);
                     const sym = ef.symbol(ref) orelse continue;
                     try markSymbol(sym, rs, ef);
                 }
@@ -107,7 +107,7 @@ fn markLive(atom: *Atom, elf_file: *Elf) void {
         .object => |object| {
             for (atom.fdes(object)) |fde| {
                 for (fde.relocs(object)[1..]) |rel| {
-                    const ref = file.resolveSymbol(rel.r_sym(), elf_file);
+                    const ref = file.resolveSymbol(rel.info.sym, elf_file);
                     const target_sym = elf_file.symbol(ref) orelse continue;
                     const target_atom = target_sym.atom(elf_file) orelse continue;
                     target_atom.alive = true;
@@ -120,7 +120,7 @@ fn markLive(atom: *Atom, elf_file: *Elf) void {
     }
 
     for (atom.relocs(elf_file)) |rel| {
-        const ref = file.resolveSymbol(rel.r_sym(), elf_file);
+        const ref = file.resolveSymbol(rel.info.sym, elf_file);
         const target_sym = elf_file.symbol(ref) orelse continue;
         if (target_sym.mergeSubsection(elf_file)) |msub| {
             msub.alive = true;

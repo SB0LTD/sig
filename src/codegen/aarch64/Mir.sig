@@ -221,9 +221,9 @@ fn emitReloc(
                 },
             };
             try atom.addReloc(gpa, .{
-                .r_offset = offset,
-                .r_info = @as(u64, @backingInt(sym_index)) << 32 | @backingInt(r_type),
-                .r_addend = @bitCast(addend),
+                .offset = offset,
+                .info = .{ .type = @intCast(@backingInt(r_type)), .sym = @intCast(@backingInt(sym_index)) },
+                .addend = @bitCast(addend),
             }, zo);
         } else if (lf.cast(.macho)) |mf| {
             const zo = mf.getZigObject().?;
@@ -289,9 +289,9 @@ fn emitReloc(
                 .bl => .CALL26,
             };
             try atom.addReloc(gpa, .{
-                .r_offset = offset,
-                .r_info = @as(u64, @backingInt(sym_index)) << 32 | @backingInt(r_type),
-                .r_addend = @bitCast(addend),
+                .offset = offset,
+                .info = .{ .type = @intCast(@backingInt(r_type)), .sym = @intCast(@backingInt(sym_index)) },
+                .addend = @bitCast(addend),
             }, zo);
         } else if (lf.cast(.macho)) |mf| {
             const zo = mf.getZigObject().?;
@@ -354,9 +354,9 @@ fn emitReloc(
                 },
             };
             try atom.addReloc(gpa, .{
-                .r_offset = offset,
-                .r_info = @as(u64, @backingInt(sym_index)) << 32 | @backingInt(r_type),
-                .r_addend = @bitCast(addend),
+                .offset = offset,
+                .info = .{ .type = @intCast(@backingInt(r_type)), .sym = @intCast(@backingInt(sym_index)) },
+                .addend = @bitCast(addend),
             }, zo);
         } else if (lf.cast(.macho)) |mf| {
             const zo = mf.getZigObject().?;

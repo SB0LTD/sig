@@ -4,6 +4,45 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.6.2] — Typed ELF Model: Unified `Elf32`/`Elf64` Structs + Constants
+
+Internal cleanup release with no user-facing behavior change. `lib/std/elf.sig`
+is unified onto the typed `Elf32`/`Elf64` namespaces: every deprecated
+declaration is removed and all of std plus every in-tree consumer is migrated to
+the typed enums and packed structs. ELF output is byte-for-byte identical to
+0.6.1.
+
+### Changed
+- **Removed every `/// Deprecated` declaration from `lib/std/elf.sig`:** the flat
+  `Elf32_*`/`Elf64_*` structs, the `switch(@sizeOf)` struct aliases, the scalar
+  aliases (`Elf*_Addr/Off/Section/Xword/Sxword`), and the deprecated
+  integer-constant aliases `SHT_*`, `SHF_*`, `STB_*`, `STT_*`, `STV_*`,
+  `ELFCLASS*`, `ELFDATA*`, `EI_*`. Niche zero-consumer structs (`Elf*_Move`,
+  `Elf32_gptab`, `Elf32_RegInfo`, `Elf_Options*`, `Elf*_Lib`, `Elf32_Conflict`,
+  `Elf_MIPS_ABIFlags_v0`, and the top-level `Syminfo`/`Nhdr`/`Verneed`/`auxv_t`
+  duplicates) were deleted outright.
+- **Typed model is now authoritative:** section/symbol/program types are enums
+  (`SHT`, `STB`, `STT`, `STV`, `PT`, `ET`, `EM`), section/segment flags are
+  packed structs (`SHF`, `PF`), and relocation records use a packed `Rel.Info`
+  (`type` in the low 32 bits, `sym` in the high 32 — bit-identical to the former
+  `(sym << 32) | type`).
+- **Migrated all consumers:** the self-hosted ELF linker (`src/link/Elf*`), the
+  codegen relocation construction sites (aarch64/loongarch/x86_64/riscv64), the
+  aro ELF backend, `std.debug.ElfFile`, `std.dynamic_library`, the PIE
+  self-relocation path, `objcopy`, `gen_stubs`, and the Linux
+  startup/`Auxv` reads in `start.sig` and `os/linux.sig`.
+
+### Kept (not deprecated)
+- `SHN_*`, `PF_X/W/R`, `DT_*`, `NT_*`, `VER_FLG_*`, `PN_XNUM`, and `Auxv`
+  (now resolving to the `ElfN.Auxv` twin), plus the typed `R_*`/enum items.
+
+### Verified
+- 3-layer gate green (compiler graph type-check, `sig test lib/std/elf.sig`,
+  `sig test lib/std/dynamic_library.sig`) and `compiler/test_all.sig` 224/224.
+- The three highest-risk paths — foreign-endian byte-swap serialization, the
+  Linux process-startup `Auxv` reads, and the reloc `Info` bit-packing — were
+  reviewed and confirmed layout-identical.
+
 ## [0.6.1] — Native sBPF (Solana) Backend + Link/Deploy Path
 
 Sig 0.6.1 adds a first-class Solana sBPF target so the compiler can build and
@@ -35,7 +74,14 @@ contract and build/deploy recipe.
   `.plt`/section-header table. A BPF-only finalization pass
   (`finalizeBpfSolanaObject`) performs this rewrite keyed strictly on
   `machine == .BPF`, so non-BPF targets are byte-identical to the stage0
-  compiler.
+  compiler. The pass rebases absolute `.rodata` pointers to the loader's VA-0
+  rodata base by walking the recorded `R_SBF_64_64` (`.sbf_lddw`) relocation
+  sites — the exact `lddw` slots the linker resolved against `.rodata` —
+  rather than scanning `.text` for `0x18` opcode bytes, so a non-`lddw` qword
+  or an in-range numeric constant can never be mis-rewritten; each site is
+  structurally asserted to be a real `lddw` pair (first-slot `0x18`,
+  second-slot `0x00` pseudo) and the trailing-zero `.text` trim asserts the
+  final slot is a recognized terminator (`exit`/`ja`).
 - **SIMD-0178 static-syscall lowering (`src/codegen/llvm.sig`).** Under
   `os == .solana`, a no-library `extern fn … callconv(.c)` is lowered to a BPF
   `call imm` whose 32-bit immediate is `murmur3_32(name)`, with no relocation —
@@ -54,6 +100,14 @@ contract and build/deploy recipe.
 
 ### Fixed
 
+- **Clearer install-dir discovery failure (`lib/std/sig.sig`).** When
+  `sig build`/`sig env` (and other install-dir-dependent subcommands) cannot
+  locate the standard library, the error now names the concrete marker it
+  probed (`lib/std/std.sig`), states that it searched the executable's
+  directory and each parent above it, and hints that the install may be
+  incomplete (missing `lib/std`) or the executable was moved out of its install
+  tree — instead of a bare `FileNotFound`. Discovery behavior and the happy
+  path are unchanged; only the failure message is more legible.
 - **Windows `-Denable-llvm` build-system fixes (`tools/sig_build`), separable
   from the sBPF feature.** `Step_Registry.addDep` is now idempotent (a duplicate
   `sig → config` edge under `-Denable-llvm` was misreported as a dependency
@@ -62,6 +116,18 @@ contract and build/deploy recipe.
   `sig.exe`; and the Windows system libraries LLVM Support needs (`ole32`,
   `uuid`, `advapi32`, `shell32`, `oleaut32`, `psapi`) are added to the LLVM
   linker args.
+- **sBPF release gate now byte-verifies the SIMD-0189 program-header layout.**
+  `ci/test-sbpf-solana-target.sh` asserted only the ELF header magic/class/
+  data/type/machine and the static-syscall immediate; it now also checks the
+  final `finalizeBpfSolanaObject` shape (`e_phoff = 64`, `e_phnum = 2`,
+  `e_phentsize = 56`, `e_shoff = e_shnum = 0`, and both `PT_LOAD` headers'
+  type/flags/vaddr), so a regression that bypasses the finalizer and reverts to
+  the pre-SIMD-0189 multi-segment layout fails the release build. This gate
+  (wired into `release.yaml`) is the authoritative reproduction of the
+  LLVM-backed `.so` byte-verification; it runs under Linux CI where the LLVM 22
+  toolchain is available (a `-Denable-llvm` build is not reproducible on a
+  Windows dev host that lacks LLVM, though plain `sig build`/`sig build test`
+  pass there).
 
 ## [0.6.0] — 2026-09-15 — Windows Resources: Working `.rc` Compilation + Native `build.sig` Icons
 

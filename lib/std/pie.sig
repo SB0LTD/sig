@@ -51,7 +51,7 @@ const R_RELATIVE = switch (builtin.cpu.arch) {
 // Obtain a pointer to the _DYNAMIC array.
 // We have to compute its address as a PC-relative quantity not to require a
 // relocation that, at this point, is not yet applied.
-inline fn getDynamicSymbol() [*]const elf.Dyn {
+inline fn getDynamicSymbol() [*]const elf.ElfN.Dyn {
     return switch (builtin.zig_backend) {
         else => switch (builtin.cpu.arch) {
             .x86 => asm volatile (
@@ -61,19 +61,19 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\1:
                 \\ pop %[ret]
                 \\ lea _DYNAMIC - 1b(%[ret]), %[ret]
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
             ),
             .x86_64 => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
                 \\ lea _DYNAMIC(%%rip), %[ret]
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
             ),
             .arc, .arceb => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
                 \\ add %[ret], pcl, _DYNAMIC@pcl
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
             ),
             // Work around the limited offset range of `ldr`
             .arm, .armeb, .thumb, .thumbeb => asm volatile (
@@ -85,7 +85,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\1:
                 \\ .word _DYNAMIC - 1b
                 \\2:
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
             ),
             // A simple `adr` is not enough as it has a limited offset range
             .aarch64, .aarch64_be => asm volatile (
@@ -93,7 +93,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ .hidden _DYNAMIC
                 \\ adrp %[ret], _DYNAMIC
                 \\ add %[ret], %[ret], #:lo12:_DYNAMIC
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
             ),
             // The compiler is not required to load the GP register, so do it ourselves.
             .alpha => asm volatile (
@@ -104,7 +104,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ ldgp $29, 0($29)
                 \\ ldah %[ret], _DYNAMIC($29) !gprelhigh
                 \\ lda %[ret], _DYNAMIC(%[ret]) !gprellow
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
                 :
                 : .{ .r29 = true }),
             .csky => asm volatile (
@@ -117,7 +117,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\2:
                 \\ ldw r12, (%[ret], 0)
                 \\ addu %[ret], %[ret], r12
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
                 :
                 : .{ .r12 = true }),
             .hexagon => asm volatile (
@@ -130,20 +130,20 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ r1 = add(r1, #-4)
                 \\ %[ret] = memw(r1)
                 \\ %[ret] = add(r1, %[ret])
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
                 :
                 : .{ .r1 = true }),
             .kvx => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
                 \\ pcrel %[ret] = @pcrel(_DYNAMIC)
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
             ),
             .loongarch32, .loongarch64 => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
                 \\ la.local %[ret], _DYNAMIC
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
             ),
             // Note that the - 8 is needed because pc in the second lea instruction points into the
             // middle of that instruction. (The first lea is 6 bytes, the second is 4 bytes.)
@@ -152,7 +152,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ .hidden _DYNAMIC
                 \\ lea _DYNAMIC - . - 8, %[ret]
                 \\ lea (%[ret], %%pc), %[ret]
-                : [ret] "=a" (-> [*]const elf.Dyn),
+                : [ret] "=a" (-> [*]const elf.ElfN.Dyn),
             ),
             .microblaze, .microblazeel => asm volatile (
                 \\ .weak _DYNAMIC
@@ -163,7 +163,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\1:
                 \\ lwi r18, %[ret], 8
                 \\ add %[ret], %[ret], r18
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
                 :
                 : .{ .r18 = true }),
             .mips, .mipsel => asm volatile (
@@ -175,7 +175,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ lw %[ret], 0($ra)
                 \\ nop
                 \\ addu %[ret], %[ret], $gp
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
                 :
                 : .{ .lr = true }),
             .mips64, .mips64el => switch (builtin.abi) {
@@ -187,7 +187,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                     \\1:
                     \\ lw %[ret], 0($ra)
                     \\ addu %[ret], %[ret], $gp
-                    : [ret] "=r" (-> [*]const elf.Dyn),
+                    : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
                     :
                     : .{ .lr = true }),
                 else => asm volatile (
@@ -199,7 +199,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                     \\1:
                     \\ ld %[ret], 0($ra)
                     \\ daddu %[ret], %[ret], $gp
-                    : [ret] "=r" (-> [*]const elf.Dyn),
+                    : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
                     :
                     : .{ .lr = true }),
             },
@@ -212,7 +212,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\1:
                 \\ l.lwz %[ret], 0(r9)
                 \\ l.add %[ret], %[ret], r9
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
                 :
                 : .{ .r9 = true }),
             .powerpc, .powerpcle => asm volatile (
@@ -224,7 +224,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ mflr %[ret]
                 \\ lwz 4, 0(%[ret])
                 \\ add %[ret], 4, %[ret]
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
                 :
                 : .{ .lr = true, .r4 = true }),
             .powerpc64, .powerpc64le => asm volatile (
@@ -238,14 +238,14 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ mflr %[ret]
                 \\ ld 4, 4(%[ret])
                 \\ add %[ret], 4, %[ret]
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
                 :
                 : .{ .lr = true, .r4 = true }),
             .riscv32, .riscv32be, .riscv64, .riscv64be => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
                 \\ lla %[ret], _DYNAMIC
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
             ),
             .s390x => asm volatile (
                 \\ .weak _DYNAMIC
@@ -256,7 +256,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\1:
                 \\ .quad _DYNAMIC - .
                 \\2:
-                : [ret] "=a" (-> [*]const elf.Dyn),
+                : [ret] "=a" (-> [*]const elf.ElfN.Dyn),
             ),
             .sh, .sheb => asm volatile (
                 \\ .weak _DYNAMIC
@@ -270,7 +270,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\1:
                 \\ .long _DYNAMIC - .
                 \\2:
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
                 :
                 : .{ .r0 = true }),
             .sparc, .sparc64 => asm volatile (
@@ -281,7 +281,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\  add %[ret], %%pc10(_DYNAMIC + 4), %[ret]
                 \\1:
                 \\ add %[ret], %%o7, %[ret]
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                : [ret] "=r" (-> [*]const elf.ElfN.Dyn),
                 :
                 : .{ .o7 = true }),
             .xtensa, .xtensaeb => asm volatile (
@@ -298,14 +298,14 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ addi a0, a0, 1
                 \\ l32i a8, a0, 0
                 \\ add %[ret], a0, a8
-                : [ret] "=a" (-> [*]const elf.Dyn),
+                : [ret] "=a" (-> [*]const elf.ElfN.Dyn),
                 :
                 : .{ .a0 = true, .a8 = true }),
             else => {
                 @compileError("PIE startup is not yet supported for this target!");
             },
         },
-        .stage2_x86_64 => @extern([*]const elf.Dyn, .{
+        .stage2_x86_64 => @extern([*]const elf.ElfN.Dyn, .{
             .name = "_DYNAMIC",
             .linkage = .weak,
             .visibility = .hidden,
@@ -343,8 +343,8 @@ pub fn relocate(phdrs: []const elf.ElfN.Phdr) void {
     {
         // `dynv` has no defined order. Fix that.
         var i: usize = 0;
-        while (dynv[i].d_tag != elf.DT_NULL) : (i += 1) {
-            if (dynv[i].d_tag < elf.DT_NUM) sorted_dynv[@bitCast(dynv[i].d_tag)] = dynv[i].d_val;
+        while (dynv[i].tag != elf.DT_NULL) : (i += 1) {
+            if (dynv[i].tag < elf.DT_NUM) sorted_dynv[@bitCast(dynv[i].tag)] = dynv[i].val;
         }
     }
 
@@ -353,8 +353,8 @@ pub fn relocate(phdrs: []const elf.ElfN.Phdr) void {
         const count: elf.Addr = blk: {
             // This is an architecture-specific tag, so not part of `sorted_dynv`.
             var i: usize = 0;
-            while (dynv[i].d_tag != elf.DT_NULL) : (i += 1) {
-                if (dynv[i].d_tag == elf.DT_MIPS_LOCAL_GOTNO) break :blk dynv[i].d_val;
+            while (dynv[i].tag != elf.DT_NULL) : (i += 1) {
+                if (dynv[i].tag == elf.DT_MIPS_LOCAL_GOTNO) break :blk dynv[i].val;
             }
 
             break :blk 0;
@@ -371,30 +371,30 @@ pub fn relocate(phdrs: []const elf.ElfN.Phdr) void {
 
     const rel = sorted_dynv[elf.DT_REL];
     if (rel != 0) {
-        const rels: []const elf.Rel = @ptrCast(@alignCast(
-            @as([*]align(@alignOf(elf.Rel)) const u8, @ptrFromInt(base_addr + rel))[0..sorted_dynv[elf.DT_RELSZ]],
+        const rels: []const elf.ElfN.Rel = @ptrCast(@alignCast(
+            @as([*]align(@alignOf(elf.ElfN.Rel)) const u8, @ptrFromInt(base_addr + rel))[0..sorted_dynv[elf.DT_RELSZ]],
         ));
         for (rels) |r| {
-            if (r.r_type() != R_RELATIVE) continue;
-            @as(*usize, @ptrFromInt(base_addr + r.r_offset)).* += base_addr;
+            if (r.info.type != R_RELATIVE) continue;
+            @as(*usize, @ptrFromInt(base_addr + r.offset)).* += base_addr;
         }
     }
 
     const rela = sorted_dynv[elf.DT_RELA];
     if (rela != 0) {
-        const relas: []const elf.Rela = @ptrCast(@alignCast(
-            @as([*]align(@alignOf(elf.Rela)) const u8, @ptrFromInt(base_addr + rela))[0..sorted_dynv[elf.DT_RELASZ]],
+        const relas: []const elf.ElfN.Rela = @ptrCast(@alignCast(
+            @as([*]align(@alignOf(elf.ElfN.Rela)) const u8, @ptrFromInt(base_addr + rela))[0..sorted_dynv[elf.DT_RELASZ]],
         ));
         for (relas) |r| {
-            if (r.r_type() != R_RELATIVE) continue;
-            @as(*usize, @ptrFromInt(base_addr + r.r_offset)).* = base_addr + @as(usize, @bitCast(r.r_addend));
+            if (r.info.type != R_RELATIVE) continue;
+            @as(*usize, @ptrFromInt(base_addr + r.offset)).* = base_addr + @as(usize, @bitCast(r.addend));
         }
     }
 
     const relr = sorted_dynv[elf.DT_RELR];
     if (relr != 0) {
-        const relrs: []const elf.Relr = @ptrCast(
-            @as([*]align(@alignOf(elf.Relr)) const u8, @ptrFromInt(base_addr + relr))[0..sorted_dynv[elf.DT_RELRSZ]],
+        const relrs: []const elf.ElfN.Relr = @ptrCast(
+            @as([*]align(@alignOf(elf.ElfN.Relr)) const u8, @ptrFromInt(base_addr + relr))[0..sorted_dynv[elf.DT_RELRSZ]],
         );
         var current: [*]usize = undefined;
         for (relrs) |r| {
@@ -405,11 +405,11 @@ pub fn relocate(phdrs: []const elf.ElfN.Phdr) void {
             } else {
                 // Skip the first bit; there are 63 locations in the bitmap.
                 var i: if (@sizeOf(usize) == 8) u6 else u5 = 1;
-                while (i < @bitSizeOf(elf.Relr)) : (i += 1) {
+                while (i < @bitSizeOf(elf.ElfN.Relr)) : (i += 1) {
                     if (((r >> i) & 1) != 0) current[i] += base_addr;
                 }
 
-                current += @bitSizeOf(elf.Relr) - 1;
+                current += @bitSizeOf(elf.ElfN.Relr) - 1;
             }
         }
     }

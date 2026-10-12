@@ -21,6 +21,29 @@
 
 ---
 
+## 0.6.2 — Typed ELF Model: Unified `Elf32`/`Elf64` Structs + Constants
+
+Internal cleanup release. `lib/std/elf.sig` drops every deprecated declaration —
+the flat `Elf32_*`/`Elf64_*` structs, the `switch(@sizeOf)` aliases, the scalar
+aliases, and the deprecated integer-constant aliases (`SHT_*`, `SHF_*`, `STB_*`,
+`STT_*`, `STV_*`, `ELFCLASS*`, `ELFDATA*`, `EI_*`) — in favor of the typed
+`Elf32`/`Elf64` namespaces with enum section/symbol types and packed-struct flag
+fields. The compiler's linker, codegen reloc paths, aro backend, and the runtime
+startup/`dlopen` paths were all migrated to the typed model. No user-facing
+behavior change; ELF output is byte-for-byte identical.
+
+```
+$ sig version
+sig 0.6.2 (zig 0.17.0)
+```
+
+- `SHN_*`, `PF_X/W/R`, `DT_*`, `NT_*`, `VER_FLG_*`, `PN_XNUM`, and `Auxv` are kept
+  (not deprecated); the deprecated families are gone.
+- Relocation records use a packed `Rel.Info` (`type` low 32, `sym` high 32),
+  bit-identical to the old `(sym << 32) | type` layout.
+- Foreign-endian serialization and Linux process-startup `Auxv` reads verified
+  against the typed layout.
+
 ## 0.6.1 — Native sBPF (Solana) Backend + Link/Deploy Path
 
 Sig can now build and link a loadable Solana on-chain program end-to-end with no
