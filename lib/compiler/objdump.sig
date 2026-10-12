@@ -833,12 +833,16 @@ const elf = struct {
         const fr = d.fr;
         const w = d.w;
         const r = &fr.interface;
-        _ = dynamic_only;
 
         for (sections.items) |shdr| {
             const is_rela = shdr.type == .RELA;
             const is_rel = shdr.type == .REL;
             if (!is_rela and !is_rel) continue;
+            // --dynamic-relocs restricts the pass to allocatable reloc sections
+            // (SHF_ALLOC): the dynamic relocations that live in a loadable
+            // segment (.rela.dyn/.rela.plt). --relocs shows every reloc section,
+            // including link-time-only ones (.rela.text) that are not allocated.
+            if (dynamic_only and !shdr.flags.shf.ALLOC) continue;
 
             const applied = if (shdr.info < sections.items.len)
                 sectionName(d, shstrtab, sections.items[shdr.info].name)
@@ -1412,8 +1416,10 @@ const disasm = struct {
                 if (!hit) continue;
             }
 
-            // EOF/bounds guard before reading section bytes.
-            if (shdr.offset > file_size or shdr.offset + shdr.size > file_size)
+            // EOF/bounds guard before reading section bytes. Compare against the
+            // remaining space (file_size - offset) so a crafted size cannot wrap
+            // the addition.
+            if (shdr.offset > file_size or shdr.size > file_size - shdr.offset)
                 d.failParse("section '{s}' bytes out of bounds", .{name});
 
             try fr.seekTo(shdr.offset);
@@ -1565,14 +1571,14 @@ const macho = struct {
         var cmd_off: u64 = @sizeOf(std.macho.mach_header_64);
         var cmd_i: u32 = 0;
         while (cmd_i < h.ncmds) : (cmd_i += 1) {
-            if (cmd_off + @sizeOf(std.macho.load_command) > file_size)
+            if (cmd_off > file_size or @sizeOf(std.macho.load_command) > file_size - cmd_off)
                 d.failParse("load command {d} out of bounds", .{cmd_i});
             try fr.seekTo(cmd_off);
             const lc = r.takeStruct(std.macho.load_command, .little) catch |err| switch (err) {
                 error.ReadFailed => return error.ReadFailed,
                 else => d.failParse("truncated load command {d}: {t}", .{ cmd_i, err }),
             };
-            if (lc.cmdsize < @sizeOf(std.macho.load_command) or cmd_off + lc.cmdsize > file_size)
+            if (lc.cmdsize < @sizeOf(std.macho.load_command) or cmd_off > file_size or lc.cmdsize > file_size - cmd_off)
                 d.failParse("load command {d} has invalid cmdsize 0x{x}", .{ cmd_i, lc.cmdsize });
 
             switch (lc.cmd) {
@@ -1629,9 +1635,13 @@ const macho = struct {
         const r = &fr.interface;
 
         const esz = @sizeOf(std.macho.nlist_64);
-        if (@as(u64, sc.symoff) + @as(u64, sc.nsyms) * esz > file_size)
+        // Compare against remaining space (file_size - off) so the offset+size
+        // additions cannot wrap for a crafted u32 offset/count. The u32*esz
+        // product is widened to u64 and cannot overflow.
+        const sym_bytes: u64 = @as(u64, sc.nsyms) * esz;
+        if (sc.symoff > file_size or sym_bytes > file_size - sc.symoff)
             d.failParse("symbol table out of bounds", .{});
-        if (@as(u64, sc.stroff) + @as(u64, sc.strsize) > file_size)
+        if (sc.stroff > file_size or @as(u64, sc.strsize) > file_size - sc.stroff)
             d.failParse("string table out of bounds", .{});
 
         var strtab: []u8 = &.{};
@@ -1734,7 +1744,8 @@ const wasm = struct {
                 else => d.failParse("malformed LEB128 size for section 0x{x}", .{id_byte}),
             };
             const body_start = fr.logicalPos();
-            if (body_start + size > file_size)
+            // Remaining-space form avoids wrap on a crafted LEB128 size.
+            if (body_start > file_size or size > file_size - body_start)
                 d.failParse("section '{s}' size 0x{x} out of bounds", .{ sectionName(id), size });
 
             try w.print("  {d: >2} {s: <15} {f}\n", .{
