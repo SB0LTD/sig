@@ -670,14 +670,16 @@ const elf = struct {
         var sym_names: std.ArrayList(SymName) = .empty;
         defer sym_names.deinit(gpa);
 
-        if (d.opts.symbols or d.opts.dynamic_symbols) {
+        if (d.opts.symbols or d.opts.dynamic_symbols or d.opts.disassemble) {
             // --symbols always populates the retained table (for FEAT-003) even if
             // only --dynamic-symbols printing was requested; printing is gated per
-            // call below.
-            if (d.opts.symbols)
-                try dumpSymbols(d, &sections, endian, is_64, .SYMTAB, "Symbol table", &name_arena, &sym_names, true);
+            // call below. Disassembly (-d) also needs the retained value->name
+            // table to annotate call targets, so the SYMTAB pass runs (silently,
+            // via the element-gated printers) whenever disassembly is requested.
+            if (d.opts.symbols or d.opts.disassemble)
+                try dumpSymbols(d, &sections, endian, is_64, .SYMTAB, "Symbol table", &name_arena, &sym_names, true, d.opts.symbols);
             if (d.opts.dynamic_symbols)
-                try dumpSymbols(d, &sections, endian, is_64, .DYNSYM, "Dynamic symbol table", &name_arena, &sym_names, false);
+                try dumpSymbols(d, &sections, endian, is_64, .DYNSYM, "Dynamic symbol table", &name_arena, &sym_names, false, true);
         }
 
         // --- Relocations (§4.5). ---
@@ -689,6 +691,12 @@ const elf = struct {
         // --- --dynamic (§4.6). ---
         if (d.opts.dynamic)
             try dumpDynamic(d, &hdr, &sections);
+
+        // --- Disassembly (§6-§7): the inspection views run first, then the
+        // decoder walks executable sections. disasm.run is the single Annotator
+        // construction site; it consumes the retained value->name table. ---
+        if (d.opts.disassemble)
+            try disasm.run(d, &hdr, &sections, shstrtab, sym_names.items, e_flags);
     }
 
     fn readOrFail(d: *const DumpContext, err: anytype) error{ ReadFailed, ParseFailure } {
@@ -713,6 +721,7 @@ const elf = struct {
         name_arena: *std.heap.ArenaAllocator,
         sym_names: *std.ArrayList(SymName),
         retain: bool,
+        print_rows: bool,
     ) !void {
         const gpa = d.gpa;
         const fr = d.fr;
@@ -746,8 +755,8 @@ const elf = struct {
             }
         }
 
-        if (d.element(.@"header-name")) try w.print("{s}:\n", .{header_name});
-        if (d.element(.@"table-header"))
+        if (print_rows and d.element(.@"header-name")) try w.print("{s}:\n", .{header_name});
+        if (print_rows and d.element(.@"table-header"))
             try w.writeAll("   Num:    Value     Size Type    Bind    Vis       Ndx Name\n");
 
         var idx: u64 = 0;
@@ -773,6 +782,7 @@ const elf = struct {
                 (try sym_names.addOne(gpa)).* = .{ .value = sym.value, .name = dup };
             }
 
+            if (!print_rows) continue;
             if (!filterMatches(d.opts.symbol_filters, name)) continue;
 
             try w.print("  {d: >4}: {f} {f} ", .{
@@ -801,7 +811,7 @@ const elf = struct {
                 }
             }.lt);
 
-        if (d.element(.newlines)) try w.writeByte('\n');
+        if (print_rows and d.element(.newlines)) try w.writeByte('\n');
     }
 
     fn resolveSymName(d: *const DumpContext, strtab: []const u8, name: u32) []const u8 {
@@ -950,6 +960,483 @@ const elf = struct {
             if (dyn.tag == std.elf.DT_NULL) break;
         }
         if (d.element(.newlines)) try w.writeByte('\n');
+    }
+};
+
+/// From-scratch sBPF (eBPF 64-bit little-endian) disassembler (design §6-§7).
+/// Written in-file because `sig objdump` is a std-only JIT tool and the compiler
+/// codegen (src/codegen/aarch64) is NOT reachable from here. sBPF is the only
+/// supported machine for 0.6.2; every other machine emits a clear
+/// "not implemented" error rather than a stub. The decoder owns no allocation of
+/// its own: `run` is the single site that reads section bytes (via gpa with a
+/// matching defer free) and constructs the one `Annotator`.
+const disasm = struct {
+    const Error = Io.Writer.Error || error{ParseFailure};
+
+    /// A symbol's value paired with its resolved name. Shared with the `elf`
+    /// namespace that builds the table (FEAT-002); the Annotator binary-searches
+    /// it by value to label call targets.
+    const SymName = elf.SymName;
+
+    /// A static Solana syscall identified by the murmur3_32 hash of its ASCII
+    /// name (SIMD-0178 static-syscall registry). Built once at comptime.
+    const SyscallHash = struct {
+        hash: u32,
+        name: []const u8,
+    };
+
+    /// sBPF virtual-memory region bases: the high 32 bits of an address select
+    /// the region. Program bytes live at 0x1_0000_0000 (MM_PROGRAM_START).
+    const MM_PROGRAM_START: u64 = 0x1_0000_0000;
+
+    /// Resolves symbolic context for an instruction: call targets (syscall hash
+    /// first, then a symbol whose value equals the immediate) and memory-region
+    /// notes for load/store/lddw addresses.
+    const Annotator = struct {
+        syms: []const SymName,
+        syscalls: []const SyscallHash,
+        machine: std.elf.EM,
+
+        /// A `call <imm>` target: match the low 32 bits against the static
+        /// syscall hash table first, then fall back to a symbol whose value
+        /// equals the full immediate.
+        fn resolve(a: *const Annotator, imm: u64) ?[]const u8 {
+            const key: u32 = @truncate(imm);
+            for (a.syscalls) |sc| {
+                if (sc.hash == key) return sc.name;
+            }
+            for (a.syms) |s| {
+                if (s.value == imm) return s.name;
+            }
+            return null;
+        }
+
+        /// A memory-region note for an address (load/store/lddw). The high 32
+        /// bits select the region per the sBPF memory map.
+        fn region(a: *const Annotator, addr: u64) ?[]const u8 {
+            _ = a;
+            return switch (addr >> 32) {
+                0x1 => "program",
+                0x2 => "stack",
+                0x3 => "heap",
+                0x4 => "input",
+                else => null,
+            };
+        }
+    };
+
+    /// murmur3_32 (seed 0) copied VERBATIM from src/codegen/llvm.sig so the
+    /// static-syscall hashes computed here match the immediates sig's own
+    /// codegen emits. Do NOT alter the constants or the mix sequence.
+    fn murmur3_32(key: []const u8) u32 {
+        const c1: u32 = 0xcc9e2d51;
+        const c2: u32 = 0x1b873593;
+
+        var h: u32 = 0; // seed = 0
+        const nblocks = key.len / 4;
+
+        var i: usize = 0;
+        while (i < nblocks) : (i += 1) {
+            var k: u32 = std.mem.readInt(u32, key[i * 4 ..][0..4], .little);
+            k *%= c1;
+            k = std.math.rotl(u32, k, 15);
+            k *%= c2;
+            h ^= k;
+            h = std.math.rotl(u32, h, 13);
+            h = h *% 5 +% 0xe6546b64;
+        }
+
+        const tail = key[nblocks * 4 ..];
+        var k1: u32 = 0;
+        if (tail.len >= 3) k1 ^= @as(u32, tail[2]) << 16;
+        if (tail.len >= 2) k1 ^= @as(u32, tail[1]) << 8;
+        if (tail.len >= 1) {
+            k1 ^= @as(u32, tail[0]);
+            k1 *%= c1;
+            k1 = std.math.rotl(u32, k1, 15);
+            k1 *%= c2;
+            h ^= k1;
+        }
+
+        h ^= @as(u32, @intCast(key.len));
+        h ^= h >> 16;
+        h *%= 0x85ebca6b;
+        h ^= h >> 13;
+        h *%= 0xc2b2ae35;
+        h ^= h >> 16;
+        return h;
+    }
+
+    /// The SIMD-0178 static-syscall name set (design §7.3). The hashes are
+    /// computed at comptime via murmur3_32 so the table carries both the 32-bit
+    /// key an sBPF `call` immediate uses and the human name to annotate it with.
+    const syscall_names = [_][]const u8{
+        "sol_log_",
+        "sol_log_64_",
+        "sol_log_pubkey",
+        "sol_log_compute_units_",
+        "sol_sha256",
+        "sol_keccak256",
+        "sol_blake3",
+        "sol_memcpy_",
+        "sol_memmove_",
+        "sol_memcmp_",
+        "sol_memset_",
+        "sol_invoke_signed_c",
+        "sol_invoke_signed_rust",
+        "sol_get_clock_sysvar",
+        "sol_get_rent_sysvar",
+        "sol_get_epoch_schedule_sysvar",
+        "sol_get_fees_sysvar",
+        "sol_get_stack_height",
+        "sol_create_program_address",
+        "sol_try_find_program_address",
+        "sol_secp256k1_recover",
+        "sol_curve_validate_point",
+        "sol_curve_group_op",
+        "abort",
+        "sol_panic_",
+        "sol_alloc_free_",
+        "sol_set_return_data",
+        "sol_get_return_data",
+    };
+
+    const syscalls: []const SyscallHash = blk: {
+        var table: [syscall_names.len]SyscallHash = undefined;
+        for (syscall_names, 0..) |nm, idx| {
+            table[idx] = .{ .hash = murmur3_32(nm), .name = nm };
+        }
+        const final = table;
+        break :blk &final;
+    };
+
+    /// sBPF register name (`r0`..`r10`). Values outside 0..10 are rendered
+    /// numerically so a malformed field never traps.
+    fn regName(buf: *[8]u8, n: u4) []const u8 {
+        return std.fmt.bufPrint(buf, "r{d}", .{n}) catch "r?";
+    }
+
+    /// A decoded instruction's raw fields (eBPF 64-bit little-endian layout):
+    /// opcode:u8, regs:u8 (low nibble dst, high nibble src), off:i16, imm:i32.
+    const Insn = struct {
+        opcode: u8,
+        dst: u4,
+        src: u4,
+        off: i16,
+        imm: i32,
+    };
+
+    fn readInsn(code: []const u8) Insn {
+        return .{
+            .opcode = code[0],
+            .dst = @truncate(code[1]),
+            .src = @truncate(code[1] >> 4),
+            .off = @bitCast(std.mem.readInt(u16, code[2..4], .little)),
+            .imm = @bitCast(std.mem.readInt(u32, code[4..8], .little)),
+        };
+    }
+
+    /// The arithmetic mnemonic for an ALU/ALU64 opcode's operation nibble
+    /// (high nibble of the opcode), or null for an unknown operation.
+    fn aluOp(op: u8) ?[]const u8 {
+        return switch (op & 0xf0) {
+            0x00 => "add",
+            0x10 => "sub",
+            0x20 => "mul",
+            0x30 => "div",
+            0x40 => "or",
+            0x50 => "and",
+            0x60 => "lsh",
+            0x70 => "rsh",
+            0x80 => "neg",
+            0x90 => "mod",
+            0xa0 => "xor",
+            0xb0 => "mov",
+            0xc0 => "arsh",
+            else => null,
+        };
+    }
+
+    /// The branch mnemonic for a JMP/JMP32 opcode's operation nibble, or null.
+    fn jmpOp(op: u8) ?[]const u8 {
+        return switch (op & 0xf0) {
+            0x00 => "ja",
+            0x10 => "jeq",
+            0x20 => "jgt",
+            0x30 => "jge",
+            0x40 => "jlt",
+            0x50 => "jle",
+            0x60 => "jset",
+            0x70 => "jne",
+            0x80 => "jsgt",
+            0x90 => "jsge",
+            0xa0 => "jslt",
+            0xb0 => "jsle",
+            0xc0 => "call",
+            0xd0 => "exit",
+            else => null,
+        };
+    }
+
+    /// The size suffix for a LD/LDX/ST/STX opcode's size bits (bits 3-4):
+    /// w (word), h (half), b (byte), dw (double word).
+    fn memSize(op: u8) []const u8 {
+        return switch (op & 0x18) {
+            0x00 => "w",
+            0x08 => "h",
+            0x10 => "b",
+            0x18 => "dw",
+            else => unreachable,
+        };
+    }
+
+    /// Emit the raw bytes of a short/undecodable tail as space-separated hex.
+    fn writeRawBytes(w: *Io.Writer, bytes: []const u8) !void {
+        for (bytes, 0..) |b, i| {
+            if (i != 0) try w.writeByte(' ');
+            try w.print("{x:0>2}", .{b});
+        }
+    }
+
+    /// Decode and render ONE sBPF instruction starting at `code[0]`, with
+    /// program-counter `pc`. Returns the byte stride consumed (8, or 16 for the
+    /// `lddw` opcode 0x18). Bounds are checked BEFORE any slice: a short tail
+    /// emits `<truncated>` plus the remaining raw bytes and returns
+    /// error.ParseFailure (no out-of-bounds read). An unknown opcode renders
+    /// inline as `<unknown opcode 0xNN>` and advances one 8-byte stride so the
+    /// walk continues.
+    fn decodeOne(code: []const u8, pc: u64, ann: *const Annotator, w: *Io.Writer) Error!usize {
+        _ = pc;
+        if (code.len < 8) {
+            try w.writeAll("<truncated> ");
+            try writeRawBytes(w, code);
+            return error.ParseFailure;
+        }
+
+        const in = readInsn(code);
+        const op = in.opcode;
+        const class = op & 0x07;
+        const source_is_imm = (op & 0x08) == 0; // bit 3: 0 => imm (K), 1 => src reg (X)
+        var dbuf: [8]u8 = undefined;
+        var sbuf: [8]u8 = undefined;
+        const dst = regName(&dbuf, in.dst);
+        const src = regName(&sbuf, in.src);
+
+        switch (class) {
+            // ALU (32-bit) and ALU64.
+            0x04, 0x07 => {
+                const suffix: []const u8 = if (class == 0x04) "32" else "";
+                const mnem = aluOp(op) orelse {
+                    try w.print("<unknown opcode 0x{x:0>2}> ", .{op});
+                    try writeRawBytes(w, code[0..8]);
+                    return 8;
+                };
+                if ((op & 0xf0) == 0x80) {
+                    // neg has no source operand.
+                    try w.print("{s}{s} {s}", .{ mnem, suffix, dst });
+                } else if (source_is_imm) {
+                    try w.print("{s}{s} {s}, 0x{x}", .{ mnem, suffix, dst, @as(u32, @bitCast(in.imm)) });
+                } else {
+                    try w.print("{s}{s} {s}, {s}", .{ mnem, suffix, dst, src });
+                }
+                return 8;
+            },
+
+            // JMP (64-bit) and JMP32.
+            0x05, 0x06 => {
+                const suffix: []const u8 = if (class == 0x06) "32" else "";
+                const mnem = jmpOp(op) orelse {
+                    try w.print("<unknown opcode 0x{x:0>2}> ", .{op});
+                    try writeRawBytes(w, code[0..8]);
+                    return 8;
+                };
+                switch (op & 0xf0) {
+                    0xd0 => try w.writeAll("exit"), // exit
+                    0x00 => try w.print("ja {d}", .{in.off}), // unconditional
+                    0xc0 => {
+                        // call <imm>; annotate via syscall hash then symbol.
+                        try w.print("call 0x{x}", .{@as(u32, @bitCast(in.imm))});
+                        if (ann.resolve(@as(u64, @as(u32, @bitCast(in.imm))))) |nm|
+                            try w.print(" <{s}>", .{nm});
+                    },
+                    else => {
+                        if (source_is_imm)
+                            try w.print("{s}{s} {s}, 0x{x}, {d}", .{ mnem, suffix, dst, @as(u32, @bitCast(in.imm)), in.off })
+                        else
+                            try w.print("{s}{s} {s}, {s}, {d}", .{ mnem, suffix, dst, src, in.off });
+                    },
+                }
+                return 8;
+            },
+
+            // LD / LDX / ST / STX.
+            0x00, 0x01, 0x02, 0x03 => {
+                // lddw: opcode 0x18 is a 16-byte immediate-load pair.
+                if (op == 0x18) {
+                    if (code.len < 16) {
+                        try w.writeAll("<truncated> ");
+                        try writeRawBytes(w, code);
+                        return error.ParseFailure;
+                    }
+                    const lo: u64 = @as(u32, @bitCast(in.imm));
+                    const hi: u64 = std.mem.readInt(u32, code[12..16], .little);
+                    const imm64 = (hi << 32) | (lo & 0xffffffff);
+                    try w.print("lddw {s}, 0x{x}", .{ dst, imm64 });
+                    if (ann.region(imm64)) |rg| try w.print(" ; {s}", .{rg});
+                    return 16;
+                }
+
+                const sz = memSize(op);
+                switch (class) {
+                    0x01 => { // LDX: dst = *(size *)(src + off)
+                        const addr_note = ann.region(@as(u64, @bitCast(@as(i64, in.off))));
+                        try w.print("ldx{s} {s}, [{s}{s}0x{x}]", .{
+                            sz, dst, src,
+                            if (in.off < 0) "-" else "+",
+                            @abs(@as(i64, in.off)),
+                        });
+                        if (addr_note) |rg| try w.print(" ; {s}", .{rg});
+                        return 8;
+                    },
+                    0x02 => { // ST: *(size *)(dst + off) = imm
+                        try w.print("st{s} [{s}{s}0x{x}], 0x{x}", .{
+                            sz, dst,
+                            if (in.off < 0) "-" else "+",
+                            @abs(@as(i64, in.off)),
+                            @as(u32, @bitCast(in.imm)),
+                        });
+                        return 8;
+                    },
+                    0x03 => { // STX: *(size *)(dst + off) = src
+                        try w.print("stx{s} [{s}{s}0x{x}], {s}", .{
+                            sz, dst,
+                            if (in.off < 0) "-" else "+",
+                            @abs(@as(i64, in.off)),
+                            src,
+                        });
+                        return 8;
+                    },
+                    else => {
+                        // LD class 0x00 (other than lddw) is unused by sBPF.
+                        try w.print("<unknown opcode 0x{x:0>2}> ", .{op});
+                        try writeRawBytes(w, code[0..8]);
+                        return 8;
+                    },
+                }
+            },
+
+            else => {
+                try w.print("<unknown opcode 0x{x:0>2}> ", .{op});
+                try writeRawBytes(w, code[0..8]);
+                return 8;
+            },
+        }
+    }
+
+    /// Human name for a machine, for the "not implemented" message. Never traps
+    /// on an unnamed non-exhaustive value.
+    fn machineName(m: std.elf.EM) []const u8 {
+        return std.enums.tagName(std.elf.EM, m) orelse "unknown";
+    }
+
+    /// Drive disassembly for the ELF path. SINGLE Annotator construction site:
+    /// pairs the FEAT-002 value->name symbol table with the comptime syscall
+    /// table and the header machine, then walks each executable section.
+    /// Non-sBPF machines emit a clear "not implemented" error.
+    fn run(
+        d: *const DumpContext,
+        hdr: *const std.elf.Header,
+        sections: *const std.ArrayList(std.elf.Elf64.Shdr),
+        shstrtab: []const u8,
+        syms: []const SymName,
+        e_flags: u32,
+    ) !void {
+        const fr = d.fr;
+        const w = d.w;
+        const r = &fr.interface;
+
+        // --- Decoder selection (§6.2): sBPF only for 0.6.2. ---
+        switch (hdr.machine) {
+            .BPF, .SBF => {},
+            else => d.failParse("disassembly not implemented for {s}", .{machineName(hdr.machine)}),
+        }
+
+        const ann: Annotator = .{
+            .syms = syms,
+            .syscalls = syscalls,
+            .machine = hdr.machine,
+        };
+
+        const file_size = try fr.getSize();
+
+        if (d.element(.@"header-name")) {
+            var vbuf: [16]u8 = undefined;
+            try w.print("Disassembly ({s}):\n", .{elf.sbpfVersionName(e_flags, &vbuf)});
+        }
+
+        for (sections.items) |shdr| {
+            if (!shdr.flags.shf.EXECINSTR) continue;
+            if (shdr.size == 0) continue;
+
+            const name = elf.sectionName(d, shstrtab, shdr.name);
+            if (!filterMatches(d.opts.section_filters, name)) continue;
+
+            // If a specific symbol was requested, only disassemble sections that
+            // contain it (the symbol-range view); otherwise all exec sections.
+            if (d.opts.disassemble_symbol) |want| {
+                var hit = false;
+                for (syms) |s| {
+                    if (std.mem.eql(u8, s.name, want) and
+                        s.value >= shdr.addr and s.value < shdr.addr + shdr.size)
+                    {
+                        hit = true;
+                        break;
+                    }
+                }
+                if (!hit) continue;
+            }
+
+            // EOF/bounds guard before reading section bytes.
+            if (shdr.offset > file_size or shdr.offset + shdr.size > file_size)
+                d.failParse("section '{s}' bytes out of bounds", .{name});
+
+            try fr.seekTo(shdr.offset);
+            const codebytes = try r.readAlloc(d.gpa, shdr.size);
+            defer d.gpa.free(codebytes);
+
+            if (d.element(.@"header-name")) try w.print("{s}:\n", .{name});
+
+            const base = shdr.addr;
+            var cursor: usize = 0;
+            while (cursor < codebytes.len) {
+                const pc = base + cursor;
+
+                // Section/symbol/entry banner when a symbol starts here.
+                for (syms) |s| {
+                    if (s.value == pc and s.name.len != 0) {
+                        try w.print("{f} <{s}>:\n", .{ coff.fmtIntField(d, pc, .{ .kind = .va }), s.name });
+                        break;
+                    }
+                }
+                if (pc == MM_PROGRAM_START and d.element(.@"header-name"))
+                    try w.writeAll("; entrypoint\n");
+
+                // Address + raw-byte prefix.
+                try w.print("  {f}:  ", .{coff.fmtIntField(d, pc, .{ .kind = .va })});
+
+                const stride = decodeOne(codebytes[cursor..], pc, &ann, w) catch |err| switch (err) {
+                    error.ParseFailure => {
+                        try w.writeByte('\n');
+                        // Short/undecodable tail already rendered; stop this section.
+                        break;
+                    },
+                    else => |e| return e,
+                };
+                try w.writeByte('\n');
+                cursor += stride;
+            }
+            if (d.element(.newlines)) try w.writeByte('\n');
+        }
     }
 };
 
