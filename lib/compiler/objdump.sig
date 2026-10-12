@@ -1441,22 +1441,345 @@ const disasm = struct {
 };
 
 const macho = struct {
+    /// Human-readable name for the CPU type carried in a Mach-O header. Only the
+    /// 64-bit CPU types sig cares about are named; anything else prints as bare
+    /// hex (the design forbids `{t}` here — `cpu_type_t` is a plain integer, not
+    /// an enum, so there is no tag to format).
+    fn machoCpuName(cputype: std.macho.cpu_type_t) ?[]const u8 {
+        return switch (cputype) {
+            std.macho.CPU_TYPE_X86_64 => "X86_64",
+            std.macho.CPU_TYPE_ARM64 => "ARM64",
+            else => null,
+        };
+    }
+
+    /// Human-readable name for the Mach-O `filetype` word. `filetype` is a plain
+    /// `u32`, NOT an enum, so this is a manual switch (never `{t}`). Returns the
+    /// empty string for anything unrecognized; the caller falls back to bare hex.
+    fn machoFiletypeName(ft: u32) []const u8 {
+        return switch (ft) {
+            std.macho.MH_OBJECT => "OBJECT",
+            std.macho.MH_EXECUTE => "EXECUTE",
+            std.macho.MH_CORE => "CORE",
+            std.macho.MH_DYLIB => "DYLIB",
+            std.macho.MH_BUNDLE => "BUNDLE",
+            std.macho.MH_DSYM => "DSYM",
+            else => "",
+        };
+    }
+
     fn dump(d: *const DumpContext) !void {
+        const fr = d.fr;
+        const w = d.w;
+        const r = &fr.interface;
         const basename = std.fs.path.basename(d.opts.input_path);
-        if (d.element(.@"file-type")) {
-            try d.w.print("{s}: Mach-O 64-bit object\n", .{basename});
-            if (d.element(.newlines)) try d.w.writeByte('\n');
+
+        // --- Variant guard (§8.1 step 3). The dispatcher only routes here when
+        // the leading word is MH_MAGIC_64, but re-check explicitly so fat/
+        // universal (FAT_MAGIC/CIGAM) and 32-bit (MH_MAGIC) inputs that somehow
+        // reach this handler produce a clear error, never a stub or a misparse.
+        // Phases 2/3 (fat/universal + 32-bit) are out of scope. ---
+        const magic = r.peek(4) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            else => d.failParse("truncated Mach-O header: {t}", .{err}),
+        };
+        const magic_word = mem.readInt(u32, magic[0..4], .little);
+        switch (magic_word) {
+            std.macho.MH_MAGIC_64 => {},
+            std.macho.MH_MAGIC,
+            std.macho.MH_CIGAM,
+            std.macho.MH_CIGAM_64,
+            std.macho.FAT_MAGIC,
+            std.macho.FAT_CIGAM,
+            std.macho.FAT_MAGIC_64,
+            std.macho.FAT_CIGAM_64,
+            => d.failParse("unsupported Mach-O variant (fat/universal and 32-bit are not supported)", .{}),
+            else => d.failParse("not a Mach-O file (magic 0x{x})", .{magic_word}),
         }
+
+        const h = r.takeStruct(std.macho.mach_header_64, .little) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            else => d.failParse("truncated Mach-O header: {t}", .{err}),
+        };
+
+        // --- File-type banner (§3). ---
+        if (d.element(.@"file-type")) {
+            const ftname = machoFiletypeName(h.filetype);
+            if (ftname.len != 0)
+                try w.print("{s}: Mach-O 64-bit {s}\n", .{ basename, ftname })
+            else
+                try w.print("{s}: Mach-O 64-bit object\n", .{basename});
+            if (d.element(.newlines)) try w.writeByte('\n');
+        }
+
+        // --- --file-headers (§8.1 step 1). All element/redaction aware. ---
+        if (d.opts.file_headers) {
+            if (d.element(.@"header-name")) try w.writeAll("Mach-O Header:\n");
+            try w.print("  magic                       0x{x}\n", .{h.magic});
+            if (machoCpuName(h.cputype)) |nm|
+                try w.print("  cputype                     {s} (0x{x})\n", .{ nm, @as(u32, @bitCast(h.cputype)) })
+            else
+                try w.print("  cputype                     0x{x}\n", .{@as(u32, @bitCast(h.cputype))});
+            try w.print("  cpusubtype                  0x{x}\n", .{@as(u32, @bitCast(h.cpusubtype))});
+            const ftname = machoFiletypeName(h.filetype);
+            if (ftname.len != 0)
+                try w.print("  filetype                    {s} (0x{x})\n", .{ ftname, h.filetype })
+            else
+                try w.print("  filetype                    0x{x}\n", .{h.filetype});
+            try w.print("  ncmds                       {f}\n", .{coff.fmtIntField(d, h.ncmds, .{ .kind = .size })});
+            try w.print("  sizeofcmds                  {f}\n", .{coff.fmtIntField(d, h.sizeofcmds, .{ .kind = .size })});
+            try w.print("  flags                       0x{x}\n", .{h.flags});
+            if (d.element(.newlines)) try w.writeByte('\n');
+        }
+
+        const want_sections = d.opts.section_headers;
+        const want_symbols = d.opts.symbols;
+        if (!want_sections and !want_symbols) return;
+
+        const file_size = try fr.getSize();
+
+        // --- Load-command walk (§8.1 step 2). Each command starts at a known
+        // offset; we re-seek per command and advance by cmdsize so a command we
+        // do not re-read in full still lands us on the next one. The header is
+        // @sizeOf(mach_header_64) bytes; commands follow immediately. ---
+        if (want_sections and d.element(.@"header-name")) try w.writeAll("Sections:\n");
+        if (want_sections and d.element(.@"table-header"))
+            try w.writeAll("  Segment,Section               Addr       Size     Offset Align\n");
+
+        var cmd_off: u64 = @sizeOf(std.macho.mach_header_64);
+        var cmd_i: u32 = 0;
+        while (cmd_i < h.ncmds) : (cmd_i += 1) {
+            if (cmd_off + @sizeOf(std.macho.load_command) > file_size)
+                d.failParse("load command {d} out of bounds", .{cmd_i});
+            try fr.seekTo(cmd_off);
+            const lc = r.takeStruct(std.macho.load_command, .little) catch |err| switch (err) {
+                error.ReadFailed => return error.ReadFailed,
+                else => d.failParse("truncated load command {d}: {t}", .{ cmd_i, err }),
+            };
+            if (lc.cmdsize < @sizeOf(std.macho.load_command) or cmd_off + lc.cmdsize > file_size)
+                d.failParse("load command {d} has invalid cmdsize 0x{x}", .{ cmd_i, lc.cmdsize });
+
+            switch (lc.cmd) {
+                .SEGMENT_64 => if (want_sections) {
+                    try fr.seekTo(cmd_off);
+                    const seg = r.takeStruct(std.macho.segment_command_64, .little) catch |err| switch (err) {
+                        error.ReadFailed => return error.ReadFailed,
+                        else => d.failParse("truncated SEGMENT_64 command {d}: {t}", .{ cmd_i, err }),
+                    };
+                    const segname = seg.segName();
+                    var sec_i: u32 = 0;
+                    while (sec_i < seg.nsects) : (sec_i += 1) {
+                        const sect = r.takeStruct(std.macho.section_64, .little) catch |err| switch (err) {
+                            error.ReadFailed => return error.ReadFailed,
+                            else => d.failParse("truncated section {d} in segment '{s}': {t}", .{ sec_i, segname, err }),
+                        };
+                        const sectname = sect.sectName();
+                        try w.print("  {s},{s}", .{ segname, sectname });
+                        const label_len = segname.len + 1 + sectname.len;
+                        if (label_len < 28) try w.splatByteAll(' ', 28 - label_len);
+                        try w.print(" {f} {f} {f} {d: >4}\n", .{
+                            coff.fmtIntField(d, sect.addr, .{ .kind = .va }),
+                            coff.fmtIntField(d, sect.size, .{ .kind = .size }),
+                            coff.fmtIntField(d, @as(u64, sect.offset), .{ .kind = .va }),
+                            sect.@"align",
+                        });
+                    }
+                },
+                .SYMTAB => if (want_symbols) {
+                    try fr.seekTo(cmd_off);
+                    const sc = r.takeStruct(std.macho.symtab_command, .little) catch |err| switch (err) {
+                        error.ReadFailed => return error.ReadFailed,
+                        else => d.failParse("truncated SYMTAB command {d}: {t}", .{ cmd_i, err }),
+                    };
+                    try dumpSymtab(d, sc, file_size);
+                },
+                else => {},
+            }
+
+            cmd_off += lc.cmdsize;
+        }
+
+        if (want_sections and d.element(.newlines)) try w.writeByte('\n');
+    }
+
+    /// Read and print the Mach-O symbol table described by a SYMTAB command
+    /// (§8.1 step 2). The string table is read once into a gpa buffer; each
+    /// `nlist_64` entry's `n_strx` indexes it. Strict allocator discipline:
+    /// every `readAlloc` has a matching `defer gpa.free`.
+    fn dumpSymtab(d: *const DumpContext, sc: std.macho.symtab_command, file_size: u64) !void {
+        const gpa = d.gpa;
+        const fr = d.fr;
+        const w = d.w;
+        const r = &fr.interface;
+
+        const esz = @sizeOf(std.macho.nlist_64);
+        if (@as(u64, sc.symoff) + @as(u64, sc.nsyms) * esz > file_size)
+            d.failParse("symbol table out of bounds", .{});
+        if (@as(u64, sc.stroff) + @as(u64, sc.strsize) > file_size)
+            d.failParse("string table out of bounds", .{});
+
+        var strtab: []u8 = &.{};
+        defer if (strtab.len != 0) gpa.free(strtab);
+        if (sc.strsize != 0) {
+            try fr.seekTo(sc.stroff);
+            strtab = try r.readAlloc(gpa, sc.strsize);
+        }
+
+        if (d.element(.@"header-name")) try w.writeAll("Symbol table:\n");
+        if (d.element(.@"table-header"))
+            try w.writeAll("  Value    Name\n");
+
+        try fr.seekTo(sc.symoff);
+        var sym_i: u32 = 0;
+        while (sym_i < sc.nsyms) : (sym_i += 1) {
+            const nl = r.takeStruct(std.macho.nlist_64, .little) catch |err| switch (err) {
+                error.ReadFailed => return error.ReadFailed,
+                else => d.failParse("truncated symbol {d}: {t}", .{ sym_i, err }),
+            };
+            const name = if (nl.n_strx == 0 or nl.n_strx >= strtab.len)
+                ""
+            else
+                std.mem.sliceTo(strtab[nl.n_strx..], 0);
+            if (!filterMatches(d.opts.symbol_filters, name)) continue;
+            try w.print("  {f} {s}\n", .{
+                coff.fmtIntField(d, nl.n_value, .{ .kind = .va }),
+                name,
+            });
+        }
+        if (d.element(.newlines)) try w.writeByte('\n');
     }
 };
 
 const wasm = struct {
+    /// Name of a wasm section id. `Section` is a non-exhaustive `enum(u8)`, so a
+    /// format-time `{t}` would panic on an unknown id (see the FEAT-002 toolchain
+    /// finding); route it through `tagName` with a numeric fallback instead.
+    fn sectionName(id: std.wasm.Section) []const u8 {
+        return std.enums.tagName(std.wasm.Section, id) orelse "custom?";
+    }
+
     fn dump(d: *const DumpContext) !void {
+        const fr = d.fr;
+        const w = d.w;
+        const r = &fr.interface;
         const basename = std.fs.path.basename(d.opts.input_path);
+
+        // --- Magic + version check (§8.2). The dispatcher already matched the
+        // 4-byte magic; consume it and verify the version word. ---
+        const magic = r.take(4) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            else => d.failParse("truncated WebAssembly header: {t}", .{err}),
+        };
+        if (!mem.eql(u8, magic, &std.wasm.magic))
+            d.failParse("not a WebAssembly module", .{});
+        const ver = r.take(4) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            else => d.failParse("truncated WebAssembly header: {t}", .{err}),
+        };
+        if (!mem.eql(u8, ver, &std.wasm.version))
+            d.failParse("unsupported WebAssembly version {d}.{d}.{d}.{d}", .{ ver[0], ver[1], ver[2], ver[3] });
+        const version = mem.readInt(u32, ver[0..4], .little);
+
+        // --- File-type banner (§3). ---
         if (d.element(.@"file-type")) {
-            try d.w.print("{s}: WebAssembly binary\n", .{basename});
-            if (d.element(.newlines)) try d.w.writeByte('\n');
+            try w.print("{s}: WebAssembly binary (version {d})\n", .{ basename, version });
+            if (d.element(.newlines)) try w.writeByte('\n');
         }
+
+        // --- --file-headers prints the version word (§8.2 step). ---
+        if (d.opts.file_headers) {
+            if (d.element(.@"header-name")) try w.writeAll("WebAssembly Header:\n");
+            try w.print("  version                     {d}\n", .{version});
+            if (d.element(.newlines)) try w.writeByte('\n');
+        }
+
+        const want_inventory = d.opts.section_headers or d.opts.summary;
+        if (!want_inventory) return;
+
+        const file_size = try fr.getSize();
+
+        // --- Section-sequence walk (§8.2). Each section is `id: u8` followed by
+        // a LEB128 u32 byte-size, then that many content bytes. We print the
+        // inventory (name + size) and, for export/name-custom sections where the
+        // payload is cheaply decodable, list the exported/module names. Full
+        // operand decode is OUT OF SCOPE. ---
+        if (d.element(.@"header-name")) try w.writeAll("Sections:\n");
+        if (d.element(.@"table-header"))
+            try w.writeAll("  Id Name            Size\n");
+
+        while (fr.logicalPos() < file_size) {
+            const id_byte = r.takeByte() catch |err| switch (err) {
+                error.ReadFailed => return error.ReadFailed,
+                else => break,
+            };
+            const id: std.wasm.Section = @enumFromInt(id_byte);
+            const size = r.takeLeb128(u32) catch |err| switch (err) {
+                error.ReadFailed => return error.ReadFailed,
+                else => d.failParse("malformed LEB128 size for section 0x{x}", .{id_byte}),
+            };
+            const body_start = fr.logicalPos();
+            if (body_start + size > file_size)
+                d.failParse("section '{s}' size 0x{x} out of bounds", .{ sectionName(id), size });
+
+            try w.print("  {d: >2} {s: <15} {f}\n", .{
+                id_byte,
+                sectionName(id),
+                coff.fmtIntField(d, size, .{ .kind = .size }),
+            });
+
+            switch (id) {
+                .@"export" => try listExports(d, body_start, size),
+                .custom => try listCustomName(d, body_start, size),
+                else => {},
+            }
+
+            // Advance to the next section regardless of how much of the body we
+            // decoded above.
+            try fr.seekTo(body_start + size);
+        }
+
+        if (d.element(.newlines)) try w.writeByte('\n');
+    }
+
+    /// List the names in a wasm export section (§8.2). Layout: LEB128 count, then
+    /// for each export a LEB128-length name, 1 kind byte, and a LEB128 index. We
+    /// print only the names (operand/index decode is out of scope); any malformed
+    /// entry stops the listing without failing the whole dump.
+    fn listExports(d: *const DumpContext, body_start: u64, size: u32) !void {
+        const fr = d.fr;
+        const w = d.w;
+        const r = &fr.interface;
+        const body_end = body_start + size;
+
+        try fr.seekTo(body_start);
+        const count = r.takeLeb128(u32) catch return;
+        var i: u32 = 0;
+        while (i < count) : (i += 1) {
+            if (fr.logicalPos() >= body_end) break;
+            const name_len = r.takeLeb128(u32) catch break;
+            if (fr.logicalPos() + name_len > body_end) break;
+            const name = r.take(name_len) catch break;
+            try w.print("    export {s}\n", .{name});
+            // kind byte + LEB128 index — skip, we only list names.
+            _ = r.takeByte() catch break;
+            _ = r.takeLeb128(u32) catch break;
+        }
+    }
+
+    /// Print the module name carried by a wasm custom "name" section (§8.2). Only
+    /// the leading section-name string is listed (the full name-map decode is out
+    /// of scope); a non-"name" custom section just prints its name string.
+    fn listCustomName(d: *const DumpContext, body_start: u64, size: u32) !void {
+        const fr = d.fr;
+        const w = d.w;
+        const r = &fr.interface;
+        const body_end = body_start + size;
+
+        try fr.seekTo(body_start);
+        const name_len = r.takeLeb128(u32) catch return;
+        if (fr.logicalPos() + name_len > body_end) return;
+        const name = r.take(name_len) catch return;
+        try w.print("    name \"{s}\"\n", .{name});
     }
 };
 
