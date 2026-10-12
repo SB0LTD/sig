@@ -334,14 +334,198 @@ const DumpContext = struct {
 };
 
 const elf = struct {
+    /// A symbol's value paired with its resolved name. Retained (built in a
+    /// gpa-tied arena) for FEAT-003 reloc annotation and disassembly call-target
+    /// resolution. Consumed by `disasm`/`Annotator` in later features.
+    const SymName = struct {
+        value: u64,
+        name: []const u8,
+    };
+
+    /// Decode the sBPF version carried in an ELF `e_flags` word. sig's own linker
+    /// only ever emits `0x3` (sBPFv3); for any other low byte we format
+    /// `sbpfv<low-byte>` purely from the numeric value. The v0/v1 boundary is
+    /// intentionally NOT asserted — no in-tree source defines one, so inventing it
+    /// risks mislabeling third-party objects. Also consumed by FEAT-003.
+    fn sbpfVersionName(flags: u32, buf: *[16]u8) []const u8 {
+        if (flags == 0x3) return "sbpfv3";
+        return std.fmt.bufPrint(buf, "sbpfv{d}", .{flags & 0xff}) catch "sbpfv?";
+    }
+
+    /// Write an enum value's tag name, or its numeric value when the (possibly
+    /// non-exhaustive) enum carries no name for it. The toolchain's `{t}`
+    /// formatter panics ("invalid enum value") on an unnamed non-exhaustive
+    /// value, so NEVER print a format-time `{t}` on an enum read from a file;
+    /// route it through here instead.
+    fn writeEnum(w: *Io.Writer, comptime E: type, value: E, width: usize) !void {
+        if (std.enums.tagName(E, value)) |nm| {
+            try w.print("{s}", .{nm});
+            if (nm.len < width) try w.splatByteAll(' ', width - nm.len);
+        } else {
+            var buf: [24]u8 = undefined;
+            const s = std.fmt.bufPrint(&buf, "0x{x}", .{@intFromEnum(value)}) catch "0x?";
+            try w.print("{s}", .{s});
+            if (s.len < width) try w.splatByteAll(' ', width - s.len);
+        }
+    }
+
+    fn shndxName(ix: u16) ?[]const u8 {
+        return switch (ix) {
+            std.elf.SHN_UNDEF => "UNDEF",
+            std.elf.SHN_ABS => "ABS",
+            std.elf.SHN_COMMON => "COMMON",
+            else => null,
+        };
+    }
+
+    fn dtName(tag: i64) ?[]const u8 {
+        return switch (tag) {
+            std.elf.DT_NULL => "NULL",
+            std.elf.DT_NEEDED => "NEEDED",
+            std.elf.DT_PLTRELSZ => "PLTRELSZ",
+            std.elf.DT_PLTGOT => "PLTGOT",
+            std.elf.DT_HASH => "HASH",
+            std.elf.DT_GNU_HASH => "GNU_HASH",
+            std.elf.DT_STRTAB => "STRTAB",
+            std.elf.DT_SYMTAB => "SYMTAB",
+            std.elf.DT_RELA => "RELA",
+            std.elf.DT_RELASZ => "RELASZ",
+            std.elf.DT_RELAENT => "RELAENT",
+            std.elf.DT_STRSZ => "STRSZ",
+            std.elf.DT_SYMENT => "SYMENT",
+            std.elf.DT_INIT => "INIT",
+            std.elf.DT_FINI => "FINI",
+            std.elf.DT_SONAME => "SONAME",
+            std.elf.DT_RPATH => "RPATH",
+            std.elf.DT_SYMBOLIC => "SYMBOLIC",
+            std.elf.DT_REL => "REL",
+            std.elf.DT_RELSZ => "RELSZ",
+            std.elf.DT_RELENT => "RELENT",
+            std.elf.DT_PLTREL => "PLTREL",
+            std.elf.DT_DEBUG => "DEBUG",
+            std.elf.DT_TEXTREL => "TEXTREL",
+            std.elf.DT_JMPREL => "JMPREL",
+            std.elf.DT_BIND_NOW => "BIND_NOW",
+            std.elf.DT_INIT_ARRAY => "INIT_ARRAY",
+            std.elf.DT_FINI_ARRAY => "FINI_ARRAY",
+            std.elf.DT_INIT_ARRAYSZ => "INIT_ARRAYSZ",
+            std.elf.DT_FINI_ARRAYSZ => "FINI_ARRAYSZ",
+            std.elf.DT_RUNPATH => "RUNPATH",
+            std.elf.DT_FLAGS => "FLAGS",
+            std.elf.DT_FLAGS_1 => "FLAGS_1",
+            std.elf.DT_RELACOUNT => "RELACOUNT",
+            std.elf.DT_RELCOUNT => "RELCOUNT",
+            std.elf.DT_VERSYM => "VERSYM",
+            std.elf.DT_VERDEF => "VERDEF",
+            else => null,
+        };
+    }
+
+    /// `.va` for pointer-like dynamic tags, `.size` for size/count tags, else plain.
+    fn dtKind(tag: i64) ?FieldKind {
+        return switch (tag) {
+            std.elf.DT_PLTGOT,
+            std.elf.DT_HASH,
+            std.elf.DT_GNU_HASH,
+            std.elf.DT_STRTAB,
+            std.elf.DT_SYMTAB,
+            std.elf.DT_RELA,
+            std.elf.DT_INIT,
+            std.elf.DT_FINI,
+            std.elf.DT_REL,
+            std.elf.DT_JMPREL,
+            std.elf.DT_INIT_ARRAY,
+            std.elf.DT_FINI_ARRAY,
+            std.elf.DT_VERSYM,
+            std.elf.DT_VERDEF,
+            => .va,
+            std.elf.DT_PLTRELSZ,
+            std.elf.DT_RELASZ,
+            std.elf.DT_RELAENT,
+            std.elf.DT_STRSZ,
+            std.elf.DT_SYMENT,
+            std.elf.DT_RELSZ,
+            std.elf.DT_RELENT,
+            std.elf.DT_INIT_ARRAYSZ,
+            std.elf.DT_FINI_ARRAYSZ,
+            std.elf.DT_RELACOUNT,
+            std.elf.DT_RELCOUNT,
+            => .size,
+            else => null,
+        };
+    }
+
+    /// Render the symbolic relocation-type name for `machine`, prepending the
+    /// `R_<fam>_` family prefix the artifacts actually carry (`{t}` supplies only
+    /// the suffix). Unknown machine prints the raw numeric type with an
+    /// `(unknown arch)` note — never fails.
+    fn printRelocType(w: *Io.Writer, machine: std.elf.EM, raw: u32) !void {
+        switch (machine) {
+            // sig's own sBPF backend emits R_BPF_* (the R_SBF_* spelling is the
+            // Solana-LLVM alias of the same numeric family; we render R_BPF_*).
+            .BPF, .SBF => {
+                try w.writeAll("R_BPF_");
+                try writeEnum(w, std.elf.R_BPF, @enumFromInt(raw), 0);
+            },
+            .X86_64 => {
+                try w.writeAll("R_X86_64_");
+                try writeEnum(w, std.elf.R_X86_64, @enumFromInt(raw), 0);
+            },
+            .AARCH64 => {
+                try w.writeAll("R_AARCH64_");
+                try writeEnum(w, std.elf.R_AARCH64, @enumFromInt(raw), 0);
+            },
+            .RISCV => {
+                try w.writeAll("R_RISCV_");
+                try writeEnum(w, std.elf.R_RISCV, @enumFromInt(raw), 0);
+            },
+            else => try w.print("0x{x} (unknown arch)", .{raw}),
+        }
+    }
+
     fn dump(d: *const DumpContext) !void {
-        const r = &d.fr.interface;
+        const gpa = d.gpa;
+        const fr = d.fr;
+        const w = d.w;
+        const r = &fr.interface;
         const basename = std.fs.path.basename(d.opts.input_path);
+
+        // --- Header read (§4.1): peek class/endian WITHOUT consuming, then read
+        // the matching namespaced Ehdr so we can capture the raw e_flags word
+        // BEFORE Header.init drops it. ---
+        const ident = r.peek(@sizeOf(std.elf.Elf64.Ehdr)) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            else => d.failParse("truncated ELF header: {t}", .{err}),
+        };
+        const endian: std.builtin.Endian = switch (ident[std.elf.EI.DATA]) {
+            @backingInt(std.elf.DATA.@"2LSB") => .little,
+            @backingInt(std.elf.DATA.@"2MSB") => .big,
+            else => d.failParse("unsupported ELF data encoding 0x{x}", .{ident[std.elf.EI.DATA]}),
+        };
+        const is_64 = switch (ident[std.elf.EI.CLASS]) {
+            @backingInt(std.elf.CLASS.@"64") => true,
+            @backingInt(std.elf.CLASS.@"32") => false,
+            else => d.failParse("unsupported ELF class 0x{x}", .{ident[std.elf.EI.CLASS]}),
+        };
+        const e_flags: u32 = if (is_64) blk: {
+            const raw = r.takeStruct(std.elf.Elf64.Ehdr, endian) catch |err|
+                return readOrFail(d, err);
+            break :blk raw.flags.int;
+        } else blk: {
+            const raw = r.takeStruct(std.elf.Elf32.Ehdr, endian) catch |err|
+                return readOrFail(d, err);
+            break :blk raw.flags.int;
+        };
+        // Re-read via the convenience path to obtain an iterator-ready Header.
+        // (The namespaced Ehdr was already consumed above to capture e_flags; a
+        // seek back to 0 lets Header.read re-peek the ident + take the struct.)
+        try fr.seekTo(0);
         const hdr = std.elf.Header.read(r) catch |err| switch (err) {
             error.ReadFailed => return error.ReadFailed,
             else => d.failParse("not a valid ELF header: {t}", .{err}),
         };
-        const classStr: []const u8 = if (hdr.is_64) "64" else "32";
+
+        // --- File-type banner (§3). ---
         const typeWord: []const u8 = switch (hdr.type) {
             .REL => "relocatable",
             .DYN => "shared object",
@@ -350,9 +534,422 @@ const elf = struct {
             else => "unknown",
         };
         if (d.element(.@"file-type")) {
-            try d.w.print("{s}: ELF {s} {s}\n", .{ basename, classStr, typeWord });
-            if (d.element(.newlines)) try d.w.writeByte('\n');
+            try w.print("{s}: ELF {s} {s}\n", .{ basename, if (hdr.is_64) "64" else "32", typeWord });
+            if (d.element(.newlines)) try w.writeByte('\n');
         }
+
+        // --- --summary (§4.7): one machine-parseable line. ---
+        if (d.opts.summary) {
+            var vbuf: [16]u8 = undefined;
+            const m = hdr.machine;
+            try w.writeAll("type=");
+            try writeEnum(w, std.elf.ET, hdr.type, 0);
+            try w.writeAll(" machine=");
+            try writeEnum(w, std.elf.EM, m, 0);
+            try w.print("({d})", .{@intFromEnum(m)});
+            try w.print(" entry={f} class={s} data={s} flags=0x{x}", .{
+                coff.fmtIntField(d, hdr.entry, .{ .kind = .va }),
+                if (hdr.is_64) "ELF64" else "ELF32",
+                if (endian == .little) "little" else "big",
+                e_flags,
+            });
+            if (m == .BPF or m == .SBF)
+                try w.print("({s})", .{sbpfVersionName(e_flags, &vbuf)});
+            try w.print(" phnum={d} shnum={d}\n", .{ hdr.phnum, hdr.shnum });
+            if (d.element(.newlines)) try w.writeByte('\n');
+        }
+
+        // --- --file-headers (§4.1). ---
+        if (d.opts.file_headers) {
+            if (d.element(.@"header-name")) try w.writeAll("ELF Header:\n");
+            const m = hdr.machine;
+            try w.print("  class                       {s}\n", .{if (hdr.is_64) "ELF64" else "ELF32"});
+            try w.print("  data                        2's complement, {s} endian\n", .{
+                if (endian == .little) "little" else "big",
+            });
+            try w.writeAll("  os/abi                      ");
+            try writeEnum(w, std.elf.OSABI, hdr.os_abi, 0);
+            try w.print(" ({d})\n", .{@intFromEnum(hdr.os_abi)});
+            try w.print("  abi version                 {d}\n", .{hdr.abi_version});
+            try w.writeAll("  type                        ");
+            try writeEnum(w, std.elf.ET, hdr.type, 0);
+            try w.print(" ({d})\n", .{@intFromEnum(hdr.type)});
+            try w.writeAll("  machine                     ");
+            try writeEnum(w, std.elf.EM, m, 0);
+            try w.print(" ({d})\n", .{@intFromEnum(m)});
+            try w.print("  entry                       {f}\n", .{coff.fmtIntField(d, hdr.entry, .{ .kind = .va })});
+            try w.print("  phoff                       {f}\n", .{coff.fmtIntField(d, hdr.phoff, .{ .kind = .va })});
+            try w.print("  shoff                       {f}\n", .{coff.fmtIntField(d, hdr.shoff, .{ .kind = .va })});
+            try w.print("  phentsize                   {f}\n", .{coff.fmtIntField(d, hdr.phentsize, .{ .kind = .size })});
+            try w.print("  phnum                       {f}\n", .{coff.fmtIntField(d, hdr.phnum, .{ .kind = .size })});
+            try w.print("  shentsize                   {f}\n", .{coff.fmtIntField(d, hdr.shentsize, .{ .kind = .size })});
+            try w.print("  shnum                       {f}\n", .{coff.fmtIntField(d, hdr.shnum, .{ .kind = .size })});
+            try w.print("  shstrndx                    {f}\n", .{coff.fmtIntField(d, hdr.shstrndx, .{ .kind = .size })});
+            try w.print("  flags                       0x{x}", .{e_flags});
+            if (m == .BPF or m == .SBF) {
+                var vbuf: [16]u8 = undefined;
+                try w.print(" ({s})", .{sbpfVersionName(e_flags, &vbuf)});
+            }
+            try w.writeByte('\n');
+            if (d.element(.newlines)) try w.writeByte('\n');
+        }
+
+        // --- Collect all section headers (retained for symbols/relocs/dynamic
+        // and for FEAT-003 disassembly). §4.2 ---
+        var sections: std.ArrayList(std.elf.Elf64.Shdr) = .empty;
+        defer sections.deinit(gpa);
+        {
+            var it = hdr.iterateSectionHeaders(fr);
+            while (try it.next()) |shdr| (try sections.addOne(gpa)).* = shdr;
+        }
+
+        // --- Load the section-name string table (shstrndx section bytes). §4.2 ---
+        var shstrtab: []u8 = &.{};
+        defer if (shstrtab.len != 0) gpa.free(shstrtab);
+        if (hdr.shstrndx < sections.items.len) {
+            const sh = sections.items[hdr.shstrndx];
+            if (sh.size != 0) {
+                try fr.seekTo(sh.offset);
+                shstrtab = try r.readAlloc(gpa, sh.size);
+            }
+        }
+
+        // --- --section-headers (§4.2). ---
+        if (d.opts.section_headers) {
+            if (d.element(.@"header-name")) try w.writeAll("Section Headers:\n");
+            if (d.element(.@"table-header"))
+                try w.writeAll("  [Nr] Name                 Type            Flg      Addr   Offset     Size Lk Inf Algn Entsz\n");
+            for (sections.items, 0..) |sh, idx| {
+                const name = sectionName(d, shstrtab, sh.name);
+                if (!filterMatches(d.opts.section_filters, name)) continue;
+                try w.print("  [{d: >2}] {s: <20} ", .{ idx, name });
+                try writeEnum(w, std.elf.SHT, sh.type, 15);
+                try w.print(" {s}{s}{s}  {f} {f} {f} {d: >2} {d: >3} {d: >4} {f}\n", .{
+                    if (sh.flags.shf.ALLOC) "A" else "-",
+                    if (sh.flags.shf.EXECINSTR) "X" else "-",
+                    if (sh.flags.shf.WRITE) "W" else "-",
+                    coff.fmtIntField(d, sh.addr, .{ .kind = .va }),
+                    coff.fmtIntField(d, sh.offset, .{ .kind = .va }),
+                    coff.fmtIntField(d, sh.size, .{ .kind = .size }),
+                    sh.link,
+                    sh.info,
+                    sh.addralign,
+                    coff.fmtIntField(d, sh.entsize, .{ .kind = .size }),
+                });
+            }
+            if (d.element(.newlines)) try w.writeByte('\n');
+        }
+
+        // --- --program-headers / --segments (§4.3). ---
+        if (d.opts.program_headers) {
+            if (d.element(.@"header-name")) try w.writeAll("Program Headers:\n");
+            if (d.element(.@"table-header"))
+                try w.writeAll("  Type            Flg     Offset      VAddr      PAddr   FileSize    MemSize    Align\n");
+            var it = hdr.iterateProgramHeaders(fr);
+            while (try it.next()) |ph| {
+                try w.writeAll("  ");
+                try writeEnum(w, std.elf.PT, ph.type, 15);
+                try w.print(" {s}{s}{s} {f} {f} {f} {f} {f} {f}\n", .{
+                    if (ph.flags.R) "R" else "-",
+                    if (ph.flags.W) "W" else "-",
+                    if (ph.flags.X) "X" else "-",
+                    coff.fmtIntField(d, ph.offset, .{ .kind = .va }),
+                    coff.fmtIntField(d, ph.vaddr, .{ .kind = .va }),
+                    coff.fmtIntField(d, ph.paddr, .{ .kind = .va }),
+                    coff.fmtIntField(d, ph.filesz, .{ .kind = .size }),
+                    coff.fmtIntField(d, ph.memsz, .{ .kind = .size }),
+                    coff.fmtIntField(d, ph.@"align", .{ .kind = .size }),
+                });
+            }
+            if (d.element(.newlines)) try w.writeByte('\n');
+        }
+
+        // --- Symbols (§4.4). Build + retain the value->name table for FEAT-003. ---
+        var name_arena: std.heap.ArenaAllocator = .init(gpa);
+        defer name_arena.deinit();
+        var sym_names: std.ArrayList(SymName) = .empty;
+        defer sym_names.deinit(gpa);
+
+        if (d.opts.symbols or d.opts.dynamic_symbols) {
+            // --symbols always populates the retained table (for FEAT-003) even if
+            // only --dynamic-symbols printing was requested; printing is gated per
+            // call below.
+            if (d.opts.symbols)
+                try dumpSymbols(d, &sections, endian, is_64, .SYMTAB, "Symbol table", &name_arena, &sym_names, true);
+            if (d.opts.dynamic_symbols)
+                try dumpSymbols(d, &sections, endian, is_64, .DYNSYM, "Dynamic symbol table", &name_arena, &sym_names, false);
+        }
+
+        // --- Relocations (§4.5). ---
+        if (d.opts.relocs)
+            try dumpRelocs(d, &sections, shstrtab, hdr.machine, endian, is_64, false);
+        if (d.opts.dynamic_relocs)
+            try dumpRelocs(d, &sections, shstrtab, hdr.machine, endian, is_64, true);
+
+        // --- --dynamic (§4.6). ---
+        if (d.opts.dynamic)
+            try dumpDynamic(d, &hdr, &sections);
+    }
+
+    fn readOrFail(d: *const DumpContext, err: anytype) error{ ReadFailed, ParseFailure } {
+        return switch (err) {
+            error.ReadFailed => error.ReadFailed,
+            else => d.failParse("unable to read ELF header: {t}", .{err}),
+        };
+    }
+
+    fn sectionName(d: *const DumpContext, strtab: []const u8, name: u32) []const u8 {
+        if (name >= strtab.len) d.failParse("section name offset 0x{x} out of range", .{name});
+        return std.mem.sliceTo(strtab[name..], 0);
+    }
+
+    fn dumpSymbols(
+        d: *const DumpContext,
+        sections: *const std.ArrayList(std.elf.Elf64.Shdr),
+        endian: std.builtin.Endian,
+        is_64: bool,
+        kind: std.elf.SHT,
+        header_name: []const u8,
+        name_arena: *std.heap.ArenaAllocator,
+        sym_names: *std.ArrayList(SymName),
+        retain: bool,
+    ) !void {
+        const gpa = d.gpa;
+        const fr = d.fr;
+        const w = d.w;
+        const r = &fr.interface;
+
+        // Find the symbol section.
+        var opt_shdr: ?std.elf.Elf64.Shdr = null;
+        for (sections.items) |sh| {
+            if (sh.type == kind) {
+                opt_shdr = sh;
+                break;
+            }
+        }
+        const shdr = opt_shdr orelse return;
+
+        // Entsize guard (§4.4): never divide by zero / read garbage.
+        const esz: u64 = if (is_64) @sizeOf(std.elf.Elf64.Sym) else @sizeOf(std.elf.Elf32.Sym);
+        if (shdr.entsize == 0 or shdr.entsize < esz)
+            d.failParse("symbol section has invalid entsize 0x{x}", .{shdr.entsize});
+        const count = shdr.size / shdr.entsize;
+
+        // Linked string table bytes.
+        var strtab: []u8 = &.{};
+        defer if (strtab.len != 0) gpa.free(strtab);
+        if (shdr.link < sections.items.len) {
+            const sstr = sections.items[shdr.link];
+            if (sstr.size != 0) {
+                try fr.seekTo(sstr.offset);
+                strtab = try r.readAlloc(gpa, sstr.size);
+            }
+        }
+
+        if (d.element(.@"header-name")) try w.print("{s}:\n", .{header_name});
+        if (d.element(.@"table-header"))
+            try w.writeAll("   Num:    Value     Size Type    Bind    Vis       Ndx Name\n");
+
+        var idx: u64 = 0;
+        while (idx < count) : (idx += 1) {
+            try fr.seekTo(shdr.offset + idx * shdr.entsize);
+            const sym: std.elf.Elf64.Sym = if (is_64)
+                try r.takeStruct(std.elf.Elf64.Sym, endian)
+            else blk: {
+                const s32 = try r.takeStruct(std.elf.Elf32.Sym, endian);
+                break :blk .{
+                    .name = s32.name,
+                    .info = s32.info,
+                    .other = s32.other,
+                    .shndx = s32.shndx,
+                    .value = s32.value,
+                    .size = s32.size,
+                };
+            };
+            const name = resolveSymName(d, strtab, sym.name);
+
+            if (retain and name.len != 0) {
+                const dup = try name_arena.allocator().dupe(u8, name);
+                (try sym_names.addOne(gpa)).* = .{ .value = sym.value, .name = dup };
+            }
+
+            if (!filterMatches(d.opts.symbol_filters, name)) continue;
+
+            try w.print("  {d: >4}: {f} {f} ", .{
+                idx,
+                coff.fmtIntField(d, sym.value, .{ .kind = .va }),
+                coff.fmtIntField(d, sym.size, .{ .kind = .size }),
+            });
+            try writeEnum(w, std.elf.STT, sym.info.type, 7);
+            try w.writeByte(' ');
+            try writeEnum(w, std.elf.STB, sym.info.bind, 7);
+            try w.writeByte(' ');
+            try writeEnum(w, std.elf.STV, sym.other.visibility, 9);
+            try w.writeByte(' ');
+            if (shndxName(sym.shndx)) |nm|
+                try w.print("{s: >5}", .{nm})
+            else
+                try w.print("{f}", .{coff.fmtIntField(d, sym.shndx, .{ .kind = .ord })});
+            try w.print(" {s}\n", .{name});
+        }
+
+        // Keep the retained table sorted by value for FEAT-003 lookups.
+        if (retain)
+            std.mem.sort(SymName, sym_names.items, {}, struct {
+                fn lt(_: void, a: SymName, b: SymName) bool {
+                    return a.value < b.value;
+                }
+            }.lt);
+
+        if (d.element(.newlines)) try w.writeByte('\n');
+    }
+
+    fn resolveSymName(d: *const DumpContext, strtab: []const u8, name: u32) []const u8 {
+        if (name == 0) return "";
+        if (name >= strtab.len) d.failParse("symbol name offset 0x{x} out of range", .{name});
+        return std.mem.sliceTo(strtab[name..], 0);
+    }
+
+    fn dumpRelocs(
+        d: *const DumpContext,
+        sections: *const std.ArrayList(std.elf.Elf64.Shdr),
+        shstrtab: []const u8,
+        machine: std.elf.EM,
+        endian: std.builtin.Endian,
+        is_64: bool,
+        dynamic_only: bool,
+    ) !void {
+        const gpa = d.gpa;
+        const fr = d.fr;
+        const w = d.w;
+        const r = &fr.interface;
+        _ = dynamic_only;
+
+        for (sections.items) |shdr| {
+            const is_rela = shdr.type == .RELA;
+            const is_rel = shdr.type == .REL;
+            if (!is_rela and !is_rel) continue;
+
+            const applied = if (shdr.info < sections.items.len)
+                sectionName(d, shstrtab, sections.items[shdr.info].name)
+            else
+                "?";
+
+            // Entsize guard (§4.5).
+            const esz: u64 = if (is_rela)
+                (if (is_64) @sizeOf(std.elf.Elf64.Rela) else @sizeOf(std.elf.Elf32.Rela))
+            else
+                (if (is_64) @sizeOf(std.elf.Elf64.Rel) else @sizeOf(std.elf.Elf32.Rel));
+            if (shdr.entsize == 0 or shdr.entsize < esz)
+                d.failParse("reloc section has invalid entsize 0x{x}", .{shdr.entsize});
+            const count = shdr.size / shdr.entsize;
+
+            // Linked symbol table + its string table (for name resolution).
+            var symtab_shdr: ?std.elf.Elf64.Shdr = null;
+            if (shdr.link < sections.items.len) symtab_shdr = sections.items[shdr.link];
+            var strtab: []u8 = &.{};
+            defer if (strtab.len != 0) gpa.free(strtab);
+            var sym_count: u64 = 0;
+            if (symtab_shdr) |st| {
+                if (st.entsize != 0) sym_count = st.size / st.entsize;
+                if (st.link < sections.items.len) {
+                    const sstr = sections.items[st.link];
+                    if (sstr.size != 0) {
+                        try fr.seekTo(sstr.offset);
+                        strtab = try r.readAlloc(gpa, sstr.size);
+                    }
+                }
+            }
+
+            if (d.element(.@"header-name"))
+                try w.print("Relocation section '{s}' (for {s}):\n", .{
+                    sectionName(d, shstrtab, shdr.name),
+                    applied,
+                });
+            if (d.element(.@"table-header"))
+                try w.writeAll("    Offset Type                   Addend Symbol\n");
+
+            var idx: u64 = 0;
+            while (idx < count) : (idx += 1) {
+                try fr.seekTo(shdr.offset + idx * shdr.entsize);
+                const offset: u64, const rtype: u32, const sym: u32, const addend: i64 = if (is_rela) blk: {
+                    if (is_64) {
+                        const e = try r.takeStruct(std.elf.Elf64.Rela, endian);
+                        break :blk .{ e.offset, e.info.type, e.info.sym, e.addend };
+                    } else {
+                        const e = try r.takeStruct(std.elf.Elf32.Rela, endian);
+                        break :blk .{ e.offset, @as(u32, e.info.type), @as(u32, e.info.sym), @as(i64, e.addend) };
+                    }
+                } else blk: {
+                    if (is_64) {
+                        const e = try r.takeStruct(std.elf.Elf64.Rel, endian);
+                        break :blk .{ e.offset, e.info.type, e.info.sym, @as(i64, 0) };
+                    } else {
+                        const e = try r.takeStruct(std.elf.Elf32.Rel, endian);
+                        break :blk .{ e.offset, @as(u32, e.info.type), @as(u32, e.info.sym), @as(i64, 0) };
+                    }
+                };
+
+                // Resolve the referenced symbol name.
+                var sym_name: []const u8 = "";
+                if (symtab_shdr) |st| {
+                    if (sym >= sym_count)
+                        d.failParse("reloc symbol index {d} out of range", .{sym});
+                    const sym_esz: u64 = if (is_64) @sizeOf(std.elf.Elf64.Sym) else @sizeOf(std.elf.Elf32.Sym);
+                    try fr.seekTo(st.offset + sym * sym_esz);
+                    const name_off: u32 = if (is_64)
+                        (try r.takeStruct(std.elf.Elf64.Sym, endian)).name
+                    else
+                        (try r.takeStruct(std.elf.Elf32.Sym, endian)).name;
+                    sym_name = resolveSymName(d, strtab, name_off);
+                }
+
+                try w.print("  {f} ", .{coff.fmtIntField(d, offset, .{ .kind = .va })});
+                try printRelocType(w, machine, rtype);
+                if (is_rela)
+                    try w.print(" {d: >10} {s}\n", .{ addend, sym_name })
+                else
+                    try w.print(" {s: >10} {s}\n", .{ "", sym_name });
+            }
+            if (d.element(.newlines)) try w.writeByte('\n');
+        }
+    }
+
+    fn dumpDynamic(
+        d: *const DumpContext,
+        hdr: *const std.elf.Header,
+        sections: *const std.ArrayList(std.elf.Elf64.Shdr),
+    ) !void {
+        const fr = d.fr;
+        const w = d.w;
+
+        var dyn_shdr: ?std.elf.Elf64.Shdr = null;
+        for (sections.items) |sh| {
+            if (sh.type == .DYNAMIC) {
+                dyn_shdr = sh;
+                break;
+            }
+        }
+        const shdr = dyn_shdr orelse {
+            if (d.element(.@"header-name")) try w.writeAll("no dynamic section\n");
+            if (d.element(.newlines)) try w.writeByte('\n');
+            return;
+        };
+
+        if (d.element(.@"header-name")) try w.writeAll("Dynamic section:\n");
+        if (d.element(.@"table-header"))
+            try w.writeAll("  Tag                Value\n");
+
+        var it = hdr.iterateDynamicSection(fr, shdr.offset, shdr.size);
+        while (try it.next()) |dyn| {
+            if (dtName(dyn.tag)) |nm|
+                try w.print("  {s: <16} ", .{nm})
+            else
+                try w.print("  0x{x: <14} ", .{@as(u64, @bitCast(dyn.tag))});
+            try w.print("{f}\n", .{coff.fmtIntField(d, dyn.val, .{ .kind = dtKind(dyn.tag) })});
+            if (dyn.tag == std.elf.DT_NULL) break;
+        }
+        if (d.element(.newlines)) try w.writeByte('\n');
     }
 };
 
