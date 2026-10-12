@@ -189,9 +189,9 @@ fn emitReloc(
         const zo = ef.zigObjectPtr().?;
         const atom = zo.symbol(@backingInt(atom_index)).atom(ef).?;
         try atom.addReloc(zcu.gpa, .{
-            .r_offset = offset,
-            .r_info = @as(u64, @backingInt(sym_index)) << 32 | @backingInt(reloc_type),
-            .r_addend = @bitCast(addend),
+            .offset = offset,
+            .info = .{ .type = @intCast(@backingInt(reloc_type)), .sym = @intCast(@backingInt(sym_index)) },
+            .addend = @bitCast(addend),
         }, zo);
     } else unreachable;
 }

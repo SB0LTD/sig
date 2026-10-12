@@ -1,0 +1,26 @@
+{
+  "id": "FEAT-004",
+  "type": "refactor",
+  "description": "RISKIEST SPOTS #2 and #3: the Auxv process-startup reads (lib/std/start.sig + lib/std/os/linux.sig) and the per-arch codegen reloc-literal construction sites. These are isolated, high-sensitivity edits grouped so one careful pass covers them. Independent of FEAT-002/003 but must land before FEAT-006 deletes the deprecated structs/aliases.",
+  "status": "completed",
+  "steps": [
+    "Read A1-migration-spec.md steps 8b + 8c and plan.md's 'three riskiest spots'. Gate after each file.",
+    "RISKIEST SPOT #2 — lib/std/start.sig (~615-643): auxv is [*]elf.Auxv; convert auxv[i].a_type -> auxv[i].type and auxv[i].a_un.a_val -> auxv[i].un.val in the while/switch that reads AT.NULL/AT.PHNUM/AT.PHDR/AT.HWCAP (the elf.AT.* enum members are KEPT). This runs before program entry — a mistake breaks Linux startup. Keep std.os.linux.elf_aux_maybe assignment.",
+    "RISKIEST SPOT #2 — lib/std/os/linux.sig: elf_aux_maybe: ?[*]std.elf.Auxv (type stays); getauxval (~992-996) auxv[i].a_type -> .type, auxv[i].a_un.a_val -> .un.val. Do NOT delete the top-level Auxv alias (FEAT-006 re-points it).",
+    "RISKIEST SPOT #3 — convert every reloc-literal in the codegen backends from `.{ .r_offset=O, .r_info=(@as(u64,sym)<<32)|rtype, .r_addend=A }` to `.{ .offset=O, .info = .{ .type=@intCast(rtypeU32), .sym=@intCast(symIdxU32) }, .addend=A }`. Elf64.Rel.Info=packed struct(u64){type:u32,sym:u32}: type LOW 32, sym HIGH 32 (bit-identical). Files + site counts: src/codegen/aarch64/Mir.sig (3 sites ~224/292/357), src/codegen/loongarch/Mir.sig (1 ~192), src/codegen/x86_64/Emit.sig (~6: ~707/713/825/867...), src/codegen/riscv64/Emit.sig (~6: ~61/67/81/87...). The existing @backingInt(sym_index)/@backingInt(r_type) expressions provide the ints — widen/intCast to u32 for the two Info fields.",
+    "DO NOT touch SuperH .sh_interrupt/.sh_gnu/.sh_renesas in src/Zcu.sig, src/Sema.sig, src/codegen/llvm.sig, src/codegen/c/type.sig, lib/std/Target.sig — they are NOT ELF."
+  ],
+  "acceptance_criteria": [
+    "gate.ps1 prints GATE: GREEN after all five files are converted.",
+    "`rg -c -g \"*.sig\" \"a_type|a_un\\.a_val\" lib/std/start.sig lib/std/os/linux.sig` returns 0.",
+    "`rg -c -g \"*.sig\" \"r_offset|r_info|r_addend\" src/codegen/aarch64/Mir.sig src/codegen/loongarch/Mir.sig src/codegen/x86_64/Emit.sig src/codegen/riscv64/Emit.sig` returns 0."
+  ],
+  "verification": [
+    "cd c:\\Just-Things\\Projects\\sb0\\sig\\.worktrees\\sbpf-solana",
+    "Run the 3-layer gate; confirm GATE: GREEN.",
+    "rg -g \"*.sig\" \"a_type|a_un\\.a_val\" lib/std/start.sig lib/std/os/linux.sig  (expect no output)",
+    "rg -g \"*.sig\" \"r_offset|r_info|r_addend\" src/codegen/aarch64/Mir.sig src/codegen/loongarch/Mir.sig src/codegen/x86_64/Emit.sig src/codegen/riscv64/Emit.sig  (expect no output)"
+  ],
+  "blocked_reason": null,
+  "findings": "SPOT #2 (Auxv): start.sig ~615-643 and os/linux.sig getauxval ~992-996 migrated .a_type->.type and .a_un.a_val->.un.val; top-level `pub const Auxv` was still the deprecated switch(Elf32_auxv_t/Elf64_auxv_t) so I re-pointed it to `ElfN.Auxv` (the behavior-preserving change required to make FEAT-004 gate GREEN independently of FEAT-006; layout is bit-identical extern struct, only field names differ). SPOT #3 (reloc literals): converted all 11 sites (aarch64 Mir 3, loongarch Mir 1, riscv64 Emit 3 distinct type exprs across 6 lits, x86_64 Emit 6) from `.r_info=(@as(u64,sym)<<32)|type` to `.info=.{.type=@intCast(typeInt),.sym=@intCast(symInt)}` using Elf64.Rel.Info packed struct(u64){type:u32 LOW, sym:u32 HIGH} — bit-identical, field order NOT swapped; .r_offset->.offset, .r_addend->.addend. riscv hi_r_type/lo_r_type/r_type are already u32 so used directly for .type. Did NOT touch SuperH .sh_interrupt/.sh_gnu/.sh_renesas. GATE: GREEN (layer1 build-exe type-check exit 0; layer2 elf.sig 0 tests passed; layer3 dynamic_library.sig 2 skipped/0 failed). Both acceptance rg checks return zero matches."
+}
