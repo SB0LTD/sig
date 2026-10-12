@@ -14,7 +14,7 @@ pub fn size(thunk: Thunk, elf_file: *Elf) usize {
 
 pub fn address(thunk: Thunk, elf_file: *Elf) i64 {
     const shdr = elf_file.sections.items(.shdr)[thunk.output_section_index];
-    return @as(i64, @intCast(shdr.sh_addr)) + thunk.value;
+    return @as(i64, @intCast(shdr.addr)) + thunk.value;
 }
 
 pub fn targetAddress(thunk: Thunk, ref: Elf.Ref, elf_file: *Elf) i64 {
@@ -47,12 +47,12 @@ pub fn writeSymtab(thunk: Thunk, elf_file: *Elf) void {
         elf_file.strtab.appendSliceAssumeCapacity("$thunk");
         elf_file.strtab.appendAssumeCapacity(0);
         elf_file.symtab.items[ilocal] = .{
-            .st_name = st_name,
-            .st_info = elf.STT_FUNC,
-            .st_other = 0,
-            .st_shndx = @intCast(thunk.output_section_index),
-            .st_value = @intCast(thunk.targetAddress(ref, elf_file)),
-            .st_size = trampolineSize(cpu_arch),
+            .name = st_name,
+            .info = .{ .type = .FUNC, .bind = .LOCAL },
+            .other = .{ .visibility = .DEFAULT },
+            .shndx = @intCast(thunk.output_section_index),
+            .value = @intCast(thunk.targetAddress(ref, elf_file)),
+            .size = trampolineSize(cpu_arch),
         };
     }
 }

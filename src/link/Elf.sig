@@ -1170,7 +1170,7 @@ fn parseDso(
     for (parsed.symtab, parsed.symbols, parsed.versyms, 0..) |esym, sym, versym, i| {
         const out_sym_index = so.addSymbolAssumeCapacity();
         const out_sym = &so.symbols.items[out_sym_index];
-        out_sym.value = @intCast(esym.st_value);
+        out_sym.value = @intCast(esym.value);
         out_sym.name_offset = sym.mangled_name;
         out_sym.ref = .{ .index = 0, .file = 0 };
         out_sym.esym_index = @intCast(i);
@@ -1375,7 +1375,7 @@ pub fn initOutputSection(self: *Elf, args: struct {
         break :blk args.name;
     };
     const @"type" = tt: {
-        if (self.getTarget().cpu.arch == .x86_64 and args_type == .X86_64_UNWIND)
+        if (self.getTarget().cpu.arch == .x86_64 and args_type == elf.SHT.X86_64_UNWIND)
             break :tt elf.SHT.PROGBITS;
         switch (args_type) {
             .NULL => unreachable,

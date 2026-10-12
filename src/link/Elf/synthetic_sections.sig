@@ -92,7 +92,7 @@ pub const DynamicSection = struct {
         if (dt.getFlags1(elf_file) != null) nentries += 1; // FLAGS_1
         if (!elf_file.isEffectivelyDynLib()) nentries += 1; // DEBUG
         nentries += 1; // NULL
-        return nentries * @sizeOf(elf.Elf64_Dyn);
+        return nentries * @sizeOf(elf.Elf64.Dyn);
     }
 
     pub fn write(dt: DynamicSection, elf_file: *Elf, writer: *std.Io.Writer) !void {
@@ -100,136 +100,136 @@ pub const DynamicSection = struct {
 
         // NEEDED
         for (dt.needed.items) |off| {
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_NEEDED, .d_val = off }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_NEEDED, .val = off }), .little);
         }
 
         if (dt.soname) |off| {
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_SONAME, .d_val = off }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_SONAME, .val = off }), .little);
         }
 
         // RUNPATH
         // TODO add option in Options to revert to old RPATH tag
         if (dt.rpath > 0) {
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_RUNPATH, .d_val = dt.rpath }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_RUNPATH, .val = dt.rpath }), .little);
         }
 
         // INIT
         if (elf_file.sectionByName(".init")) |shndx| {
-            const addr = shdrs[shndx].sh_addr;
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_INIT, .d_val = addr }), .little);
+            const addr = shdrs[shndx].addr;
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_INIT, .val = addr }), .little);
         }
 
         // FINI
         if (elf_file.sectionByName(".fini")) |shndx| {
-            const addr = shdrs[shndx].sh_addr;
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_FINI, .d_val = addr }), .little);
+            const addr = shdrs[shndx].addr;
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_FINI, .val = addr }), .little);
         }
 
         // PREINIT_ARRAY
         if (elf_file.sectionByName(".preinit_array")) |shndx| {
             const shdr = shdrs[shndx];
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_PREINIT_ARRAY, .d_val = shdr.sh_addr }), .little);
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_PREINIT_ARRAYSZ, .d_val = shdr.sh_size }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_PREINIT_ARRAY, .val = shdr.addr }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_PREINIT_ARRAYSZ, .val = shdr.size }), .little);
         }
 
         // INIT_ARRAY
         if (elf_file.sectionByName(".init_array")) |shndx| {
             const shdr = shdrs[shndx];
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_INIT_ARRAY, .d_val = shdr.sh_addr }), .little);
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_INIT_ARRAYSZ, .d_val = shdr.sh_size }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_INIT_ARRAY, .val = shdr.addr }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_INIT_ARRAYSZ, .val = shdr.size }), .little);
         }
 
         // FINI_ARRAY
         if (elf_file.sectionByName(".fini_array")) |shndx| {
             const shdr = shdrs[shndx];
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_FINI_ARRAY, .d_val = shdr.sh_addr }), .little);
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_FINI_ARRAYSZ, .d_val = shdr.sh_size }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_FINI_ARRAY, .val = shdr.addr }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_FINI_ARRAYSZ, .val = shdr.size }), .little);
         }
 
         // RELA
         if (elf_file.section_indexes.rela_dyn) |shndx| {
             const shdr = shdrs[shndx];
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_RELA, .d_val = shdr.sh_addr }), .little);
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_RELASZ, .d_val = shdr.sh_size }), .little);
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_RELAENT, .d_val = shdr.sh_entsize }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_RELA, .val = shdr.addr }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_RELASZ, .val = shdr.size }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_RELAENT, .val = shdr.entsize }), .little);
         }
 
         // JMPREL
         if (elf_file.section_indexes.rela_plt) |shndx| {
             const shdr = shdrs[shndx];
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_JMPREL, .d_val = shdr.sh_addr }), .little);
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_PLTRELSZ, .d_val = shdr.sh_size }), .little);
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_PLTREL, .d_val = elf.DT_RELA }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_JMPREL, .val = shdr.addr }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_PLTRELSZ, .val = shdr.size }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_PLTREL, .val = elf.DT_RELA }), .little);
         }
 
         // PLTGOT
         if (elf_file.section_indexes.got_plt) |shndx| {
-            const addr = shdrs[shndx].sh_addr;
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_PLTGOT, .d_val = addr }), .little);
+            const addr = shdrs[shndx].addr;
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_PLTGOT, .val = addr }), .little);
         }
 
         {
             assert(elf_file.section_indexes.hash != null);
-            const addr = shdrs[elf_file.section_indexes.hash.?].sh_addr;
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_HASH, .d_val = addr }), .little);
+            const addr = shdrs[elf_file.section_indexes.hash.?].addr;
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_HASH, .val = addr }), .little);
         }
 
         if (elf_file.section_indexes.gnu_hash) |shndx| {
-            const addr = shdrs[shndx].sh_addr;
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_GNU_HASH, .d_val = addr }), .little);
+            const addr = shdrs[shndx].addr;
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_GNU_HASH, .val = addr }), .little);
         }
 
         // TEXTREL
         if (elf_file.has_text_reloc) {
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_TEXTREL, .d_val = 0 }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_TEXTREL, .val = 0 }), .little);
         }
 
         // SYMTAB + SYMENT
         {
             assert(elf_file.section_indexes.dynsymtab != null);
             const shdr = shdrs[elf_file.section_indexes.dynsymtab.?];
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_SYMTAB, .d_val = shdr.sh_addr }), .little);
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_SYMENT, .d_val = shdr.sh_entsize }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_SYMTAB, .val = shdr.addr }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_SYMENT, .val = shdr.entsize }), .little);
         }
 
         // STRTAB + STRSZ
         {
             assert(elf_file.section_indexes.dynstrtab != null);
             const shdr = shdrs[elf_file.section_indexes.dynstrtab.?];
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_STRTAB, .d_val = shdr.sh_addr }), .little);
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_STRSZ, .d_val = shdr.sh_size }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_STRTAB, .val = shdr.addr }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_STRSZ, .val = shdr.size }), .little);
         }
 
         // VERSYM
         if (elf_file.section_indexes.versym) |shndx| {
-            const addr = shdrs[shndx].sh_addr;
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_VERSYM, .d_val = addr }), .little);
+            const addr = shdrs[shndx].addr;
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_VERSYM, .val = addr }), .little);
         }
 
         // VERNEED + VERNEEDNUM
         if (elf_file.section_indexes.verneed) |shndx| {
-            const addr = shdrs[shndx].sh_addr;
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_VERNEED, .d_val = addr }), .little);
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{
-                .d_tag = elf.DT_VERNEEDNUM,
-                .d_val = elf_file.verneed.verneed.items.len,
+            const addr = shdrs[shndx].addr;
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_VERNEED, .val = addr }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{
+                .tag = elf.DT_VERNEEDNUM,
+                .val = elf_file.verneed.verneed.items.len,
             }), .little);
         }
 
         // FLAGS
         if (dt.getFlags(elf_file)) |flags| {
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_FLAGS, .d_val = flags }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_FLAGS, .val = flags }), .little);
         }
         // FLAGS_1
         if (dt.getFlags1(elf_file)) |flags_1| {
-            try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_FLAGS_1, .d_val = flags_1 }), .little);
+            try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_FLAGS_1, .val = flags_1 }), .little);
         }
 
         // DEBUG
-        if (!elf_file.isEffectivelyDynLib()) try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_DEBUG, .d_val = 0 }), .little);
+        if (!elf_file.isEffectivelyDynLib()) try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_DEBUG, .val = 0 }), .little);
 
         // NULL
-        try writer.writeStruct(@as(elf.Elf64_Dyn, .{ .d_tag = elf.DT_NULL, .d_val = 0 }), .little);
+        try writer.writeStruct(@as(elf.Elf64.Dyn, .{ .tag = elf.DT_NULL, .val = 0 }), .little);
     }
 };
 
@@ -270,7 +270,7 @@ pub const GotSection = struct {
         pub fn address(entry: Entry, elf_file: *Elf) i64 {
             const ptr_bytes = elf_file.archPtrWidthBytes();
             const shdr = &elf_file.sections.items(.shdr)[elf_file.section_indexes.got.?];
-            return @as(i64, @intCast(shdr.sh_addr)) + entry.cell_index * ptr_bytes;
+            return @as(i64, @intCast(shdr.addr)) + entry.cell_index * ptr_bytes;
         }
     };
 
@@ -599,12 +599,12 @@ pub const GotSection = struct {
             const st_value = entry.address(elf_file);
             const st_size: u64 = entry.len() * elf_file.archPtrWidthBytes();
             elf_file.symtab.items[ilocal] = .{
-                .st_name = st_name,
-                .st_info = elf.STT_OBJECT,
-                .st_other = 0,
-                .st_shndx = @intCast(elf_file.section_indexes.got.?),
-                .st_value = @intCast(st_value),
-                .st_size = st_size,
+                .name = st_name,
+                .info = .{ .type = .OBJECT, .bind = .LOCAL },
+                .other = .{ .visibility = .DEFAULT },
+                .shndx = @intCast(elf_file.section_indexes.got.?),
+                .value = @intCast(st_value),
+                .size = st_size,
             };
         }
     }
@@ -707,9 +707,9 @@ pub const PltSection = struct {
             });
 
             elf_file.rela_plt.appendAssumeCapacity(.{
-                .r_offset = r_offset,
-                .r_info = (r_sym << 32) | r_type,
-                .r_addend = 0,
+                .offset = r_offset,
+                .info = .{ .type = @intCast(r_type), .sym = @intCast(r_sym) },
+                .addend = 0,
             });
         }
     }
@@ -735,12 +735,12 @@ pub const PltSection = struct {
             elf_file.strtab.appendSliceAssumeCapacity("$plt");
             elf_file.strtab.appendAssumeCapacity(0);
             elf_file.symtab.items[ilocal] = .{
-                .st_name = st_name,
-                .st_info = elf.STT_FUNC,
-                .st_other = 0,
-                .st_shndx = @intCast(elf_file.section_indexes.plt.?),
-                .st_value = @intCast(sym.pltAddress(elf_file)),
-                .st_size = entrySize(cpu_arch),
+                .name = st_name,
+                .info = .{ .type = .FUNC, .bind = .LOCAL },
+                .other = .{ .visibility = .DEFAULT },
+                .shndx = @intCast(elf_file.section_indexes.plt.?),
+                .value = @intCast(sym.pltAddress(elf_file)),
+                .size = entrySize(cpu_arch),
             };
         }
     }
@@ -774,8 +774,8 @@ pub const PltSection = struct {
         fn write(plt: PltSection, elf_file: *Elf, writer: *std.Io.Writer) !void {
             dev.checkAny(&.{ .llvm_backend, .x86_64_backend });
             const shdrs = elf_file.sections.items(.shdr);
-            const plt_addr = shdrs[elf_file.section_indexes.plt.?].sh_addr;
-            const got_plt_addr = shdrs[elf_file.section_indexes.got_plt.?].sh_addr;
+            const plt_addr = shdrs[elf_file.section_indexes.plt.?].addr;
+            const got_plt_addr = shdrs[elf_file.section_indexes.got_plt.?].addr;
             var preamble = [_]u8{
                 0xf3, 0x0f, 0x1e, 0xfa, // endbr64
                 0x41, 0x53, // push r11
@@ -811,8 +811,8 @@ pub const PltSection = struct {
             dev.checkAny(&.{ .llvm_backend, .aarch64_backend });
             {
                 const shdrs = elf_file.sections.items(.shdr);
-                const plt_addr: i64 = @intCast(shdrs[elf_file.section_indexes.plt.?].sh_addr);
-                const got_plt_addr: i64 = @intCast(shdrs[elf_file.section_indexes.got_plt.?].sh_addr);
+                const plt_addr: i64 = @intCast(shdrs[elf_file.section_indexes.plt.?].addr);
+                const got_plt_addr: i64 = @intCast(shdrs[elf_file.section_indexes.got_plt.?].addr);
                 // TODO: relax if possible
                 // .got.plt[2]
                 const pages = try util.calcNumberOfPages(plt_addr + 4, got_plt_addr + 16);
@@ -875,7 +875,7 @@ pub const GotPltSection = struct {
         try writer.writeInt(u64, 0x0, .little);
         try writer.writeInt(u64, 0x0, .little);
         if (elf_file.section_indexes.plt) |shndx| {
-            const plt_addr = elf_file.sections.items(.shdr)[shndx].sh_addr;
+            const plt_addr = elf_file.sections.items(.shdr)[shndx].addr;
             for (0..elf_file.plt.symbols.items.len) |_| {
                 // [N]: .plt
                 try writer.writeInt(u64, plt_addr, .little);
@@ -939,12 +939,12 @@ pub const PltGotSection = struct {
             elf_file.strtab.appendSliceAssumeCapacity("$pltgot");
             elf_file.strtab.appendAssumeCapacity(0);
             elf_file.symtab.items[ilocal] = .{
-                .st_name = st_name,
-                .st_info = elf.STT_FUNC,
-                .st_other = 0,
-                .st_shndx = @intCast(elf_file.section_indexes.plt_got.?),
-                .st_value = @intCast(sym.pltGotAddress(elf_file)),
-                .st_size = 16,
+                .name = st_name,
+                .info = .{ .type = .FUNC, .bind = .LOCAL },
+                .other = .{ .visibility = .DEFAULT },
+                .shndx = @intCast(elf_file.section_indexes.plt_got.?),
+                .value = @intCast(sym.pltGotAddress(elf_file)),
+                .size = 16,
             };
         }
     }
@@ -1035,9 +1035,9 @@ pub const CopyRelSection = struct {
             const symbol = elf_file.symbol(ref).?;
             const shared_object = symbol.file(elf_file).?.shared_object;
             const alignment = try symbol.dsoAlignment(elf_file);
-            symbol.value = @intCast(mem.alignForward(u64, shdr.sh_size, alignment));
-            shdr.sh_addralign = @max(shdr.sh_addralign, alignment);
-            shdr.sh_size = @as(u64, @intCast(symbol.value)) + symbol.elfSym(elf_file).st_size;
+            symbol.value = @intCast(mem.alignForward(u64, shdr.size, alignment));
+            shdr.addralign = @max(shdr.addralign, alignment);
+            shdr.size = @as(u64, @intCast(symbol.value)) + symbol.elfSym(elf_file).size;
 
             const aliases = shared_object.symbolAliases(ref.index, elf_file);
             for (aliases) |alias| {
@@ -1138,7 +1138,7 @@ pub const DynsymSection = struct {
     }
 
     pub fn size(dynsym: DynsymSection) usize {
-        return dynsym.count() * @sizeOf(elf.Elf64_Sym);
+        return dynsym.count() * @sizeOf(elf.Elf64.Sym);
     }
 
     pub fn count(dynsym: DynsymSection) u32 {
@@ -1149,9 +1149,9 @@ pub const DynsymSection = struct {
         try writer.writeStruct(Elf.null_sym, .little);
         for (dynsym.entries.items) |entry| {
             const sym = elf_file.symbol(entry.ref).?;
-            var out_sym: elf.Elf64_Sym = Elf.null_sym;
+            var out_sym: elf.Elf64.Sym = Elf.null_sym;
             sym.setOutputSym(elf_file, &out_sym);
-            out_sym.st_name = entry.off;
+            out_sym.name = entry.off;
             try writer.writeStruct(out_sym, .little);
         }
     }
@@ -1319,7 +1319,7 @@ pub const GnuHashSection = struct {
 };
 
 pub const VerneedSection = struct {
-    verneed: std.ArrayList(elf.Elf64_Verneed) = .empty,
+    verneed: std.ArrayList(elf.Elf64.Verneed) = .empty,
     vernaux: std.ArrayList(elf.Vernaux) = .empty,
     index: elf.Versym = .{ .VERSION = elf.Versym.GLOBAL.VERSION + 1, .HIDDEN = false },
 
@@ -1398,38 +1398,38 @@ pub const VerneedSection = struct {
         // Fixup offsets
         var count: usize = 0;
         var verneed_off: u32 = 0;
-        var vernaux_off: u32 = @as(u32, @intCast(vern.verneed.items.len)) * @sizeOf(elf.Elf64_Verneed);
+        var vernaux_off: u32 = @as(u32, @intCast(vern.verneed.items.len)) * @sizeOf(elf.Elf64.Verneed);
         for (vern.verneed.items, 0..) |*vsym, vsym_i| {
-            if (vsym_i < vern.verneed.items.len - 1) vsym.vn_next = @sizeOf(elf.Elf64_Verneed);
-            vsym.vn_aux = vernaux_off - verneed_off;
+            if (vsym_i < vern.verneed.items.len - 1) vsym.next = @sizeOf(elf.Elf64.Verneed);
+            vsym.aux = vernaux_off - verneed_off;
             var inner_off: u32 = 0;
-            for (vern.vernaux.items[count..][0..vsym.vn_cnt], 0..) |*vaux, vaux_i| {
-                if (vaux_i < vsym.vn_cnt - 1) vaux.next = @sizeOf(elf.Vernaux);
+            for (vern.vernaux.items[count..][0..vsym.cnt], 0..) |*vaux, vaux_i| {
+                if (vaux_i < vsym.cnt - 1) vaux.next = @sizeOf(elf.Vernaux);
                 inner_off += @sizeOf(elf.Vernaux);
             }
             vernaux_off += inner_off;
-            verneed_off += @sizeOf(elf.Elf64_Verneed);
-            count += vsym.vn_cnt;
+            verneed_off += @sizeOf(elf.Elf64.Verneed);
+            count += vsym.cnt;
         }
     }
 
-    fn addVerneed(vern: *VerneedSection, soname: []const u8, elf_file: *Elf) !*elf.Elf64_Verneed {
+    fn addVerneed(vern: *VerneedSection, soname: []const u8, elf_file: *Elf) !*elf.Elf64.Verneed {
         const comp = elf_file.base.comp;
         const gpa = comp.gpa;
         const sym = try vern.verneed.addOne(gpa);
         sym.* = .{
-            .vn_version = 1,
-            .vn_cnt = 0,
-            .vn_file = try elf_file.insertDynString(soname),
-            .vn_aux = 0,
-            .vn_next = 0,
+            .version = 1,
+            .cnt = 0,
+            .file = try elf_file.insertDynString(soname),
+            .aux = 0,
+            .next = 0,
         };
         return sym;
     }
 
     fn addVernaux(
         vern: *VerneedSection,
-        verneed_sym: *elf.Elf64_Verneed,
+        verneed_sym: *elf.Elf64.Verneed,
         version: [:0]const u8,
         elf_file: *Elf,
     ) !elf.Vernaux {
@@ -1443,17 +1443,17 @@ pub const VerneedSection = struct {
             .name = try elf_file.insertDynString(version),
             .next = 0,
         };
-        verneed_sym.vn_cnt += 1;
+        verneed_sym.cnt += 1;
         vern.index.VERSION += 1;
         return sym.*;
     }
 
     pub fn size(vern: VerneedSection) usize {
-        return vern.verneed.items.len * @sizeOf(elf.Elf64_Verneed) + vern.vernaux.items.len * @sizeOf(elf.Vernaux);
+        return vern.verneed.items.len * @sizeOf(elf.Elf64.Verneed) + vern.vernaux.items.len * @sizeOf(elf.Vernaux);
     }
 
     pub fn write(vern: VerneedSection, writer: *std.Io.Writer) !void {
-        try writer.writeSliceEndian(elf.Elf64_Verneed, vern.verneed.items, .little);
+        try writer.writeSliceEndian(elf.Elf64.Verneed, vern.verneed.items, .little);
         try writer.writeSliceEndian(elf.Vernaux, vern.vernaux.items, .little);
     }
 };
@@ -1471,7 +1471,7 @@ pub const GroupSection = struct {
         const cg = cgs.group(elf_file);
         const object = cg.file(elf_file).object;
         const shdr = object.shdrs.items[cg.shndx];
-        return &object.symbols.items[shdr.sh_info];
+        return &object.symbols.items[shdr.info];
     }
 
     pub fn size(cgs: GroupSection, elf_file: *Elf) usize {
@@ -1487,13 +1487,13 @@ pub const GroupSection = struct {
         try writer.writeInt(u32, if (cg.is_comdat) elf.GRP_COMDAT else 0, .little);
         for (members) |shndx| {
             const shdr = object.shdrs.items[shndx];
-            switch (shdr.sh_type) {
-                elf.SHT_RELA => {
-                    const atom_index = object.atoms_indexes.items[shdr.sh_info];
+            switch (shdr.type) {
+                .RELA => {
+                    const atom_index = object.atoms_indexes.items[shdr.info];
                     const atom = object.atom(atom_index).?;
                     const rela_shndx = for (elf_file.sections.items(.shdr), 0..) |rela_shdr, rela_shndx| {
-                        if (rela_shdr.sh_type == elf.SHT_RELA and
-                            atom.output_section_index == rela_shdr.sh_info)
+                        if (rela_shdr.type == .RELA and
+                            atom.output_section_index == rela_shdr.info)
                             break rela_shndx;
                     } else unreachable;
                     try writer.writeInt(u32, @intCast(rela_shndx), .little);

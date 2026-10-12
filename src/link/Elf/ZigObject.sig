@@ -20,7 +20,7 @@ globals_lookup: std.AutoHashMapUnmanaged(u32, Symbol.Index) = .empty,
 atoms: std.ArrayList(Atom) = .empty,
 atoms_indexes: std.ArrayList(Atom.Index) = .empty,
 atoms_extra: std.ArrayList(u32) = .empty,
-relocs: std.ArrayList(std.ArrayList(elf.Elf64_Rela)) = .empty,
+relocs: std.ArrayList(std.ArrayList(elf.Elf64.Rela)) = .empty,
 
 num_dynrelocs: u32 = 0,
 
@@ -92,8 +92,8 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
         const symbol_index = try self.newLocalSymbol(gpa, name_off);
         const sym = self.symbol(symbol_index);
         const esym = &self.symtab.items(.elf_sym)[sym.esym_index];
-        esym.st_info = elf.STT_FILE;
-        esym.st_shndx = elf.SHN_ABS;
+        esym.info = .{ .type = .FILE, .bind = .LOCAL };
+        esym.shndx = elf.SHN_ABS;
     }
 
     switch (comp.config.debug_format) {
@@ -118,7 +118,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     atom_ptr.output_section_index = shndx;
                     sym.ref = .{ .index = atom_index, .file = zo.index };
                     zo.symtab.items(.shndx)[sym.esym_index] = atom_index;
-                    zo.symtab.items(.elf_sym)[sym.esym_index].st_shndx = SHN_ATOM;
+                    zo.symtab.items(.elf_sym)[sym.esym_index].shndx = SHN_ATOM;
                     return sym_index;
                 }
             }.addSectionSymbolWithAtom;
@@ -126,9 +126,9 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
             if (self.debug_str_index == null) {
                 const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".debug_str"),
-                    .flags = elf.SHF_MERGE | elf.SHF_STRINGS,
+                    .flags = @as(u64, @as(elf.Word, @bitCast(elf.SHF{ .MERGE = true, .STRINGS = true }))),
                     .entsize = 1,
-                    .type = elf.SHT_PROGBITS,
+                    .type = @intFromEnum(elf.SHT.PROGBITS),
                     .addralign = 1,
                 });
                 self.debug_str_section_dirty = true;
@@ -138,7 +138,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
             if (self.debug_info_index == null) {
                 const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".debug_info"),
-                    .type = elf.SHT_PROGBITS,
+                    .type = @intFromEnum(elf.SHT.PROGBITS),
                     .addralign = 1,
                 });
                 self.debug_info_section_dirty = true;
@@ -148,7 +148,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
             if (self.debug_abbrev_index == null) {
                 const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".debug_abbrev"),
-                    .type = elf.SHT_PROGBITS,
+                    .type = @intFromEnum(elf.SHT.PROGBITS),
                     .addralign = 1,
                 });
                 self.debug_abbrev_section_dirty = true;
@@ -158,7 +158,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
             if (self.debug_aranges_index == null) {
                 const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".debug_aranges"),
-                    .type = elf.SHT_PROGBITS,
+                    .type = @intFromEnum(elf.SHT.PROGBITS),
                     .addralign = 16,
                 });
                 self.debug_aranges_section_dirty = true;
@@ -168,7 +168,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
             if (self.debug_line_index == null) {
                 const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".debug_line"),
-                    .type = elf.SHT_PROGBITS,
+                    .type = @intFromEnum(elf.SHT.PROGBITS),
                     .addralign = 1,
                 });
                 self.debug_line_section_dirty = true;
@@ -178,9 +178,9 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
             if (self.debug_line_str_index == null) {
                 const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".debug_line_str"),
-                    .flags = elf.SHF_MERGE | elf.SHF_STRINGS,
+                    .flags = @as(u64, @as(elf.Word, @bitCast(elf.SHF{ .MERGE = true, .STRINGS = true }))),
                     .entsize = 1,
-                    .type = elf.SHT_PROGBITS,
+                    .type = @intFromEnum(elf.SHT.PROGBITS),
                     .addralign = 1,
                 });
                 self.debug_line_str_section_dirty = true;
@@ -190,7 +190,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
             if (self.debug_loclists_index == null) {
                 const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".debug_loclists"),
-                    .type = elf.SHT_PROGBITS,
+                    .type = @intFromEnum(elf.SHT.PROGBITS),
                     .addralign = 1,
                 });
                 self.debug_loclists_section_dirty = true;
@@ -200,7 +200,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
             if (self.debug_rnglists_index == null) {
                 const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".debug_rnglists"),
-                    .type = elf.SHT_PROGBITS,
+                    .type = @intFromEnum(elf.SHT.PROGBITS),
                     .addralign = 1,
                 });
                 self.debug_rnglists_section_dirty = true;
@@ -210,11 +210,11 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
             if (self.eh_frame_index == null) {
                 const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".eh_frame"),
-                    .type = if (elf_file.getTarget().cpu.arch == .x86_64)
-                        elf.SHT_X86_64_UNWIND
+                    .type = @intFromEnum(if (elf_file.getTarget().cpu.arch == .x86_64)
+                        elf.SHT.X86_64_UNWIND
                     else
-                        elf.SHT_PROGBITS,
-                    .flags = elf.SHF_ALLOC,
+                        elf.SHT.PROGBITS),
+                    .flags = @as(u64, @as(elf.Word, @bitCast(elf.SHF{ .ALLOC = true }))),
                     .addralign = ptr_size,
                 });
                 self.eh_frame_section_dirty = true;
@@ -362,9 +362,9 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
                         0));
                     const r_type = relocation.dwarf.crossSectionRelocType(dwarf.format, cpu_arch);
                     atom_ptr.addRelocAssumeCapacity(.{
-                        .r_offset = r_offset,
-                        .r_addend = r_addend,
-                        .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
+                        .offset = r_offset,
+                        .addend = r_addend,
+                        .info = .{ .type = r_type, .sym = @intCast(sym_index) },
                     }, self);
                 }
                 for (unit.cross_section_relocs.items) |reloc| {
@@ -390,9 +390,9 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
                         0));
                     const r_type = relocation.dwarf.crossSectionRelocType(dwarf.format, cpu_arch);
                     atom_ptr.addRelocAssumeCapacity(.{
-                        .r_offset = r_offset,
-                        .r_addend = r_addend,
-                        .r_info = (@as(u64, @intCast(target_sym_index)) << 32) | r_type,
+                        .offset = r_offset,
+                        .addend = r_addend,
+                        .info = .{ .type = r_type, .sym = @intCast(target_sym_index) },
                     }, self);
                 }
 
@@ -410,9 +410,9 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
                             0));
                         const r_type = relocation.dwarf.crossSectionRelocType(dwarf.format, cpu_arch);
                         atom_ptr.addRelocAssumeCapacity(.{
-                            .r_offset = r_offset,
-                            .r_addend = r_addend,
-                            .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
+                            .offset = r_offset,
+                            .addend = r_addend,
+                            .info = .{ .type = r_type, .sym = @intCast(sym_index) },
                         }, self);
                     }
                     for (entry.cross_unit_relocs.items) |reloc| {
@@ -424,9 +424,9 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
                             0));
                         const r_type = relocation.dwarf.crossSectionRelocType(dwarf.format, cpu_arch);
                         atom_ptr.addRelocAssumeCapacity(.{
-                            .r_offset = r_offset,
-                            .r_addend = r_addend,
-                            .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
+                            .offset = r_offset,
+                            .addend = r_addend,
+                            .info = .{ .type = r_type, .sym = @intCast(sym_index) },
                         }, self);
                     }
                     for (entry.cross_section_relocs.items) |reloc| {
@@ -452,9 +452,9 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
                             0));
                         const r_type = relocation.dwarf.crossSectionRelocType(dwarf.format, cpu_arch);
                         atom_ptr.addRelocAssumeCapacity(.{
-                            .r_offset = r_offset,
-                            .r_addend = r_addend,
-                            .r_info = (@as(u64, @intCast(target_sym_index)) << 32) | r_type,
+                            .offset = r_offset,
+                            .addend = r_addend,
+                            .info = .{ .type = r_type, .sym = @intCast(target_sym_index) },
                         }, self);
                     }
                     for (entry.external_relocs.items) |reloc| {
@@ -463,9 +463,9 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
                         const r_addend: i64 = @intCast(reloc.target_off);
                         const r_type = relocation.dwarf.externalRelocType(target_sym.*, sect_index, dwarf.address_size, cpu_arch);
                         atom_ptr.addRelocAssumeCapacity(.{
-                            .r_offset = r_offset,
-                            .r_addend = r_addend,
-                            .r_info = (@as(u64, @intCast(@backingInt(reloc.target_sym))) << 32) | r_type,
+                            .offset = r_offset,
+                            .addend = r_addend,
+                            .info = .{ .type = r_type, .sym = @intCast(@backingInt(reloc.target_sym)) },
                         }, self);
                     }
                 }
@@ -488,7 +488,7 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
     assert(!self.debug_str_section_dirty);
 }
 
-fn newSymbol(self: *ZigObject, allocator: Allocator, name_off: u32, st_bind: u4) !Symbol.Index {
+fn newSymbol(self: *ZigObject, allocator: Allocator, name_off: u32, st_bind: elf.STB) !Symbol.Index {
     try self.symtab.ensureUnusedCapacity(allocator, 1);
     try self.symbols.ensureUnusedCapacity(allocator, 1);
     try self.symbols_extra.ensureUnusedCapacity(allocator, @sizeOf(Symbol.Extra));
@@ -500,12 +500,12 @@ fn newSymbol(self: *ZigObject, allocator: Allocator, name_off: u32, st_bind: u4)
 
     const esym_idx: u32 = @intCast(self.symtab.addOneAssumeCapacity());
     const esym = ElfSym{ .elf_sym = .{
-        .st_value = 0,
-        .st_name = name_off,
-        .st_info = @as(u8, @intCast(st_bind)) << 4,
-        .st_other = 0,
-        .st_size = 0,
-        .st_shndx = 0,
+        .value = 0,
+        .name = name_off,
+        .info = .{ .bind = st_bind, .type = .NOTYPE },
+        .other = .{ .visibility = .DEFAULT },
+        .size = 0,
+        .shndx = 0,
     } };
     self.symtab.set(index, esym);
     sym.esym_index = esym_idx;
@@ -516,7 +516,7 @@ fn newSymbol(self: *ZigObject, allocator: Allocator, name_off: u32, st_bind: u4)
 fn newLocalSymbol(self: *ZigObject, allocator: Allocator, name_off: u32) !Symbol.Index {
     try self.local_symbols.ensureUnusedCapacity(allocator, 1);
     const fake_index: Symbol.Index = @intCast(self.local_symbols.items.len);
-    const index = try self.newSymbol(allocator, name_off, elf.STB_LOCAL);
+    const index = try self.newSymbol(allocator, name_off, .LOCAL);
     self.local_symbols.appendAssumeCapacity(index);
     return fake_index;
 }
@@ -525,7 +525,7 @@ fn newGlobalSymbol(self: *ZigObject, allocator: Allocator, name_off: u32) !Symbo
     try self.global_symbols.ensureUnusedCapacity(allocator, 1);
     try self.symbols_resolver.ensureUnusedCapacity(allocator, 1);
     const fake_index: Symbol.Index = @intCast(self.global_symbols.items.len);
-    const index = try self.newSymbol(allocator, name_off, elf.STB_GLOBAL);
+    const index = try self.newSymbol(allocator, name_off, .GLOBAL);
     self.global_symbols.appendAssumeCapacity(index);
     self.symbols_resolver.addOneAssumeCapacity().* = 0;
     return fake_index | global_symbol_bit;
@@ -555,19 +555,19 @@ fn newSymbolWithAtom(self: *ZigObject, allocator: Allocator, name_off: u32) !Sym
     const sym = self.symbol(sym_index);
     sym.ref = .{ .index = atom_index, .file = self.index };
     self.symtab.items(.shndx)[sym.esym_index] = atom_index;
-    self.symtab.items(.elf_sym)[sym.esym_index].st_shndx = SHN_ATOM;
+    self.symtab.items(.elf_sym)[sym.esym_index].shndx = SHN_ATOM;
     return sym_index;
 }
 
 /// TODO actually create fake input shdrs and return that instead.
-pub fn inputShdr(self: *ZigObject, atom_index: Atom.Index, elf_file: *Elf) elf.Elf64_Shdr {
+pub fn inputShdr(self: *ZigObject, atom_index: Atom.Index, elf_file: *Elf) elf.Elf64.Shdr {
     const atom_ptr = self.atom(atom_index) orelse return Elf.null_shdr;
     const shndx = atom_ptr.output_section_index;
     var shdr = elf_file.sections.items(.shdr)[shndx];
-    shdr.sh_addr = 0;
-    shdr.sh_offset = 0;
-    shdr.sh_size = atom_ptr.size;
-    shdr.sh_addralign = atom_ptr.alignment.toByteUnits() orelse 1;
+    shdr.addr = 0;
+    shdr.offset = 0;
+    shdr.size = atom_ptr.size;
+    shdr.addralign = atom_ptr.alignment.toByteUnits() orelse 1;
     return shdr;
 }
 
@@ -588,9 +588,9 @@ pub fn resolveSymbols(self: *ZigObject, elf_file: *Elf) !void {
         }
         resolv.* = gop.index;
 
-        if (esym.st_shndx == elf.SHN_UNDEF) continue;
-        if (esym.st_shndx != elf.SHN_ABS and esym.st_shndx != elf.SHN_COMMON) {
-            assert(esym.st_shndx == SHN_ATOM);
+        if (esym.shndx == elf.SHN_UNDEF) continue;
+        if (esym.shndx != elf.SHN_ABS and esym.shndx != elf.SHN_COMMON) {
+            assert(esym.shndx == SHN_ATOM);
             const atom_ptr = self.atom(shndx) orelse continue;
             if (!atom_ptr.alive) continue;
         }
@@ -609,12 +609,12 @@ pub fn claimUnresolved(self: *ZigObject, elf_file: *Elf) void {
     for (self.global_symbols.items, 0..) |index, i| {
         const global = &self.symbols.items[index];
         const esym = self.symtab.items(.elf_sym)[index];
-        if (esym.st_shndx != elf.SHN_UNDEF) continue;
+        if (esym.shndx != elf.SHN_UNDEF) continue;
         if (elf_file.symbol(self.resolveSymbol(@intCast(i | global_symbol_bit), elf_file)) != null) continue;
 
         const is_import = blk: {
             if (!elf_file.isEffectivelyDynLib()) break :blk false;
-            const vis: elf.STV = @fromBackingInt(@intCast(@as(u3, @truncate(esym.st_other))));
+            const vis = esym.other.visibility;
             if (vis == .HIDDEN) break :blk false;
             break :blk true;
         };
@@ -635,7 +635,7 @@ pub fn claimUnresolvedRelocatable(self: ZigObject, elf_file: *Elf) void {
     for (self.global_symbols.items, 0..) |index, i| {
         const global = &self.symbols.items[index];
         const esym = self.symtab.items(.elf_sym)[index];
-        if (esym.st_shndx != elf.SHN_UNDEF) continue;
+        if (esym.shndx != elf.SHN_UNDEF) continue;
         if (elf_file.symbol(self.resolveSymbol(@intCast(i | global_symbol_bit), elf_file)) != null) continue;
 
         global.value = 0;
@@ -654,8 +654,8 @@ pub fn scanRelocs(self: *ZigObject, elf_file: *Elf, undefs: anytype) !void {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
         const shdr = atom_ptr.inputShdr(elf_file);
-        if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
-        if (shdr.sh_type == elf.SHT_NOBITS) continue;
+        if (!shdr.flags.shf.ALLOC) continue;
+        if (shdr.type == .NOBITS) continue;
         if (atom_ptr.scanRelocsRequiresCode(elf_file)) {
             // TODO ideally we don't have to fetch the code here.
             // Perhaps it would make sense to save the code until flush where we
@@ -671,13 +671,13 @@ pub fn markLive(self: *ZigObject, elf_file: *Elf) void {
     for (self.global_symbols.items, 0..) |index, i| {
         const global = self.symbols.items[index];
         const esym = self.symtab.items(.elf_sym)[index];
-        if (esym.st_bind() == elf.STB_WEAK) continue;
+        if (esym.info.bind == elf.STB.WEAK) continue;
 
         const ref = self.resolveSymbol(@intCast(i | global_symbol_bit), elf_file);
         const sym = elf_file.symbol(ref) orelse continue;
         const file = sym.file(elf_file).?;
-        const should_keep = esym.st_shndx == elf.SHN_UNDEF or
-            (esym.st_shndx == elf.SHN_COMMON and global.elfSym(elf_file).st_shndx != elf.SHN_COMMON);
+        const should_keep = esym.shndx == elf.SHN_UNDEF or
+            (esym.shndx == elf.SHN_COMMON and global.elfSym(elf_file).shndx != elf.SHN_COMMON);
         if (should_keep and !file.isAlive()) {
             file.setAlive();
             file.markLive(elf_file);
@@ -691,7 +691,7 @@ pub fn markImportsExports(self: *ZigObject, elf_file: *Elf) void {
         const sym = elf_file.symbol(ref) orelse continue;
         const file = sym.file(elf_file).?;
         if (sym.version_index == elf.Versym.LOCAL) continue;
-        const vis: elf.STV = @fromBackingInt(@intCast(@as(u3, @truncate(sym.elfSym(elf_file).st_other))));
+        const vis = sym.elfSym(elf_file).other.visibility;
         if (vis == .HIDDEN) continue;
         if (file == .shared_object and !sym.isAbs(elf_file)) {
             sym.flags.import = true;
@@ -717,11 +717,11 @@ pub fn checkDuplicates(self: *ZigObject, dupes: anytype, elf_file: *Elf) error{O
         const ref_file = ref_sym.file(elf_file).?;
 
         if (self.index == ref_file.index() or
-            esym.st_shndx == elf.SHN_UNDEF or
-            esym.st_bind() == elf.STB_WEAK or
-            esym.st_shndx == elf.SHN_COMMON) continue;
+            esym.shndx == elf.SHN_UNDEF or
+            esym.info.bind == elf.STB.WEAK or
+            esym.shndx == elf.SHN_COMMON) continue;
 
-        if (esym.st_shndx == SHN_ATOM) {
+        if (esym.shndx == SHN_ATOM) {
             const atom_ptr = self.atom(shndx) orelse continue;
             if (!atom_ptr.alive) continue;
         }
@@ -742,13 +742,13 @@ pub fn readFileContents(self: *ZigObject, elf_file: *Elf) !void {
     const gpa = comp.gpa;
     const io = comp.io;
     const shsize: u64 = switch (elf_file.ptr_width) {
-        .p32 => @sizeOf(elf.Elf32_Shdr),
-        .p64 => @sizeOf(elf.Elf64_Shdr),
+        .p32 => @sizeOf(elf.Elf32.Shdr),
+        .p64 => @sizeOf(elf.Elf64.Shdr),
     };
     var end_pos: u64 = elf_file.shdr_table_offset.? + elf_file.sections.items(.shdr).len * shsize;
     for (elf_file.sections.items(.shdr)) |shdr| {
-        if (shdr.sh_type == elf.SHT_NOBITS) continue;
-        end_pos = @max(end_pos, shdr.sh_offset + shdr.sh_size);
+        if (shdr.type == .NOBITS) continue;
+        end_pos = @max(end_pos, shdr.offset + shdr.size);
     }
     const size = std.math.cast(usize, end_pos) orelse return error.Overflow;
     try self.data.resize(gpa, size);
@@ -802,9 +802,9 @@ pub fn initRelaSections(self: *ZigObject, elf_file: *Elf) !void {
         if (self.relocs.items[rela_shndx].items.len == 0) continue;
         const out_shndx = atom_ptr.output_section_index;
         const out_shdr = elf_file.sections.items(.shdr)[out_shndx];
-        if (out_shdr.sh_type == elf.SHT_NOBITS) continue;
+        if (out_shdr.type == .NOBITS) continue;
         const rela_sect_name = try std.fmt.allocPrintSentinel(gpa, ".rela{s}", .{
-            elf_file.getShString(out_shdr.sh_name),
+            elf_file.getShString(out_shdr.name),
         }, 0);
         defer gpa.free(rela_sect_name);
         _ = elf_file.sectionByName(rela_sect_name) orelse
@@ -823,15 +823,15 @@ pub fn addAtomsToRelaSections(self: *ZigObject, elf_file: *Elf) !void {
         if (self.relocs.items[rela_shndx].items.len == 0) continue;
         const out_shndx = atom_ptr.output_section_index;
         const out_shdr = elf_file.sections.items(.shdr)[out_shndx];
-        if (out_shdr.sh_type == elf.SHT_NOBITS) continue;
+        if (out_shdr.type == .NOBITS) continue;
         const rela_sect_name = try std.fmt.allocPrintSentinel(gpa, ".rela{s}", .{
-            elf_file.getShString(out_shdr.sh_name),
+            elf_file.getShString(out_shdr.name),
         }, 0);
         defer gpa.free(rela_sect_name);
         const out_rela_shndx = elf_file.sectionByName(rela_sect_name).?;
         const out_rela_shdr = &elf_file.sections.items(.shdr)[out_rela_shndx];
-        out_rela_shdr.sh_info = out_shndx;
-        out_rela_shdr.sh_link = elf_file.section_indexes.symtab.?;
+        out_rela_shdr.info = out_shndx;
+        out_rela_shdr.link = elf_file.section_indexes.symtab.?;
         const atom_list = &elf_file.sections.items(.atom_list)[out_rela_shndx];
         try atom_list.append(gpa, .{ .index = atom_index, .file = self.index });
     }
@@ -844,8 +844,8 @@ pub fn updateSymtabSize(self: *ZigObject, elf_file: *Elf) !void {
         const name = local.name(elf_file);
         assert(name.len > 0);
         const esym = local.elfSym(elf_file);
-        switch (esym.st_type()) {
-            elf.STT_SECTION, elf.STT_NOTYPE => continue,
+        switch (esym.info.type) {
+            .SECTION, .NOTYPE => continue,
             else => {},
         }
         local.flags.output_symtab = true;
@@ -877,7 +877,7 @@ pub fn writeSymtab(self: ZigObject, elf_file: *Elf) void {
         const local = &self.symbols.items[index];
         const idx = local.outputSymtabIndex(elf_file) orelse continue;
         const out_sym = &elf_file.symtab.items[idx];
-        out_sym.st_name = @intCast(elf_file.strtab.items.len);
+        out_sym.name = @intCast(elf_file.strtab.items.len);
         elf_file.strtab.appendSliceAssumeCapacity(local.name(elf_file));
         elf_file.strtab.appendAssumeCapacity(0);
         local.setOutputSym(elf_file, out_sym);
@@ -893,7 +893,7 @@ pub fn writeSymtab(self: ZigObject, elf_file: *Elf) void {
         elf_file.strtab.appendSliceAssumeCapacity(global.name(elf_file));
         elf_file.strtab.appendAssumeCapacity(0);
         const out_sym = &elf_file.symtab.items[idx];
-        out_sym.st_name = st_name;
+        out_sym.name = st_name;
         global.setOutputSym(elf_file, out_sym);
     }
 }
@@ -941,9 +941,9 @@ pub fn getNavVAddr(
             const parent_atom = self.symbol(@backingInt(atom_index)).atom(elf_file).?;
             const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
             try parent_atom.addReloc(elf_file.base.comp.gpa, .{
-                .r_offset = reloc_info.offset,
-                .r_info = (@as(u64, @intCast(this_sym_index)) << 32) | r_type,
-                .r_addend = reloc_info.addend,
+                .offset = reloc_info.offset,
+                .info = .{ .type = r_type, .sym = @intCast(this_sym_index) },
+                .addend = reloc_info.addend,
             }, self);
         },
         .debug_output => |debug_output| try debug_output.dwarf.infoExternalReloc(.{
@@ -970,9 +970,9 @@ pub fn getUavVAddr(
             const parent_atom = self.symbol(@backingInt(atom_index)).atom(elf_file).?;
             const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
             try parent_atom.addReloc(elf_file.base.comp.gpa, .{
-                .r_offset = reloc_info.offset,
-                .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
-                .r_addend = reloc_info.addend,
+                .offset = reloc_info.offset,
+                .info = .{ .type = r_type, .sym = @intCast(sym_index) },
+                .addend = reloc_info.addend,
             }, self);
         },
         .debug_output => |debug_output| try debug_output.dwarf.infoExternalReloc(.{
@@ -1011,9 +1011,9 @@ pub fn lowerUav(
     else osec: {
         const osec = try elf_file.addSection(.{
             .name = try elf_file.insertShString(".data.rel.ro"),
-            .type = elf.SHT_PROGBITS,
+            .type = @intFromEnum(elf.SHT.PROGBITS),
             .addralign = 1,
-            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+            .flags = @as(u64, @as(elf.Word, @bitCast(elf.SHF{ .ALLOC = true, .WRITE = true }))),
         });
         self.data_relro_index = try self.addSectionSymbol(gpa, try self.addString(gpa, ".data.rel.ro"), osec);
         break :osec osec;
@@ -1113,9 +1113,9 @@ fn addSectionSymbol(self: *ZigObject, allocator: Allocator, name_off: u32, shndx
     const index = try self.newLocalSymbol(allocator, name_off);
     const sym = self.symbol(index);
     const esym = &self.symtab.items(.elf_sym)[sym.esym_index];
-    esym.st_info |= elf.STT_SECTION;
+    esym.info.type = .SECTION;
     // TODO create fake shdrs?
-    // esym.st_shndx = shndx;
+    // esym.shndx = shndx;
     sym.output_section_index = shndx;
     return index;
 }
@@ -1138,104 +1138,104 @@ fn getNavShdrIndex(
         const section_name = @"linksection".toSlice(ip);
         if (elf_file.sectionByName(section_name)) |osec| {
             if (is_func) {
-                elf_file.sections.items(.shdr)[osec].sh_flags |= elf.SHF_EXECINSTR;
+                elf_file.sections.items(.shdr)[osec].flags.shf.EXECINSTR = true;
             } else {
-                elf_file.sections.items(.shdr)[osec].sh_flags |= elf.SHF_WRITE;
+                elf_file.sections.items(.shdr)[osec].flags.shf.WRITE = true;
             }
             return osec;
         }
         const osec = try elf_file.addSection(.{
-            .type = elf.SHT_PROGBITS,
-            .flags = elf.SHF_ALLOC | @as(u64, if (is_func) elf.SHF_EXECINSTR else elf.SHF_WRITE),
+            .type = @intFromEnum(elf.SHT.PROGBITS),
+            .flags = @as(u64, @as(elf.Word, @bitCast(elf.SHF{ .ALLOC = true, .EXECINSTR = is_func, .WRITE = !is_func }))),
             .name = try elf_file.insertShString(section_name),
             .addralign = 1,
         });
         const section_index = try self.addSectionSymbol(gpa, try self.addString(gpa, section_name), osec);
         if (std.mem.eql(u8, section_name, ".text")) {
-            elf_file.sections.items(.shdr)[osec].sh_flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR;
+            elf_file.sections.items(.shdr)[osec].flags = .{ .shf = .{ .ALLOC = true, .EXECINSTR = true } };
             self.text_index = section_index;
         } else if (std.mem.startsWith(u8, section_name, ".text.")) {
-            elf_file.sections.items(.shdr)[osec].sh_flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR;
+            elf_file.sections.items(.shdr)[osec].flags = .{ .shf = .{ .ALLOC = true, .EXECINSTR = true } };
         } else if (std.mem.eql(u8, section_name, ".rodata")) {
-            elf_file.sections.items(.shdr)[osec].sh_flags = elf.SHF_ALLOC;
+            elf_file.sections.items(.shdr)[osec].flags = .{ .shf = .{ .ALLOC = true } };
             self.rodata_index = section_index;
         } else if (std.mem.startsWith(u8, section_name, ".rodata.")) {
-            elf_file.sections.items(.shdr)[osec].sh_flags = elf.SHF_ALLOC;
+            elf_file.sections.items(.shdr)[osec].flags = .{ .shf = .{ .ALLOC = true } };
         } else if (std.mem.eql(u8, section_name, ".data.rel.ro")) {
-            elf_file.sections.items(.shdr)[osec].sh_flags = elf.SHF_ALLOC | elf.SHF_WRITE;
+            elf_file.sections.items(.shdr)[osec].flags = .{ .shf = .{ .ALLOC = true, .WRITE = true } };
             self.data_relro_index = section_index;
         } else if (std.mem.eql(u8, section_name, ".data")) {
-            elf_file.sections.items(.shdr)[osec].sh_flags = elf.SHF_ALLOC | elf.SHF_WRITE;
+            elf_file.sections.items(.shdr)[osec].flags = .{ .shf = .{ .ALLOC = true, .WRITE = true } };
             self.data_index = section_index;
         } else if (std.mem.startsWith(u8, section_name, ".data.")) {
-            elf_file.sections.items(.shdr)[osec].sh_flags = elf.SHF_ALLOC | elf.SHF_WRITE;
+            elf_file.sections.items(.shdr)[osec].flags = .{ .shf = .{ .ALLOC = true, .WRITE = true } };
         } else if (std.mem.eql(u8, section_name, ".bss")) {
             const shdr = &elf_file.sections.items(.shdr)[osec];
-            shdr.sh_type = elf.SHT_NOBITS;
-            shdr.sh_flags = elf.SHF_ALLOC | elf.SHF_WRITE;
+            shdr.type = .NOBITS;
+            shdr.flags = .{ .shf = .{ .ALLOC = true, .WRITE = true } };
             self.bss_index = section_index;
         } else if (std.mem.startsWith(u8, section_name, ".bss.")) {
             const shdr = &elf_file.sections.items(.shdr)[osec];
-            shdr.sh_type = elf.SHT_NOBITS;
-            shdr.sh_flags = elf.SHF_ALLOC | elf.SHF_WRITE;
+            shdr.type = .NOBITS;
+            shdr.flags = .{ .shf = .{ .ALLOC = true, .WRITE = true } };
         } else if (std.mem.eql(u8, section_name, ".tdata")) {
-            elf_file.sections.items(.shdr)[osec].sh_flags = elf.SHF_ALLOC | elf.SHF_WRITE | elf.SHF_TLS;
+            elf_file.sections.items(.shdr)[osec].flags = .{ .shf = .{ .ALLOC = true, .WRITE = true, .TLS = true } };
             self.tdata_index = section_index;
         } else if (std.mem.startsWith(u8, section_name, ".tdata.")) {
-            elf_file.sections.items(.shdr)[osec].sh_flags = elf.SHF_ALLOC | elf.SHF_WRITE | elf.SHF_TLS;
+            elf_file.sections.items(.shdr)[osec].flags = .{ .shf = .{ .ALLOC = true, .WRITE = true, .TLS = true } };
         } else if (std.mem.eql(u8, section_name, ".tbss")) {
             const shdr = &elf_file.sections.items(.shdr)[osec];
-            shdr.sh_type = elf.SHT_NOBITS;
-            shdr.sh_flags = elf.SHF_ALLOC | elf.SHF_WRITE | elf.SHF_TLS;
+            shdr.type = .NOBITS;
+            shdr.flags = .{ .shf = .{ .ALLOC = true, .WRITE = true, .TLS = true } };
             self.tbss_index = section_index;
         } else if (std.mem.startsWith(u8, section_name, ".tbss.")) {
             const shdr = &elf_file.sections.items(.shdr)[osec];
-            shdr.sh_type = elf.SHT_NOBITS;
-            shdr.sh_flags = elf.SHF_ALLOC | elf.SHF_WRITE | elf.SHF_TLS;
+            shdr.type = .NOBITS;
+            shdr.flags = .{ .shf = .{ .ALLOC = true, .WRITE = true, .TLS = true } };
         } else if (std.mem.eql(u8, section_name, ".eh_frame")) {
             const target = &zcu.navFileScope(nav_index).mod.?.resolved_target.result;
             const shdr = &elf_file.sections.items(.shdr)[osec];
-            if (target.cpu.arch == .x86_64) shdr.sh_type = elf.SHT_X86_64_UNWIND;
-            shdr.sh_flags = elf.SHF_ALLOC;
+            if (target.cpu.arch == .x86_64) shdr.type = elf.SHT.X86_64_UNWIND;
+            shdr.flags = .{ .shf = .{ .ALLOC = true } };
             self.eh_frame_index = section_index;
         } else if (std.mem.eql(u8, section_name, ".debug_info")) {
-            elf_file.sections.items(.shdr)[osec].sh_flags = 0;
+            elf_file.sections.items(.shdr)[osec].flags = .{ .shf = .{} };
             self.debug_info_index = section_index;
         } else if (std.mem.eql(u8, section_name, ".debug_abbrev")) {
-            elf_file.sections.items(.shdr)[osec].sh_flags = 0;
+            elf_file.sections.items(.shdr)[osec].flags = .{ .shf = .{} };
             self.debug_abbrev_index = section_index;
         } else if (std.mem.eql(u8, section_name, ".debug_aranges")) {
-            elf_file.sections.items(.shdr)[osec].sh_flags = 0;
+            elf_file.sections.items(.shdr)[osec].flags = .{ .shf = .{} };
             self.debug_aranges_index = section_index;
         } else if (std.mem.eql(u8, section_name, ".debug_str")) {
-            elf_file.sections.items(.shdr)[osec].sh_flags = 0;
+            elf_file.sections.items(.shdr)[osec].flags = .{ .shf = .{} };
             self.debug_str_index = section_index;
         } else if (std.mem.eql(u8, section_name, ".debug_line")) {
-            elf_file.sections.items(.shdr)[osec].sh_flags = 0;
+            elf_file.sections.items(.shdr)[osec].flags = .{ .shf = .{} };
             self.debug_line_index = section_index;
         } else if (std.mem.eql(u8, section_name, ".debug_line_str")) {
-            elf_file.sections.items(.shdr)[osec].sh_flags = 0;
+            elf_file.sections.items(.shdr)[osec].flags = .{ .shf = .{} };
             self.debug_line_str_index = section_index;
         } else if (std.mem.eql(u8, section_name, ".debug_loclists")) {
-            elf_file.sections.items(.shdr)[osec].sh_flags = 0;
+            elf_file.sections.items(.shdr)[osec].flags = .{ .shf = .{} };
             self.debug_loclists_index = section_index;
         } else if (std.mem.eql(u8, section_name, ".debug_rnglists")) {
-            elf_file.sections.items(.shdr)[osec].sh_flags = 0;
+            elf_file.sections.items(.shdr)[osec].flags = .{ .shf = .{} };
             self.debug_rnglists_index = section_index;
         } else if (std.mem.startsWith(u8, section_name, ".debug")) {
-            elf_file.sections.items(.shdr)[osec].sh_flags = 0;
+            elf_file.sections.items(.shdr)[osec].flags = .{ .shf = .{} };
         } else if (std.mem.eql(u8, section_name, ".preinit_array") or std.mem.startsWith(u8, section_name, ".preinit_array.")) {
             const shdr = &elf_file.sections.items(.shdr)[osec];
-            shdr.sh_type = elf.SHT_PREINIT_ARRAY;
-            shdr.sh_flags = elf.SHF_ALLOC | elf.SHF_WRITE;
+            shdr.type = .PREINIT_ARRAY;
+            shdr.flags = .{ .shf = .{ .ALLOC = true, .WRITE = true } };
         } else if (std.mem.eql(u8, section_name, ".init_array") or std.mem.startsWith(u8, section_name, ".init_array.")) {
             const shdr = &elf_file.sections.items(.shdr)[osec];
-            shdr.sh_type = elf.SHT_INIT_ARRAY;
-            shdr.sh_flags = elf.SHF_ALLOC | elf.SHF_WRITE;
+            shdr.type = .INIT_ARRAY;
+            shdr.flags = .{ .shf = .{ .ALLOC = true, .WRITE = true } };
         } else if (std.mem.eql(u8, section_name, ".fini_array") or std.mem.startsWith(u8, section_name, ".fini_array.")) {
             const shdr = &elf_file.sections.items(.shdr)[osec];
-            shdr.sh_type = elf.SHT_FINI_ARRAY;
-            shdr.sh_flags = elf.SHF_ALLOC | elf.SHF_WRITE;
+            shdr.type = .FINI_ARRAY;
+            shdr.flags = .{ .shf = .{ .ALLOC = true, .WRITE = true } };
         }
         return osec;
     }
@@ -1243,8 +1243,8 @@ fn getNavShdrIndex(
         if (self.text_index) |symbol_index|
             return self.symbol(symbol_index).outputShndx(elf_file).?;
         const osec = try elf_file.addSection(.{
-            .type = elf.SHT_PROGBITS,
-            .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
+            .type = @intFromEnum(elf.SHT.PROGBITS),
+            .flags = @as(u64, @as(elf.Word, @bitCast(elf.SHF{ .ALLOC = true, .EXECINSTR = true }))),
             .name = try elf_file.insertShString(".text"),
             .addralign = 1,
         });
@@ -1261,8 +1261,8 @@ fn getNavShdrIndex(
                 return self.symbol(symbol_index).outputShndx(elf_file).?;
             const osec = try elf_file.addSection(.{
                 .name = try elf_file.insertShString(".tbss"),
-                .flags = elf.SHF_ALLOC | elf.SHF_WRITE | elf.SHF_TLS,
-                .type = elf.SHT_NOBITS,
+                .flags = @as(u64, @as(elf.Word, @bitCast(elf.SHF{ .ALLOC = true, .WRITE = true, .TLS = true }))),
+                .type = @intFromEnum(elf.SHT.NOBITS),
                 .addralign = 1,
             });
             self.tbss_index = try self.addSectionSymbol(gpa, try self.addString(gpa, ".tbss"), osec);
@@ -1271,8 +1271,8 @@ fn getNavShdrIndex(
         if (self.tdata_index) |symbol_index|
             return self.symbol(symbol_index).outputShndx(elf_file).?;
         const osec = try elf_file.addSection(.{
-            .type = elf.SHT_PROGBITS,
-            .flags = elf.SHF_ALLOC | elf.SHF_WRITE | elf.SHF_TLS,
+            .type = @intFromEnum(elf.SHT.PROGBITS),
+            .flags = @as(u64, @as(elf.Word, @bitCast(elf.SHF{ .ALLOC = true, .WRITE = true, .TLS = true }))),
             .name = try elf_file.insertShString(".tdata"),
             .addralign = 1,
         });
@@ -1284,9 +1284,9 @@ fn getNavShdrIndex(
             return self.symbol(symbol_index).outputShndx(elf_file).?;
         const osec = try elf_file.addSection(.{
             .name = try elf_file.insertShString(".data.rel.ro"),
-            .type = elf.SHT_PROGBITS,
+            .type = @intFromEnum(elf.SHT.PROGBITS),
             .addralign = 1,
-            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+            .flags = @as(u64, @as(elf.Word, @bitCast(elf.SHF{ .ALLOC = true, .WRITE = true }))),
         });
         self.data_relro_index = try self.addSectionSymbol(gpa, try self.addString(gpa, ".data.rel.ro"), osec);
         return osec;
@@ -1298,9 +1298,9 @@ fn getNavShdrIndex(
                     return self.symbol(symbol_index).outputShndx(elf_file).?;
                 const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".data"),
-                    .type = elf.SHT_PROGBITS,
+                    .type = @intFromEnum(elf.SHT.PROGBITS),
                     .addralign = ptr_size,
-                    .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+                    .flags = @as(u64, @as(elf.Word, @bitCast(elf.SHF{ .ALLOC = true, .WRITE = true }))),
                 });
                 self.data_index = try self.addSectionSymbol(gpa, try self.addString(gpa, ".data"), osec);
                 return osec;
@@ -1309,8 +1309,8 @@ fn getNavShdrIndex(
                 if (self.bss_index) |symbol_index|
                     return self.symbol(symbol_index).outputShndx(elf_file).?;
                 const osec = try elf_file.addSection(.{
-                    .type = elf.SHT_NOBITS,
-                    .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+                    .type = @intFromEnum(elf.SHT.NOBITS),
+                    .flags = @as(u64, @as(elf.Word, @bitCast(elf.SHF{ .ALLOC = true, .WRITE = true }))),
                     .name = try elf_file.insertShString(".bss"),
                     .addralign = 1,
                 });
@@ -1325,8 +1325,8 @@ fn getNavShdrIndex(
         if (self.bss_index) |symbol_index|
             return self.symbol(symbol_index).outputShndx(elf_file).?;
         const osec = try elf_file.addSection(.{
-            .type = elf.SHT_NOBITS,
-            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+            .type = @intFromEnum(elf.SHT.NOBITS),
+            .flags = @as(u64, @as(elf.Word, @bitCast(elf.SHF{ .ALLOC = true, .WRITE = true }))),
             .name = try elf_file.insertShString(".bss"),
             .addralign = 1,
         });
@@ -1337,9 +1337,9 @@ fn getNavShdrIndex(
         return self.symbol(symbol_index).outputShndx(elf_file).?;
     const osec = try elf_file.addSection(.{
         .name = try elf_file.insertShString(".data"),
-        .type = elf.SHT_PROGBITS,
+        .type = @intFromEnum(elf.SHT.PROGBITS),
         .addralign = ptr_size,
-        .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+        .flags = @as(u64, @as(elf.Word, @bitCast(elf.SHF{ .ALLOC = true, .WRITE = true }))),
     });
     self.data_index = try self.addSectionSymbol(gpa, try self.addString(gpa, ".data"), osec);
     return osec;
@@ -1353,7 +1353,7 @@ fn updateNavCode(
     sym_index: Symbol.Index,
     shdr_index: u32,
     code: []const u8,
-    stt_bits: u8,
+    stt_bits: elf.STT,
 ) link.Error!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -1384,9 +1384,9 @@ fn updateNavCode(
     atom_ptr.output_section_index = shdr_index;
 
     sym.name_offset = name_offset;
-    esym.st_name = name_offset;
-    esym.st_info |= stt_bits;
-    esym.st_size = code.len;
+    esym.name = name_offset;
+    esym.info.type = stt_bits;
+    esym.size = code.len;
 
     const old_size = atom_ptr.size;
     const old_vaddr = atom_ptr.value;
@@ -1403,7 +1403,7 @@ fn updateNavCode(
             log.debug("growing {f} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), old_vaddr, atom_ptr.value });
             if (old_vaddr != atom_ptr.value) {
                 sym.value = 0;
-                esym.st_value = 0;
+                esym.value = 0;
             }
         } else if (code.len < old_size) {
             // TODO shrink section size
@@ -1414,7 +1414,7 @@ fn updateNavCode(
 
         errdefer self.freeNavMetadata(elf_file, sym_index);
         sym.value = 0;
-        esym.st_value = 0;
+        esym.value = 0;
     }
 
     self.navs.getPtr(nav_index).?.allocated = true;
@@ -1441,7 +1441,7 @@ fn updateNavCode(
     }
 
     const shdr = elf_file.sections.items(.shdr)[shdr_index];
-    if (shdr.sh_type != elf.SHT_NOBITS) {
+    if (shdr.type != .NOBITS) {
         const file_offset = atom_ptr.offset(elf_file);
         elf_file.base.file.?.writePositionalAll(io, code, file_offset) catch |err|
             return elf_file.base.cgFail(nav_index, "failed to write to output file: {t}", .{err});
@@ -1479,9 +1479,9 @@ fn updateTlv(
     atom_ptr.output_section_index = shndx;
 
     sym.name_offset = name_offset;
-    esym.st_name = name_offset;
-    esym.st_info = elf.STT_TLS;
-    esym.st_size = code.len;
+    esym.name = name_offset;
+    esym.info = .{ .type = .TLS, .bind = .LOCAL };
+    esym.size = code.len;
 
     atom_ptr.alignment = required_alignment;
     atom_ptr.size = code.len;
@@ -1492,12 +1492,12 @@ fn updateTlv(
     self.allocateAtom(atom_ptr, true, elf_file) catch |err|
         return elf_file.base.cgFail(nav_index, "failed to allocate atom: {s}", .{@errorName(err)});
     sym.value = 0;
-    esym.st_value = 0;
+    esym.value = 0;
 
     self.navs.getPtr(nav_index).?.allocated = true;
 
     const shdr = elf_file.sections.items(.shdr)[shndx];
-    if (shdr.sh_type != elf.SHT_NOBITS) {
+    if (shdr.type != .NOBITS) {
         const file_offset = atom_ptr.offset(elf_file);
         elf_file.base.file.?.writePositionalAll(io, code, file_offset) catch |err|
             return elf_file.base.cgFail(nav_index, "failed to write to output file: {t}", .{err});
@@ -1556,14 +1556,14 @@ pub fn updateFunc(
     const shndx = try self.getNavShdrIndex(elf_file, zcu, func.owner_nav, sym_index, code);
     log.debug("setting shdr({x},{s}) for {f}", .{
         shndx,
-        elf_file.getShString(elf_file.sections.items(.shdr)[shndx].sh_name),
+        elf_file.getShString(elf_file.sections.items(.shdr)[shndx].name),
         ip.getNav(func.owner_nav).fqn.fmt(ip),
     });
     const old_rva, const old_alignment = blk: {
         const atom_ptr = self.atom(self.symbol(sym_index).ref.index).?;
         break :blk .{ atom_ptr.value, atom_ptr.alignment };
     };
-    try self.updateNavCode(elf_file, pt, func.owner_nav, sym_index, shndx, code, elf.STT_FUNC);
+    try self.updateNavCode(elf_file, pt, func.owner_nav, sym_index, shndx, code, .FUNC);
     const new_rva, const new_alignment = blk: {
         const atom_ptr = self.atom(self.symbol(sym_index).ref.index).?;
         break :blk .{ atom_ptr.value, atom_ptr.alignment };
@@ -1593,8 +1593,8 @@ pub fn updateFunc(
             else osec: {
                 const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".text"),
-                    .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
-                    .type = elf.SHT_PROGBITS,
+                    .flags = @as(u64, @as(elf.Word, @bitCast(elf.SHF{ .ALLOC = true, .EXECINSTR = true }))),
+                    .type = @intFromEnum(elf.SHT.PROGBITS),
                     .addralign = 1,
                 });
                 self.text_index = try self.addSectionSymbol(gpa, try self.addString(gpa, ".text"), osec);
@@ -1605,8 +1605,8 @@ pub fn updateFunc(
             const tr_sym_index = try self.newSymbolWithAtom(gpa, name_off);
             const tr_sym = self.symbol(tr_sym_index);
             const tr_esym = &self.symtab.items(.elf_sym)[tr_sym.esym_index];
-            tr_esym.st_info |= elf.STT_OBJECT;
-            tr_esym.st_size = tr_size;
+            tr_esym.info.type = .OBJECT;
+            tr_esym.size = tr_size;
             const tr_atom_ptr = tr_sym.atom(elf_file).?;
             tr_atom_ptr.value = old_rva;
             tr_atom_ptr.alive = true;
@@ -1686,13 +1686,13 @@ pub fn updateNav(
         const shndx = try self.getNavShdrIndex(elf_file, zcu, nav_index, sym_index, code);
         log.debug("setting shdr({x},{s}) for {f}", .{
             shndx,
-            elf_file.getShString(elf_file.sections.items(.shdr)[shndx].sh_name),
+            elf_file.getShString(elf_file.sections.items(.shdr)[shndx].name),
             nav.fqn.fmt(ip),
         });
-        if (elf_file.sections.items(.shdr)[shndx].sh_flags & elf.SHF_TLS != 0)
+        if (elf_file.sections.items(.shdr)[shndx].flags.shf.TLS)
             try self.updateTlv(elf_file, pt, nav_index, sym_index, shndx, code)
         else
-            try self.updateNavCode(elf_file, pt, nav_index, sym_index, shndx, code, elf.STT_OBJECT);
+            try self.updateNavCode(elf_file, pt, nav_index, sym_index, shndx, code, .OBJECT);
 
         if (debug_wip_nav) |*wip_nav| self.dwarf.?.finishWipNav(pt, nav_index, wip_nav) catch |err| switch (err) {
             error.OutOfMemory, error.Canceled, error.AlreadyReported => |e| return e,
@@ -1758,9 +1758,9 @@ fn updateLazySymbol(
         else osec: {
             const osec = try elf_file.addSection(.{
                 .name = try elf_file.insertShString(".text"),
-                .type = elf.SHT_PROGBITS,
+                .type = @intFromEnum(elf.SHT.PROGBITS),
                 .addralign = 1,
-                .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
+                .flags = @as(u64, @as(elf.Word, @bitCast(elf.SHF{ .ALLOC = true, .EXECINSTR = true }))),
             });
             self.text_index = try self.addSectionSymbol(gpa, try self.addString(gpa, ".text"), osec);
             break :osec osec;
@@ -1770,9 +1770,9 @@ fn updateLazySymbol(
         else osec: {
             const osec = try elf_file.addSection(.{
                 .name = try elf_file.insertShString(".rodata"),
-                .type = elf.SHT_PROGBITS,
+                .type = @intFromEnum(elf.SHT.PROGBITS),
                 .addralign = 1,
-                .flags = elf.SHF_ALLOC,
+                .flags = @as(u64, @as(elf.Word, @bitCast(elf.SHF{ .ALLOC = true }))),
             });
             self.rodata_index = try self.addSectionSymbol(gpa, try self.addString(gpa, ".rodata"), osec);
             break :osec osec;
@@ -1781,9 +1781,9 @@ fn updateLazySymbol(
     const local_sym = self.symbol(symbol_index);
     local_sym.name_offset = name_str_index;
     const local_esym = &self.symtab.items(.elf_sym)[local_sym.esym_index];
-    local_esym.st_name = name_str_index;
-    local_esym.st_info |= elf.STT_OBJECT;
-    local_esym.st_size = code.len;
+    local_esym.name = name_str_index;
+    local_esym.info.type = .OBJECT;
+    local_esym.size = code.len;
     const atom_ptr = local_sym.atom(elf_file).?;
     atom_ptr.alive = true;
     atom_ptr.name_offset = name_str_index;
@@ -1795,7 +1795,7 @@ fn updateLazySymbol(
     errdefer self.freeNavMetadata(elf_file, symbol_index);
 
     local_sym.value = 0;
-    local_esym.st_value = 0;
+    local_esym.value = 0;
 
     try elf_file.pwriteAll(code, atom_ptr.offset(elf_file));
 }
@@ -1831,8 +1831,8 @@ fn lowerConst(
 
     const local_sym = self.symbol(sym_index);
     const local_esym = &self.symtab.items(.elf_sym)[local_sym.esym_index];
-    local_esym.st_info |= elf.STT_OBJECT;
-    local_esym.st_size = code.len;
+    local_esym.info.type = .OBJECT;
+    local_esym.size = code.len;
     const atom_ptr = local_sym.atom(elf_file).?;
     atom_ptr.alive = true;
     atom_ptr.alignment = required_alignment;
@@ -1864,7 +1864,7 @@ pub fn updateExports(
         for (metadata.exports.items) |sym_index| {
             const esym_index = self.symbol(sym_index).esym_index;
             const esym = &self.symtab.items(.elf_sym)[esym_index];
-            _ = self.globals_lookup.remove(esym.st_name);
+            _ = self.globals_lookup.remove(esym.name);
             esym.* = Elf.null_sym;
             self.symtab.items(.shndx)[esym_index] = elf.SHN_UNDEF;
         }
@@ -1874,7 +1874,7 @@ pub fn updateExports(
         for (metadata.exports.items) |sym_index| {
             const esym_index = self.symbol(sym_index).esym_index;
             const esym = &self.symtab.items(.elf_sym)[esym_index];
-            _ = self.globals_lookup.remove(esym.st_name);
+            _ = self.globals_lookup.remove(esym.name);
             esym.* = Elf.null_sym;
             self.symtab.items(.shndx)[esym_index] = elf.SHN_UNDEF;
         }
@@ -1909,10 +1909,10 @@ pub fn updateExports(
                 continue;
             }
         }
-        const stb_bits: u8 = switch (exp.opts.linkage) {
-            .internal => elf.STB_LOCAL,
-            .strong => elf.STB_GLOBAL,
-            .weak => elf.STB_WEAK,
+        const stb_bits: elf.STB = switch (exp.opts.linkage) {
+            .internal => .LOCAL,
+            .strong => .GLOBAL,
+            .weak => .WEAK,
             .link_once => {
                 try zcu.failed_exports.ensureUnusedCapacity(gpa, 1);
                 zcu.failed_exports.putAssumeCapacityNoClobber(export_index, try Zcu.ErrorMsg.create(
@@ -1924,7 +1924,7 @@ pub fn updateExports(
                 continue;
             },
         };
-        const stt_bits: u8 = @as(u4, @truncate(esym.st_info));
+        const stt_bits: elf.STT = esym.info.type;
         const exp_name = exp.opts.name.toSlice(&zcu.intern_pool);
         const name_off = try self.strtab.insert(gpa, exp_name);
         const global_sym_index = try self.getGlobalSymbol(elf_file, exp_name, null);
@@ -1937,11 +1937,11 @@ pub fn updateExports(
         global_sym.version_index = elf_file.default_sym_version;
         global_sym.ref = .{ .index = esym_shndx, .file = self.index };
         const global_esym = &self.symtab.items(.elf_sym)[global_sym.esym_index];
-        global_esym.st_value = @intCast(value);
-        global_esym.st_shndx = esym.st_shndx;
-        global_esym.st_info = (stb_bits << 4) | stt_bits;
-        global_esym.st_name = name_off;
-        global_esym.st_size = esym.st_size;
+        global_esym.value = @intCast(value);
+        global_esym.shndx = esym.shndx;
+        global_esym.info = .{ .bind = stb_bits, .type = stt_bits };
+        global_esym.name = name_off;
+        global_esym.size = esym.size;
         self.symtab.items(.shndx)[global_sym.esym_index] = esym_shndx;
     }
 }
@@ -2060,7 +2060,7 @@ pub fn allocateAtom(self: *ZigObject, atom_ptr: *Atom, requires_padding: bool, e
             self.debug_rnglists_section_dirty = true;
         }
     }
-    shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits().?);
+    shdr.addralign = @max(shdr.addralign, atom_ptr.alignment.toByteUnits().?);
 
     // This function can also reallocate an atom.
     // In this case we need to "unplug" it from its previous location before
@@ -2333,7 +2333,7 @@ pub fn fmtAtoms(self: *ZigObject, elf_file: *Elf) std.fmt.Alt(Format, Format.ato
 }
 
 const ElfSym = struct {
-    elf_sym: elf.Elf64_Sym,
+    elf_sym: elf.Elf64.Sym,
     shndx: u32 = elf.SHN_UNDEF,
 };
 

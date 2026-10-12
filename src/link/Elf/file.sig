@@ -56,15 +56,15 @@ pub const File = union(enum) {
     /// * common
     /// * common in lib (archive)
     /// * unclaimed
-    pub fn symbolRank(file: File, sym: elf.Elf64_Sym, in_archive: bool) u32 {
+    pub fn symbolRank(file: File, sym: elf.Elf64.Sym, in_archive: bool) u32 {
         const base: u3 = blk: {
-            if (sym.st_shndx == elf.SHN_COMMON) break :blk if (in_archive) 6 else 5;
-            if (file == .shared_object or in_archive) break :blk switch (sym.st_bind()) {
-                elf.STB_GLOBAL => 3,
+            if (sym.shndx == elf.SHN_COMMON) break :blk if (in_archive) 6 else 5;
+            if (file == .shared_object or in_archive) break :blk switch (sym.info.bind) {
+                .GLOBAL => 3,
                 else => 4,
             };
-            break :blk switch (sym.st_bind()) {
-                elf.STB_GLOBAL => 1,
+            break :blk switch (sym.info.bind) {
+                .GLOBAL => 1,
                 else => 2,
             };
         };

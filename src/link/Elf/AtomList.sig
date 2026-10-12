@@ -13,12 +13,12 @@ pub fn deinit(list: *AtomList, allocator: Allocator) void {
 
 pub fn address(list: AtomList, elf_file: *Elf) i64 {
     const shdr = elf_file.sections.items(.shdr)[list.output_section_index];
-    return @as(i64, @intCast(shdr.sh_addr)) + list.value;
+    return @as(i64, @intCast(shdr.addr)) + list.value;
 }
 
 pub fn offset(list: AtomList, elf_file: *Elf) u64 {
     const shdr = elf_file.sections.items(.shdr)[list.output_section_index];
-    return shdr.sh_offset + @as(u64, @intCast(list.value));
+    return shdr.offset + @as(u64, @intCast(list.value));
 }
 
 pub fn updateSize(list: *AtomList, elf_file: *Elf) void {
@@ -56,7 +56,7 @@ pub fn allocate(list: *AtomList, elf_file: *Elf) !void {
     else
         true;
     if (expand_section) last_atom_ref.* = list.lastAtom(elf_file).ref();
-    shdr.sh_addralign = @max(shdr.sh_addralign, list.alignment.toByteUnits().?);
+    shdr.addralign = @max(shdr.addralign, list.alignment.toByteUnits().?);
 
     // This currently ignores Thunks as valid chunks.
     {
@@ -94,10 +94,10 @@ pub fn write(list: AtomList, buffer: *std.Io.Writer.Allocating, undefs: anytype,
     const gpa = comp.gpa;
     const io = comp.io;
     const osec = elf_file.sections.items(.shdr)[list.output_section_index];
-    assert(osec.sh_type != elf.SHT_NOBITS);
+    assert(osec.type != .NOBITS);
     assert(!list.dirty);
 
-    log.debug("writing atoms in section '{s}'", .{elf_file.getShString(osec.sh_name)});
+    log.debug("writing atoms in section '{s}'", .{elf_file.getShString(osec.name)});
 
     const list_size = math.cast(usize, list.size) orelse return error.Overflow;
     try buffer.writer.splatByteAll(0, list_size);
@@ -117,7 +117,7 @@ pub fn write(list: AtomList, buffer: *std.Io.Writer.Allocating, undefs: anytype,
         const out_code = buffer.written()[off..][0..size];
         @memcpy(out_code, code);
 
-        if (osec.sh_flags & elf.SHF_ALLOC == 0)
+        if (!osec.flags.shf.ALLOC)
             try atom_ptr.resolveRelocsNonAlloc(elf_file, out_code, undefs)
         else
             try atom_ptr.resolveRelocsAlloc(elf_file, out_code);
@@ -132,9 +132,9 @@ pub fn writeRelocatable(list: AtomList, buffer: *std.array_list.Managed(u8), elf
     const gpa = comp.gpa;
     const io = comp.io;
     const osec = elf_file.sections.items(.shdr)[list.output_section_index];
-    assert(osec.sh_type != elf.SHT_NOBITS);
+    assert(osec.type != .NOBITS);
 
-    log.debug("writing atoms in section '{s}'", .{elf_file.getShString(osec.sh_name)});
+    log.debug("writing atoms in section '{s}'", .{elf_file.getShString(osec.name)});
 
     const list_size = math.cast(usize, list.size) orelse return error.Overflow;
     try buffer.ensureUnusedCapacity(list_size);

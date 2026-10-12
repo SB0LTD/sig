@@ -42,11 +42,11 @@ pub fn deinit(so: *SharedObject, gpa: Allocator) void {
 }
 
 pub const Header = struct {
-    dynamic_table: []const elf.Elf64_Dyn,
+    dynamic_table: []const elf.Elf64.Dyn,
     soname_index: ?u32,
     verdefnum: ?u32,
 
-    sections: []const elf.Elf64_Shdr,
+    sections: []const elf.Elf64.Shdr,
     dynsym_sect_index: ?u32,
     versym_sect_index: ?u32,
     verdef_sect_index: ?u32,
@@ -71,10 +71,10 @@ pub const Parsed = struct {
     stat: Stat,
     strtab: []const u8,
     soname_index: ?u32,
-    sections: []const elf.Elf64_Shdr,
+    sections: []const elf.Elf64.Shdr,
 
     /// Nonlocal symbols only.
-    symtab: []const elf.Elf64_Sym,
+    symtab: []const elf.Elf64.Sym,
     /// Version symtab contains version strings of the symbols if present.
     /// Nonlocal symbols only.
     versyms: []const elf.Versym,
@@ -116,23 +116,23 @@ pub fn parseHeader(
     stat: Stat,
     target: *const std.Target,
 ) !Header {
-    var ehdr: elf.Elf64_Ehdr = undefined;
+    var ehdr: elf.Elf64.Ehdr = undefined;
     {
         const buf = mem.asBytes(&ehdr);
         const amt = try file.readPositionalAll(io, buf, 0);
         if (amt != buf.len) return error.UnexpectedEndOfFile;
     }
-    if (!mem.eql(u8, ehdr.e_ident[0..4], "\x7fELF")) return error.BadMagic;
-    if (ehdr.e_ident[elf.EI.VERSION] != 1) return error.BadElfVersion;
-    if (ehdr.e_type != elf.ET.DYN) return error.NotSharedObject;
+    if (!mem.eql(u8, ehdr.ident.magic[0..4], "\x7fELF")) return error.BadMagic;
+    if (ehdr.ident.version != 1) return error.BadElfVersion;
+    if (ehdr.type != elf.ET.DYN) return error.NotSharedObject;
 
-    if (target.toElfMachine() != ehdr.e_machine)
-        return diags.failParse(file_path, "invalid ELF machine type: {s}", .{@tagName(ehdr.e_machine)});
+    if (target.toElfMachine() != ehdr.machine)
+        return diags.failParse(file_path, "invalid ELF machine type: {s}", .{@tagName(ehdr.machine)});
 
-    const shoff = std.math.cast(usize, ehdr.e_shoff) orelse return error.Overflow;
-    const shnum = std.math.cast(u32, ehdr.e_shnum) orelse return error.Overflow;
+    const shoff = std.math.cast(usize, ehdr.shoff) orelse return error.Overflow;
+    const shnum = std.math.cast(u32, ehdr.shnum) orelse return error.Overflow;
 
-    const sections = try gpa.alloc(elf.Elf64_Shdr, shnum);
+    const sections = try gpa.alloc(elf.Elf64.Shdr, shnum);
     errdefer gpa.free(sections);
     {
         const buf = mem.sliceAsBytes(sections);
@@ -146,22 +146,22 @@ pub fn parseHeader(
     var verdef_sect_index: ?u32 = null;
     for (sections, 0..) |shdr, i_usize| {
         const i: u32 = @intCast(i_usize);
-        switch (shdr.sh_type) {
-            elf.SHT_DYNSYM => dynsym_sect_index = i,
-            elf.SHT_DYNAMIC => dynamic_sect_index = i,
-            elf.SHT_GNU_VERSYM => versym_sect_index = i,
-            elf.SHT_GNU_VERDEF => verdef_sect_index = i,
+        switch (shdr.type) {
+            .DYNSYM => dynsym_sect_index = i,
+            .DYNAMIC => dynamic_sect_index = i,
+            elf.SHT.GNU_VERSYM => versym_sect_index = i,
+            elf.SHT.GNU_VERDEF => verdef_sect_index = i,
             else => continue,
         }
     }
 
-    const dynamic_table: []elf.Elf64_Dyn = if (dynamic_sect_index) |index| dt: {
+    const dynamic_table: []elf.Elf64.Dyn = if (dynamic_sect_index) |index| dt: {
         const shdr = sections[index];
-        const n = std.math.cast(usize, shdr.sh_size / @sizeOf(elf.Elf64_Dyn)) orelse return error.Overflow;
-        const dynamic_table = try gpa.alloc(elf.Elf64_Dyn, n);
+        const n = std.math.cast(usize, shdr.size / @sizeOf(elf.Elf64.Dyn)) orelse return error.Overflow;
+        const dynamic_table = try gpa.alloc(elf.Elf64.Dyn, n);
         errdefer gpa.free(dynamic_table);
         const buf = mem.sliceAsBytes(dynamic_table);
-        const amt = try file.readPositionalAll(io, buf, shdr.sh_offset);
+        const amt = try file.readPositionalAll(io, buf, shdr.offset);
         if (amt != buf.len) return error.UnexpectedEndOfFile;
         break :dt dynamic_table;
     } else &.{};
@@ -172,23 +172,23 @@ pub fn parseHeader(
 
     if (dynsym_sect_index) |index| {
         const dynsym_shdr = sections[index];
-        if (dynsym_shdr.sh_link >= sections.len) return error.BadStringTableIndex;
-        const strtab_shdr = sections[dynsym_shdr.sh_link];
-        const n = std.math.cast(usize, strtab_shdr.sh_size) orelse return error.Overflow;
+        if (dynsym_shdr.link >= sections.len) return error.BadStringTableIndex;
+        const strtab_shdr = sections[dynsym_shdr.link];
+        const n = std.math.cast(usize, strtab_shdr.size) orelse return error.Overflow;
         const buf = try strtab.addManyAsSlice(gpa, n);
-        const amt = try file.readPositionalAll(io, buf, strtab_shdr.sh_offset);
+        const amt = try file.readPositionalAll(io, buf, strtab_shdr.offset);
         if (amt != buf.len) return error.UnexpectedEndOfFile;
     }
 
     var soname_index: ?u32 = null;
     var verdefnum: ?u32 = null;
-    for (dynamic_table) |entry| switch (entry.d_tag) {
+    for (dynamic_table) |entry| switch (entry.tag) {
         elf.DT_SONAME => {
-            if (entry.d_val >= strtab.items.len) return error.BadSonameIndex;
-            soname_index = @intCast(entry.d_val);
+            if (entry.val >= strtab.items.len) return error.BadSonameIndex;
+            soname_index = @intCast(entry.val);
         },
         elf.DT_VERDEFNUM => {
-            verdefnum = @intCast(entry.d_val);
+            verdefnum = @intCast(entry.val);
         },
         else => continue,
     };
@@ -215,11 +215,11 @@ pub fn parse(
 ) !Parsed {
     const symtab = if (header.dynsym_sect_index) |index| st: {
         const shdr = header.sections[index];
-        const n = std.math.cast(usize, shdr.sh_size / @sizeOf(elf.Elf64_Sym)) orelse return error.Overflow;
-        const symtab = try gpa.alloc(elf.Elf64_Sym, n);
+        const n = std.math.cast(usize, shdr.size / @sizeOf(elf.Elf64.Sym)) orelse return error.Overflow;
+        const symtab = try gpa.alloc(elf.Elf64.Sym, n);
         errdefer gpa.free(symtab);
         const buf = mem.sliceAsBytes(symtab);
-        const amt = try file.readPositionalAll(io, buf, shdr.sh_offset);
+        const amt = try file.readPositionalAll(io, buf, shdr.offset);
         if (amt != buf.len) return error.UnexpectedEndOfFile;
         break :st symtab;
     } else &.{};
@@ -230,7 +230,7 @@ pub fn parse(
 
     if (header.verdef_sect_index) |shndx| {
         const shdr = header.sections[shndx];
-        const verdefs = try Elf.preadAllAlloc(gpa, io, file, shdr.sh_offset, shdr.sh_size);
+        const verdefs = try Elf.preadAllAlloc(gpa, io, file, shdr.offset, shdr.size);
         defer gpa.free(verdefs);
 
         var offset: u32 = 0;
@@ -251,18 +251,18 @@ pub fn parse(
 
     const versyms = if (header.versym_sect_index) |versym_sect_index| vs: {
         const shdr = header.sections[versym_sect_index];
-        if (shdr.sh_size != symtab.len * @sizeOf(elf.Versym)) return error.BadVerSymSectionSize;
+        if (shdr.size != symtab.len * @sizeOf(elf.Versym)) return error.BadVerSymSectionSize;
 
         const versyms = try gpa.alloc(elf.Versym, symtab.len);
         errdefer gpa.free(versyms);
         const buf = mem.sliceAsBytes(versyms);
-        const amt = try file.readPositionalAll(io, buf, shdr.sh_offset);
+        const amt = try file.readPositionalAll(io, buf, shdr.offset);
         if (amt != buf.len) return error.UnexpectedEndOfFile;
         break :vs versyms;
     } else &.{};
     defer gpa.free(versyms);
 
-    var nonlocal_esyms: std.ArrayList(elf.Elf64_Sym) = .empty;
+    var nonlocal_esyms: std.ArrayList(elf.Elf64.Sym) = .empty;
     defer nonlocal_esyms.deinit(gpa);
 
     var nonlocal_versyms: std.ArrayList(elf.Versym) = .empty;
@@ -276,7 +276,7 @@ pub fn parse(
     defer strtab.deinit(gpa);
 
     for (symtab, 0..) |sym, i| {
-        const ver: elf.Versym = if (versyms.len == 0 or sym.st_shndx == elf.SHN_UNDEF)
+        const ver: elf.Versym = if (versyms.len == 0 or sym.shndx == elf.SHN_UNDEF)
             .GLOBAL
         else
             .{ .VERSION = versyms[i].VERSION, .HIDDEN = false };
@@ -287,14 +287,14 @@ pub fn parse(
         try nonlocal_versyms.ensureUnusedCapacity(gpa, 1);
         try nonlocal_symbols.ensureUnusedCapacity(gpa, 1);
 
-        const name = Elf.stringTableLookup(strtab.items, sym.st_name);
+        const name = Elf.stringTableLookup(strtab.items, sym.name);
         const is_default = versyms.len == 0 or !versyms[i].HIDDEN;
-        const mangled_name = if (is_default) sym.st_name else mn: {
+        const mangled_name = if (is_default) sym.name else mn: {
             const off: u32 = @intCast(strtab.items.len);
             const version_string = versionStringLookup(strtab.items, verstrings.items, versyms[i]);
             try strtab.ensureUnusedCapacity(gpa, name.len + version_string.len + 2);
             // Reload since the string table might have been resized.
-            const name2 = Elf.stringTableLookup(strtab.items, sym.st_name);
+            const name2 = Elf.stringTableLookup(strtab.items, sym.name);
             const version_string2 = versionStringLookup(strtab.items, verstrings.items, versyms[i]);
             strtab.appendSliceAssumeCapacity(name2);
             strtab.appendAssumeCapacity('@');
@@ -345,7 +345,7 @@ pub fn resolveSymbols(self: *SharedObject, elf_file: *Elf) !void {
         }
         resolv.* = gop.index;
 
-        if (esym.st_shndx == elf.SHN_UNDEF) continue;
+        if (esym.shndx == elf.SHN_UNDEF) continue;
         if (elf_file.symbol(gop.ref.*) == null) {
             gop.ref.* = .{ .index = @intCast(i), .file = self.index };
             continue;
@@ -359,13 +359,13 @@ pub fn resolveSymbols(self: *SharedObject, elf_file: *Elf) !void {
 
 pub fn markLive(self: *SharedObject, elf_file: *Elf) void {
     for (self.parsed.symtab, 0..) |esym, i| {
-        if (esym.st_shndx != elf.SHN_UNDEF) continue;
+        if (esym.shndx != elf.SHN_UNDEF) continue;
 
         const ref = self.resolveSymbol(@intCast(i), elf_file);
         const sym = elf_file.symbol(ref) orelse continue;
         const file = sym.file(elf_file).?;
         const should_drop = switch (file) {
-            .shared_object => |sh| !sh.needed and esym.st_bind() == elf.STB_WEAK,
+            .shared_object => |sh| !sh.needed and esym.info.bind == elf.STB.WEAK,
             else => false,
         };
         if (!should_drop and !file.isAlive()) {
@@ -380,7 +380,7 @@ pub fn markImportExports(self: *SharedObject, elf_file: *Elf) void {
         const ref = self.resolveSymbol(@intCast(i), elf_file);
         const ref_sym = elf_file.symbol(ref) orelse continue;
         const ref_file = ref_sym.file(elf_file).?;
-        const vis: elf.STV = @fromBackingInt(@intCast(@as(u3, @truncate(ref_sym.elfSym(elf_file).st_other))));
+        const vis = ref_sym.elfSym(elf_file).other.visibility;
         if (ref_file != .shared_object and vis != .HIDDEN) ref_sym.flags.@"export" = true;
     }
 }
@@ -408,7 +408,7 @@ pub fn writeSymtab(self: *SharedObject, elf_file: *Elf) void {
         elf_file.strtab.appendSliceAssumeCapacity(global.name(elf_file));
         elf_file.strtab.appendAssumeCapacity(0);
         const out_sym = &elf_file.symtab.items[idx];
-        out_sym.st_name = st_name;
+        out_sym.name = st_name;
         global.setOutputSym(elf_file, out_sym);
     }
 }
@@ -440,7 +440,7 @@ pub fn initSymbolAliases(self: *SharedObject, elf_file: *Elf) !void {
         pub fn lessThan(ctx: @This(), lhs: Symbol.Index, rhs: Symbol.Index) bool {
             const lhs_sym = ctx.so.symbols.items[lhs].elfSym(ctx.ef);
             const rhs_sym = ctx.so.symbols.items[rhs].elfSym(ctx.ef);
-            return lhs_sym.st_value < rhs_sym.st_value;
+            return lhs_sym.value < rhs_sym.value;
         }
     };
 
@@ -470,12 +470,12 @@ pub fn symbolAliases(self: *SharedObject, index: u32, elf_file: *Elf) []const u3
 
     const start = for (aliases.items, 0..) |alias, i| {
         const alias_sym = self.symbols.items[alias].elfSym(elf_file);
-        if (symbol.st_value == alias_sym.st_value) break i;
+        if (symbol.value == alias_sym.value) break i;
     } else aliases.items.len;
 
     const end = for (aliases.items[start..], 0..) |alias, i| {
         const alias_sym = self.symbols.items[alias].elfSym(elf_file);
-        if (symbol.st_value < alias_sym.st_value) break i + start;
+        if (symbol.value < alias_sym.value) break i + start;
     } else aliases.items.len;
 
     return aliases.items[start..end];
