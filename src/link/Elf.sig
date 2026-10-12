@@ -1519,16 +1519,16 @@ pub fn writeElfHeader(self: *Elf) !void {
     index += 4;
 
     hdr_buf[index] = switch (self.ptr_width) {
-        .p32 => elf.ELFCLASS32,
-        .p64 => elf.ELFCLASS64,
+        .p32 => @intFromEnum(elf.CLASS.@"32"),
+        .p64 => @intFromEnum(elf.CLASS.@"64"),
     };
     index += 1;
 
     const target = self.getTarget();
     const endian = target.cpu.arch.endian();
     hdr_buf[index] = switch (endian) {
-        .little => elf.ELFDATA2LSB,
-        .big => elf.ELFDATA2MSB,
+        .little => @intFromEnum(elf.DATA.@"2LSB"),
+        .big => @intFromEnum(elf.DATA.@"2MSB"),
     };
     index += 1;
 

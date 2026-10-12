@@ -474,136 +474,8 @@ pub const VER_FLG_WEAK = 2;
 
 pub const PN_XNUM = 0xffff;
 
-/// Deprecated, use `@intFromEnum(std.elf.SHT.NULL)`
-pub const SHT_NULL = @backingInt(std.elf.SHT.NULL);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.PROGBITS)`
-pub const SHT_PROGBITS = @backingInt(std.elf.SHT.PROGBITS);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.SYMTAB)`
-pub const SHT_SYMTAB = @backingInt(std.elf.SHT.SYMTAB);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.STRTAB)`
-pub const SHT_STRTAB = @backingInt(std.elf.SHT.STRTAB);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.RELA)`
-pub const SHT_RELA = @backingInt(std.elf.SHT.RELA);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.HASH)`
-pub const SHT_HASH = @backingInt(std.elf.SHT.HASH);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.DYNAMIC)`
-pub const SHT_DYNAMIC = @backingInt(std.elf.SHT.DYNAMIC);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.NOTE)`
-pub const SHT_NOTE = @backingInt(std.elf.SHT.NOTE);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.NOBITS)`
-pub const SHT_NOBITS = @backingInt(std.elf.SHT.NOBITS);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.REL)`
-pub const SHT_REL = @backingInt(std.elf.SHT.REL);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.SHLIB)`
-pub const SHT_SHLIB = @backingInt(std.elf.SHT.SHLIB);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.DYNSYM)`
-pub const SHT_DYNSYM = @backingInt(std.elf.SHT.DYNSYM);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.INIT_ARRAY)`
-pub const SHT_INIT_ARRAY = @backingInt(std.elf.SHT.INIT_ARRAY);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.FINI_ARRAY)`
-pub const SHT_FINI_ARRAY = @backingInt(std.elf.SHT.FINI_ARRAY);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.PREINIT_ARRAY)`
-pub const SHT_PREINIT_ARRAY = @backingInt(std.elf.SHT.PREINIT_ARRAY);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.GROUP)`
-pub const SHT_GROUP = @backingInt(std.elf.SHT.GROUP);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.SYMTAB_SHNDX)`
-pub const SHT_SYMTAB_SHNDX = @backingInt(std.elf.SHT.SYMTAB_SHNDX);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.RELR)`
-pub const SHT_RELR = @backingInt(std.elf.SHT.RELR);
-/// Deprecated, use `std.elf.SHT.NUM`.
-pub const SHT_NUM = SHT.NUM;
-/// Deprecated, use `@intFromEnum(std.elf.SHT.LOOS)`
-pub const SHT_LOOS = @backingInt(std.elf.SHT.LOOS);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.LLVM_ADDRSIG)`
-pub const SHT_LLVM_ADDRSIG = @backingInt(std.elf.SHT.LLVM_ADDRSIG);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.GNU_HASH)`
-pub const SHT_GNU_HASH = @backingInt(std.elf.SHT.GNU_HASH);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.GNU_VERDEF)`
-pub const SHT_GNU_VERDEF = @backingInt(std.elf.SHT.GNU_VERDEF);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.GNU_VERNEED)`
-pub const SHT_GNU_VERNEED = @backingInt(std.elf.SHT.GNU_VERNEED);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.GNU_VERSYM)`
-pub const SHT_GNU_VERSYM = @backingInt(std.elf.SHT.GNU_VERSYM);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.HIOS)`
-pub const SHT_HIOS = @backingInt(std.elf.SHT.HIOS);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.LOPROC)`
-pub const SHT_LOPROC = @backingInt(std.elf.SHT.LOPROC);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.X86_64_UNWIND)`
-pub const SHT_X86_64_UNWIND = @backingInt(std.elf.SHT.X86_64_UNWIND);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.HIPROC)`
-pub const SHT_HIPROC = @backingInt(std.elf.SHT.HIPROC);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.LOUSER)`
-pub const SHT_LOUSER = @backingInt(std.elf.SHT.LOUSER);
-/// Deprecated, use `@intFromEnum(std.elf.SHT.HIUSER)`
-pub const SHT_HIUSER = @backingInt(std.elf.SHT.HIUSER);
-
 // Note type for .note.gnu.build_id
 pub const NT_GNU_BUILD_ID = 3;
-
-/// Deprecated, use `@intFromEnum(std.elf.STB.LOCAL)`
-pub const STB_LOCAL = @backingInt(STB.LOCAL);
-/// Deprecated, use `@intFromEnum(std.elf.STB.GLOBAL)`
-pub const STB_GLOBAL = @backingInt(STB.GLOBAL);
-/// Deprecated, use `@intFromEnum(std.elf.STB.WEAK)`
-pub const STB_WEAK = @backingInt(STB.WEAK);
-/// Deprecated, use `std.elf.STB.NUM`
-pub const STB_NUM = STB.NUM;
-/// Deprecated, use `@intFromEnum(std.elf.STB.LOOS)`
-pub const STB_LOOS = @backingInt(STB.LOOS);
-/// Deprecated, use `@intFromEnum(std.elf.STB.GNU_UNIQUE)`
-pub const STB_GNU_UNIQUE = @backingInt(STB.GNU_UNIQUE);
-/// Deprecated, use `@intFromEnum(std.elf.STB.HIOS)`
-pub const STB_HIOS = @backingInt(STB.HIOS);
-/// Deprecated, use `@intFromEnum(std.elf.STB.LOPROC)`
-pub const STB_LOPROC = @backingInt(STB.LOPROC);
-/// Deprecated, use `@intFromEnum(std.elf.STB.HIPROC)`
-pub const STB_HIPROC = @backingInt(STB.HIPROC);
-
-/// Deprecated, use `@intFromEnum(std.elf.STB.MIPS_SPLIT_COMMON)`
-pub const STB_MIPS_SPLIT_COMMON = @backingInt(STB.MIBS_SPLIT_COMMON);
-
-/// Deprecated, use `@intFromEnum(std.elf.STT.NOTYPE)`
-pub const STT_NOTYPE = @backingInt(STT.NOTYPE);
-/// Deprecated, use `@intFromEnum(std.elf.STT.OBJECT)`
-pub const STT_OBJECT = @backingInt(STT.OBJECT);
-/// Deprecated, use `@intFromEnum(std.elf.STT.FUNC)`
-pub const STT_FUNC = @backingInt(STT.FUNC);
-/// Deprecated, use `@intFromEnum(std.elf.STT.SECTION)`
-pub const STT_SECTION = @backingInt(STT.SECTION);
-/// Deprecated, use `@intFromEnum(std.elf.STT.FILE)`
-pub const STT_FILE = @backingInt(STT.FILE);
-/// Deprecated, use `@intFromEnum(std.elf.STT.COMMON)`
-pub const STT_COMMON = @backingInt(STT.COMMON);
-/// Deprecated, use `@intFromEnum(std.elf.STT.TLS)`
-pub const STT_TLS = @backingInt(STT.TLS);
-/// Deprecated, use `std.elf.STT.NUM`
-pub const STT_NUM = STT.NUM;
-/// Deprecated, use `@intFromEnum(std.elf.STT.LOOS)`
-pub const STT_LOOS = @backingInt(STT.LOOS);
-/// Deprecated, use `@intFromEnum(std.elf.STT.GNU_IFUNC)`
-pub const STT_GNU_IFUNC = @backingInt(STT.GNU_IFUNC);
-/// Deprecated, use `@intFromEnum(std.elf.STT.HIOS)`
-pub const STT_HIOS = @backingInt(STT.HIOS);
-/// Deprecated, use `@intFromEnum(std.elf.STT.LOPROC)`
-pub const STT_LOPROC = @backingInt(STT.LOPROC);
-/// Deprecated, use `@intFromEnum(std.elf.STT.HIPROC)`
-pub const STT_HIPROC = @backingInt(STT.HIPROC);
-
-/// Deprecated, use `@intFromEnum(std.elf.STT.SPARC_REGISTER)`
-pub const STT_SPARC_REGISTER = @backingInt(STT.SPARC_REGISTER);
-
-/// Deprecated, use `@intFromEnum(std.elf.STT.PARISC_MILLICODE)`
-pub const STT_PARISC_MILLICODE = @backingInt(STT.PARISC_MILLICODE);
-
-/// Deprecated, use `@intFromEnum(std.elf.STT.HP_OPAQUE)`
-pub const STT_HP_OPAQUE = @backingInt(STT.HP_OPAQUE);
-/// Deprecated, use `@intFromEnum(std.elf.STT.HP_STUB)`
-pub const STT_HP_STUB = @backingInt(STT.HP_STUB);
-
-/// Deprecated, use `@intFromEnum(std.elf.STT.ARM_TFUNC)`
-pub const STT_ARM_TFUNC = @backingInt(STT.ARM_TFUNC);
-/// Deprecated, use `@intFromEnum(std.elf.STT.ARM_16BIT)`
-pub const STT_ARM_16BIT = @backingInt(STT.ARM_16BIT);
 
 pub const PT = enum(Word) {
     /// Program header table entry unused
@@ -1162,21 +1034,6 @@ pub const EI = struct {
     pub const NIDENT = 16;
 };
 
-/// Deprecated, use `std.elf.EI.CLASS`
-pub const EI_CLASS = EI.CLASS;
-/// Deprecated, use `std.elf.EI.DATA`
-pub const EI_DATA = EI.DATA;
-/// Deprecated, use `std.elf.EI.VERSION`
-pub const EI_VERSION = EI.VERSION;
-/// Deprecated, use `std.elf.EI.OSABI`
-pub const EI_OSABI = EI.OSABI;
-/// Deprecated, use `std.elf.EI.ABIVERSION`
-pub const EI_ABIVERSION = EI.ABIVERSION;
-/// Deprecated, use `std.elf.EI.PAD`
-pub const EI_PAD = EI.PAD;
-/// Deprecated, use `std.elf.EI.NIDENT`
-pub const EI_NIDENT = EI.NIDENT;
-
 pub const Half = u16;
 pub const Word = u32;
 pub const Sword = i32;
@@ -1423,195 +1280,6 @@ pub const ElfN = switch (@sizeOf(usize)) {
     else => @compileError("expected pointer size of 32 or 64"),
 };
 
-/// Deprecated, use `std.elf.Xword`
-pub const Elf32_Xword = Xword;
-/// Deprecated, use `std.elf.Sxword`
-pub const Elf32_Sxword = Sxword;
-/// Deprecated, use `std.elf.Xword`
-pub const Elf64_Xword = Xword;
-/// Deprecated, use `std.elf.Sxword`
-pub const Elf64_Sxword = i64;
-/// Deprecated, use `std.elf.Elf32.Addr`
-pub const Elf32_Addr = u32;
-/// Deprecated, use `std.elf.Elf64.Addr`
-pub const Elf64_Addr = u64;
-/// Deprecated, use `std.elf.Elf32.Off`
-pub const Elf32_Off = u32;
-/// Deprecated, use `std.elf.Elf64.Off`
-pub const Elf64_Off = u64;
-/// Deprecated, use `std.elf.Section`
-pub const Elf32_Section = u16;
-/// Deprecated, use `std.elf.Section`
-pub const Elf64_Section = u16;
-/// Deprecated, use `std.elf.Elf32.Ehdr`
-pub const Elf32_Ehdr = extern struct {
-    e_ident: [EI_NIDENT]u8,
-    e_type: ET,
-    e_machine: EM,
-    e_version: Word,
-    e_entry: Elf32_Addr,
-    e_phoff: Elf32_Off,
-    e_shoff: Elf32_Off,
-    e_flags: Word,
-    e_ehsize: Half,
-    e_phentsize: Half,
-    e_phnum: Half,
-    e_shentsize: Half,
-    e_shnum: Half,
-    e_shstrndx: Half,
-};
-/// Deprecated, use `std.elf.Elf64.Ehdr`
-pub const Elf64_Ehdr = extern struct {
-    e_ident: [EI.NIDENT]u8,
-    e_type: ET,
-    e_machine: EM,
-    e_version: Word,
-    e_entry: Elf64_Addr,
-    e_phoff: Elf64_Off,
-    e_shoff: Elf64_Off,
-    e_flags: Word,
-    e_ehsize: Half,
-    e_phentsize: Half,
-    e_phnum: Half,
-    e_shentsize: Half,
-    e_shnum: Half,
-    e_shstrndx: Half,
-};
-/// Deprecated, use `std.elf.Elf32.Shdr`
-pub const Elf32_Shdr = extern struct {
-    sh_name: Word,
-    sh_type: Word,
-    sh_flags: Word,
-    sh_addr: Elf32_Addr,
-    sh_offset: Elf32_Off,
-    sh_size: Word,
-    sh_link: Word,
-    sh_info: Word,
-    sh_addralign: Word,
-    sh_entsize: Word,
-};
-/// Deprecated, use `std.elf.Elf64.Shdr`
-pub const Elf64_Shdr = extern struct {
-    sh_name: Word,
-    sh_type: Word,
-    sh_flags: Elf64_Xword,
-    sh_addr: Elf64_Addr,
-    sh_offset: Elf64_Off,
-    sh_size: Elf64_Xword,
-    sh_link: Word,
-    sh_info: Word,
-    sh_addralign: Elf64_Xword,
-    sh_entsize: Elf64_Xword,
-};
-/// Deprecated, use `std.elf.Elf32.Chdr`
-pub const Elf32_Chdr = extern struct {
-    ch_type: COMPRESS,
-    ch_size: Word,
-    ch_addralign: Word,
-};
-/// Deprecated, use `std.elf.Elf64.Chdr`
-pub const Elf64_Chdr = extern struct {
-    ch_type: COMPRESS,
-    ch_reserved: Word = 0,
-    ch_size: Elf64_Xword,
-    ch_addralign: Elf64_Xword,
-};
-/// Deprecated, use `std.elf.Elf32.Sym`
-pub const Elf32_Sym = extern struct {
-    st_name: Word,
-    st_value: Elf32_Addr,
-    st_size: Word,
-    st_info: u8,
-    st_other: u8,
-    st_shndx: Elf32_Section,
-
-    pub inline fn st_type(self: @This()) u4 {
-        return @truncate(self.st_info);
-    }
-    pub inline fn st_bind(self: @This()) u4 {
-        return @truncate(self.st_info >> 4);
-    }
-};
-/// Deprecated, use `std.elf.Elf64.Sym`
-pub const Elf64_Sym = extern struct {
-    st_name: Word,
-    st_info: u8,
-    st_other: u8,
-    st_shndx: Elf64_Section,
-    st_value: Elf64_Addr,
-    st_size: Elf64_Xword,
-
-    pub inline fn st_type(self: @This()) u4 {
-        return @truncate(self.st_info);
-    }
-    pub inline fn st_bind(self: @This()) u4 {
-        return @truncate(self.st_info >> 4);
-    }
-};
-pub const Elf32_Syminfo = extern struct {
-    si_boundto: Half,
-    si_flags: Half,
-};
-pub const Elf64_Syminfo = extern struct {
-    si_boundto: Half,
-    si_flags: Half,
-};
-pub const Elf32_Rel = extern struct {
-    r_offset: Elf32_Addr,
-    r_info: Word,
-
-    pub inline fn r_sym(self: @This()) u24 {
-        return @truncate(self.r_info >> 8);
-    }
-    pub inline fn r_type(self: @This()) u8 {
-        return @truncate(self.r_info);
-    }
-};
-pub const Elf64_Rel = extern struct {
-    r_offset: Elf64_Addr,
-    r_info: Elf64_Xword,
-
-    pub inline fn r_sym(self: @This()) u32 {
-        return @truncate(self.r_info >> 32);
-    }
-    pub inline fn r_type(self: @This()) u32 {
-        return @truncate(self.r_info);
-    }
-};
-pub const Elf32_Rela = extern struct {
-    r_offset: Elf32_Addr,
-    r_info: Word,
-    r_addend: Sword,
-
-    pub inline fn r_sym(self: @This()) u24 {
-        return @truncate(self.r_info >> 8);
-    }
-    pub inline fn r_type(self: @This()) u8 {
-        return @truncate(self.r_info);
-    }
-};
-pub const Elf64_Rela = extern struct {
-    r_offset: Elf64_Addr,
-    r_info: Elf64_Xword,
-    r_addend: Elf64_Sxword,
-
-    pub inline fn r_sym(self: @This()) u32 {
-        return @truncate(self.r_info >> 32);
-    }
-    pub inline fn r_type(self: @This()) u32 {
-        return @truncate(self.r_info);
-    }
-};
-pub const Elf32_Relr = Word;
-pub const Elf64_Relr = Elf64_Xword;
-pub const Elf32_Dyn = extern struct {
-    d_tag: Sword,
-    d_val: Elf32_Addr,
-};
-pub const Elf64_Dyn = extern struct {
-    d_tag: Elf64_Sxword,
-    d_val: Elf64_Addr,
-};
 pub const Verdef = extern struct {
     version: Half,
     flags: Half,
@@ -1625,20 +1293,6 @@ pub const Verdaux = extern struct {
     name: Word,
     next: Word,
 };
-pub const Elf32_Verneed = extern struct {
-    vn_version: Half,
-    vn_cnt: Half,
-    vn_file: Word,
-    vn_aux: Word,
-    vn_next: Word,
-};
-pub const Elf64_Verneed = extern struct {
-    vn_version: Half,
-    vn_cnt: Half,
-    vn_file: Word,
-    vn_aux: Word,
-    vn_next: Word,
-};
 pub const Vernaux = extern struct {
     hash: Word,
     flags: Half,
@@ -1646,142 +1300,12 @@ pub const Vernaux = extern struct {
     name: Word,
     next: Word,
 };
-pub const Elf32_auxv_t = extern struct {
-    a_type: u32,
-    a_un: extern union {
-        a_val: u32,
-    },
-};
-pub const Elf64_auxv_t = extern struct {
-    a_type: u64,
-    a_un: extern union {
-        a_val: u64,
-    },
-};
-pub const Elf32_Nhdr = extern struct {
-    n_namesz: Word,
-    n_descsz: Word,
-    n_type: Word,
-};
-pub const Elf64_Nhdr = extern struct {
-    n_namesz: Word,
-    n_descsz: Word,
-    n_type: Word,
-};
-pub const Elf32_Move = extern struct {
-    m_value: Elf32_Xword,
-    m_info: Word,
-    m_poffset: Word,
-    m_repeat: Half,
-    m_stride: Half,
-};
-pub const Elf64_Move = extern struct {
-    m_value: Elf64_Xword,
-    m_info: Elf64_Xword,
-    m_poffset: Elf64_Xword,
-    m_repeat: Half,
-    m_stride: Half,
-};
-pub const Elf32_gptab = extern union {
-    gt_header: extern struct {
-        gt_current_g_value: Word,
-        gt_unused: Word,
-    },
-    gt_entry: extern struct {
-        gt_g_value: Word,
-        gt_bytes: Word,
-    },
-};
-pub const Elf32_RegInfo = extern struct {
-    ri_gprmask: Word,
-    ri_cprmask: [4]Word,
-    ri_gp_value: Sword,
-};
-pub const Elf_Options = extern struct {
-    kind: u8,
-    size: u8,
-    section: Elf32_Section,
-    info: Word,
-};
-pub const Elf_Options_Hw = extern struct {
-    hwp_flags1: Word,
-    hwp_flags2: Word,
-};
-pub const Elf32_Lib = extern struct {
-    l_name: Word,
-    l_time_stamp: Word,
-    l_checksum: Word,
-    l_version: Word,
-    l_flags: Word,
-};
-pub const Elf64_Lib = extern struct {
-    l_name: Word,
-    l_time_stamp: Word,
-    l_checksum: Word,
-    l_version: Word,
-    l_flags: Word,
-};
-pub const Elf32_Conflict = Elf32_Addr;
-pub const Elf_MIPS_ABIFlags_v0 = extern struct {
-    version: Half,
-    isa_level: u8,
-    isa_rev: u8,
-    gpr_size: u8,
-    cpr1_size: u8,
-    cpr2_size: u8,
-    fp_abi: u8,
-    isa_ext: Word,
-    ases: Word,
-    flags1: Word,
-    flags2: Word,
-};
-
 pub const Auxv = ElfN.Auxv;
-/// Deprecated, use `std.elf.ElfN.Ehdr`
-pub const Ehdr = switch (@sizeOf(usize)) {
-    4 => Elf32_Ehdr,
-    8 => Elf64_Ehdr,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-pub const Dyn = switch (@sizeOf(usize)) {
-    4 => Elf32_Dyn,
-    8 => Elf64_Dyn,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-pub const Rel = switch (@sizeOf(usize)) {
-    4 => Elf32_Rel,
-    8 => Elf64_Rel,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-pub const Rela = switch (@sizeOf(usize)) {
-    4 => Elf32_Rela,
-    8 => Elf64_Rela,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-pub const Relr = switch (@sizeOf(usize)) {
-    4 => Elf32_Relr,
-    8 => Elf64_Relr,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-pub const Shdr = switch (@sizeOf(usize)) {
-    4 => Elf32_Shdr,
-    8 => Elf64_Shdr,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-/// Deprecated, use `std.elf.ElfN.Chdr`
-pub const Chdr = switch (@sizeOf(usize)) {
-    4 => Elf32_Chdr,
-    8 => Elf64_Chdr,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-/// Deprecated, use `std.elf.ElfN.Sym`
-pub const Sym = switch (@sizeOf(usize)) {
-    4 => Elf32_Sym,
-    8 => Elf64_Sym,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
-/// Deprecated, use `std.elf.ElfN.Addr`
-pub const Addr = ElfN.Addr;
+pub const Dyn = ElfN.Dyn;
+pub const Rel = ElfN.Rel;
+pub const Rela = ElfN.Rela;
+pub const Relr = ElfN.Relr;
+pub const Shdr = ElfN.Shdr;
 
 pub const Ident = extern struct {
     magic: [MAGIC.len]u8 = MAGIC.*,
@@ -1797,14 +1321,6 @@ pub const Ident = extern struct {
     }
 };
 
-/// Deprecated, use `@intFromEnum(std.elf.CLASS.NONE)`
-pub const ELFCLASSNONE = @backingInt(CLASS.NONE);
-/// Deprecated, use `@intFromEnum(std.elf.CLASS.@"32")`
-pub const ELFCLASS32 = @backingInt(CLASS.@"32");
-/// Deprecated, use `@intFromEnum(std.elf.CLASS.@"64")`
-pub const ELFCLASS64 = @backingInt(CLASS.@"64");
-/// Deprecated, use `@intFromEnum(std.elf.CLASS.NUM)`
-pub const ELFCLASSNUM = CLASS.NUM;
 pub const CLASS = enum(u8) {
     NONE = 0,
     @"32" = 1,
@@ -1830,14 +1346,6 @@ pub const CLASS = enum(u8) {
     }
 };
 
-/// Deprecated, use `@intFromEnum(std.elf.DATA.NONE)`
-pub const ELFDATANONE = @backingInt(DATA.NONE);
-/// Deprecated, use `@intFromEnum(std.elf.DATA.@"2LSB")`
-pub const ELFDATA2LSB = @backingInt(DATA.@"2LSB");
-/// Deprecated, use `@intFromEnum(std.elf.DATA.@"2MSB")`
-pub const ELFDATA2MSB = @backingInt(DATA.@"2MSB");
-/// Deprecated, use `@intFromEnum(std.elf.DATA.NUM)`
-pub const ELFDATANUM = DATA.NUM;
 pub const DATA = enum(u8) {
     NONE = 0,
     @"2LSB" = 1,
