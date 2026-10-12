@@ -650,8 +650,8 @@ fn abiAndDynamicLinkerFromFile(
                 if (builtin.target.os.tag == .linux and result.isGnuLibC() and query.glibc_version == null) {
                     var dyn_it = header.iterateDynamicSection(file_reader, phdr.offset, phdr.filesz);
                     while (try dyn_it.next()) |dyn| {
-                        if (dyn.d_tag == elf.DT_RUNPATH) {
-                            rpath_offset = dyn.d_val;
+                        if (dyn.tag == elf.DT_RUNPATH) {
+                            rpath_offset = dyn.val;
                             break;
                         }
                     }
@@ -670,17 +670,17 @@ fn abiAndDynamicLinkerFromFile(
         try file_reader.seekTo(str_section_off);
         const shstr = try elf.takeSectionHeader(&file_reader.interface, header.is_64, header.endian);
         var strtab_buf: [4096]u8 = undefined;
-        const shstrtab = strtab_buf[0..@min(shstr.sh_size, strtab_buf.len)];
-        try file_reader.seekTo(shstr.sh_offset);
+        const shstrtab = strtab_buf[0..@min(shstr.size, strtab_buf.len)];
+        try file_reader.seekTo(shstr.offset);
         try file_reader.interface.readSliceAll(shstrtab);
         const dynstr: ?struct { offset: u64, size: u64 } = find_dyn_str: {
             var it = header.iterateSectionHeaders(file_reader);
             while (try it.next()) |shdr| {
-                const end = mem.findScalarPos(u8, shstrtab, shdr.sh_name, 0) orelse continue;
-                const sh_name = shstrtab[shdr.sh_name..end :0];
+                const end = mem.findScalarPos(u8, shstrtab, shdr.name, 0) orelse continue;
+                const sh_name = shstrtab[shdr.name..end :0];
                 if (mem.eql(u8, sh_name, ".dynstr")) break :find_dyn_str .{
-                    .offset = shdr.sh_offset,
-                    .size = shdr.sh_size,
+                    .offset = shdr.offset,
+                    .size = shdr.size,
                 };
             } else break :find_dyn_str null;
         };
@@ -904,17 +904,17 @@ fn glibcVerFromSoFile(file_reader: *Io.File.Reader) !std.SemanticVersion {
     try file_reader.seekTo(str_section_off);
     const shstr = try elf.takeSectionHeader(&file_reader.interface, header.is_64, header.endian);
     var strtab_buf: [4096]u8 = undefined;
-    const shstrtab = strtab_buf[0..@min(shstr.sh_size, strtab_buf.len)];
-    try file_reader.seekTo(shstr.sh_offset);
+    const shstrtab = strtab_buf[0..@min(shstr.size, strtab_buf.len)];
+    try file_reader.seekTo(shstr.offset);
     try file_reader.interface.readSliceAll(shstrtab);
     const dynstr: struct { offset: u64, size: u64 } = find_dyn_str: {
         var it = header.iterateSectionHeaders(file_reader);
         while (try it.next()) |shdr| {
-            const end = mem.findScalarPos(u8, shstrtab, shdr.sh_name, 0) orelse continue;
-            const sh_name = shstrtab[shdr.sh_name..end :0];
+            const end = mem.findScalarPos(u8, shstrtab, shdr.name, 0) orelse continue;
+            const sh_name = shstrtab[shdr.name..end :0];
             if (mem.eql(u8, sh_name, ".dynstr")) break :find_dyn_str .{
-                .offset = shdr.sh_offset,
-                .size = shdr.sh_size,
+                .offset = shdr.offset,
+                .size = shdr.size,
             };
         } else return error.InvalidGnuLibCVersion;
     };

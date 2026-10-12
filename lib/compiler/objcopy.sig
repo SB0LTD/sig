@@ -408,8 +408,8 @@ const BinaryElfOutput = struct {
 
             const shstrtab_shdr = (try section_headers.next()).?;
 
-            try in.seekTo(shstrtab_shdr.sh_offset);
-            break :blk try in.interface.readAlloc(allocator, shstrtab_shdr.sh_size);
+            try in.seekTo(shstrtab_shdr.offset);
+            break :blk try in.interface.readAlloc(allocator, shstrtab_shdr.size);
         };
 
         errdefer if (self.shstrtab) |shstrtab| allocator.free(shstrtab);
@@ -420,12 +420,12 @@ const BinaryElfOutput = struct {
                 const newSection = try allocator.create(BinaryElfSection);
 
                 newSection.binaryOffset = 0;
-                newSection.elfOffset = section.sh_offset;
-                newSection.fileSize = @intCast(section.sh_size);
+                newSection.elfOffset = section.offset;
+                newSection.fileSize = @intCast(section.size);
                 newSection.segment = null;
 
                 newSection.name = if (self.shstrtab) |shstrtab|
-                    std.mem.span(@as([*:0]const u8, @ptrCast(&shstrtab[section.sh_name])))
+                    std.mem.span(@as([*:0]const u8, @ptrCast(&shstrtab[section.name])))
                 else
                     null;
 
@@ -500,8 +500,7 @@ const BinaryElfOutput = struct {
     }
 
     fn sectionValidForOutput(shdr: anytype) bool {
-        return shdr.sh_type != elf.SHT_NOBITS and
-            ((shdr.sh_flags & elf.SHF_ALLOC) == elf.SHF_ALLOC);
+        return shdr.type != .NOBITS and shdr.flags.shf.ALLOC;
     }
 
     fn segmentSortCompare(context: void, left: *BinaryElfSegment, right: *BinaryElfSegment) bool {
