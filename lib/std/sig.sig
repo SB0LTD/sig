@@ -1428,8 +1428,11 @@ pub const Directories = struct {
             if (options.override_sig_lib) |path| break :d openUnresolved(arena, io, cwd, path, .@"sig lib");
             if (wasi) break :d getPreopen(options.preopens, "/lib");
             break :d findSigLibDirFromSelfExe(arena, io, cwd, options.self_exe_path) catch |err| {
-                fatal("unable to find sig installation directory from executable path {q}: {t}", .{
-                    options.self_exe_path, err,
+                const marker = "lib" ++ Dir.path.sep_str ++ "std" ++ Dir.path.sep_str ++ "std.sig";
+                fatal("unable to find sig installation directory from executable path {q}: {t}\n" ++
+                    "Looked for the standard-library marker {q} in the executable's directory and each parent directory above it. " ++
+                    "The installation directory may be incomplete (missing lib" ++ Dir.path.sep_str ++ "std) or the executable may have been moved out of its install tree.", .{
+                    options.self_exe_path, err, marker,
                 });
             };
         };

@@ -61,6 +61,14 @@ contract and build/deploy recipe.
 
 ### Fixed
 
+- **Clearer install-dir discovery failure (`lib/std/sig.sig`).** When
+  `sig build`/`sig env` (and other install-dir-dependent subcommands) cannot
+  locate the standard library, the error now names the concrete marker it
+  probed (`lib/std/std.sig`), states that it searched the executable's
+  directory and each parent above it, and hints that the install may be
+  incomplete (missing `lib/std`) or the executable was moved out of its install
+  tree — instead of a bare `FileNotFound`. Discovery behavior and the happy
+  path are unchanged; only the failure message is more legible.
 - **Windows `-Denable-llvm` build-system fixes (`tools/sig_build`), separable
   from the sBPF feature.** `Step_Registry.addDep` is now idempotent (a duplicate
   `sig → config` edge under `-Denable-llvm` was misreported as a dependency
