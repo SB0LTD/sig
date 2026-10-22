@@ -13,10 +13,12 @@ QEMU="${SB0_QEMU:-qemu-system-aarch64}"
 cd "$ROOT"
 for mode in ReleaseSafe ReleaseSmall; do
   image="$WORK/database-$mode.sb0k"
+  runtime=()
+  if [[ "$mode" == ReleaseSafe ]]; then runtime=(-fno-compiler-rt); fi
   "$SIG" build-exe test/sb0_database_codegen_probe.sig \
     -target aarch64-sb0 -mcpu=baseline "-O$mode" \
     --Sig-lib-dir "$ROOT/lib" --script test/sb0_runner.ld \
-    -fno-stack-check -fno-stack-protector -fno-unwind-tables -fstrip \
+    -fno-stack-check -fno-stack-protector -fno-unwind-tables -fstrip "${runtime[@]}" \
     --cache-dir "$WORK/cache-$mode" "-femit-bin=$image"
   python3 - "$QEMU" "$image" "$WORK/$mode.serial.log" <<'PY'
 import pathlib, struct, subprocess, sys

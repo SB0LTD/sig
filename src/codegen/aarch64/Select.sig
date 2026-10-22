@@ -5277,6 +5277,14 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
 
             const error_set_ra = try isel.allocIntReg();
             defer isel.freeReg(error_set_ra);
+            // Instructions are emitted backwards: the discriminant load must
+            // execute before CBZ, rather than only in the error branch. A
+            // caller-clobbered register still holds an arbitrary call result
+            // until this load executes.
+            try isel.emit(.cbz(
+                error_set_ra.w(),
+                @intCast((isel.instructions.items.len + 1 - cont_label) << 2),
+            ));
             try isel.loadReg(
                 error_set_ra,
                 ZigType.fromInterned(error_union_info.error_set_type).abiSize(zcu),
@@ -5285,10 +5293,6 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                 codegen.errUnionErrorOffset(payload_ty, zcu),
             );
             try error_union_ptr_mat.finish(isel);
-            try isel.emit(.cbz(
-                error_set_ra.w(),
-                @intCast((isel.instructions.items.len + 1 - cont_label) << 2),
-            ));
 
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },

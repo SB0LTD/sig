@@ -1,6 +1,34 @@
 //! Native executable regressions for the wide values used by SQL/wire codecs.
 //! Build with -target aarch64-sb0 --script test/sb0_runner.ld and boot on QEMU
 //! virt. Success is the runtime marker SB0-DATABASE-CODEGEN-PASS.
+// ReleaseSafe uses bounded local routines to keep this regression independent
+// of unrelated checked compiler-rt operations. ReleaseSmall executes the normal
+// compiler-rt routines as an additional register-clobber regression.
+const builtin = @import("builtin");
+pub const panic = @import("std").debug.no_panic;
+comptime {
+    if (builtin.mode == .safe) {
+        @export(&testMemcpy, .{ .name = "memcpy" });
+        @export(&testMemset, .{ .name = "memset" });
+    }
+}
+fn testMemcpy(destination: [*]u8, source: [*]const u8, count: usize) callconv(.c) [*]u8 {
+    const out: [*]volatile u8 = @ptrCast(destination);
+    const input: [*]const volatile u8 = @ptrCast(source);
+    var index: usize = 0;
+    while (index < count) : (index += 1) out[index] = input[index];
+    // x2 is caller-clobbered. A surrounding try must reload its error tag,
+    // rather than accidentally depending on this helper leaving x2 zero.
+    asm volatile ("mov x2, #0x1357" ::: .{ .x2 = true });
+    return destination;
+}
+fn testMemset(destination: [*]u8, value: c_int, count: usize) callconv(.c) [*]u8 {
+    const out: [*]volatile u8 = @ptrCast(destination);
+    var index: usize = 0;
+    while (index < count) : (index += 1) out[index] = @truncate(@as(c_uint, @bitCast(value)));
+    asm volatile ("mov x2, #0x1357" ::: .{ .x2 = true });
+    return destination;
+}
 const Text = struct { bytes: [128]u8, len: usize };
 const Cell = union(enum) { number: i64, text: Text, empty };
 const Pair = struct { first: Text, second: Text };
@@ -151,5 +179,4 @@ export fn _start() callconv(.naked) noreturn {
         :
         : [main] "S" (&mainNative),
         : .{ .memory = true });
-    unreachable;
 }
