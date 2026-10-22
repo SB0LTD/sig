@@ -37,7 +37,7 @@ pub const semver: @import("std").SemanticVersion = .{ .major = 0, .minor = 17, .
 pub const dev: enum { full, bootstrap, ast_gen, sema, cbe, @"aarch64-linux", @"powerpc-linux", @"riscv64-linux", spirv, wasm, @"x86_64-linux" } = .@"aarch64-linux";
 EOF
 cd "$ROOT"
-"$BOOTSTRAP" build-exe -OReleaseFast -fllvm -flld \
+"$BOOTSTRAP" build-exe -mcpu=baseline -OReleaseFast -fllvm -flld \
   --dep build_options --dep aro --dep std -Mroot=src/main.sig \
   "-Mbuild_options=$OPTIONS" -Maro=lib/compiler/aro/aro.sig \
   "-Mstd=$ROOT/lib/std/std.sig" --cache-dir "$CACHE/objects" -lc "-femit-bin=$OUTPUT"
