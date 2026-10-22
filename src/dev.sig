@@ -27,6 +27,7 @@ pub const Env = enum {
 
     /// - sema
     /// - `zig build-* -fincremental -fno-llvm -fno-lld -target aarch64-linux --listen=-`
+    /// - native `zig build-exe -target aarch64-sb0` (SB0X/SB0K containers)
     @"aarch64-linux",
 
     /// - `zig build-* -ofmt=c`
@@ -174,9 +175,12 @@ pub const Env = enum {
             .@"aarch64-linux" => switch (feature) {
                 .stdio_listen,
                 .incremental,
+                .version_command,
+                .legalize,
                 .aarch64_backend,
                 .elf_linker,
                 .elf2_linker,
+                .sb0_linker,
                 => true,
                 else => Env.sema.supports(feature),
             },

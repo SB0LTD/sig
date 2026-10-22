@@ -3682,6 +3682,14 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                         128 => try dst_vi.value.move(isel, ty_op.operand),
                         else => return isel.fail("bad {t} {f} {f}", .{ air_tag, isel.fmtType(dst_ty), isel.fmtType(src_ty) }),
                     }
+                } else if (dst_tag == .bool and src_ty.isAbiInt(zcu) and src_ty.intInfo(zcu).bits == 1) {
+                    // Canonicalize the single bit, including sign-extended i1.
+                    // Bool is intentionally not isAbiInt.
+                    const dst_ra = try dst_vi.value.defReg(isel) orelse break :unused;
+                    const src_vi = try isel.use(ty_op.operand);
+                    const src_mat = try src_vi.matReg(isel);
+                    try isel.emit(.ubfm(dst_ra.w(), src_mat.ra.w(), .{ .N = .word, .immr = 0, .imms = 0 }));
+                    try src_mat.finish(isel);
                 } else if ((dst_ty.isPtrAtRuntime(zcu) or dst_ty.isAbiInt(zcu)) and (src_ty.isPtrAtRuntime(zcu) or src_ty.isAbiInt(zcu))) {
                     try dst_vi.value.move(isel, ty_op.operand);
                 } else if (dst_ty.isSliceAtRuntime(zcu) and src_ty.isSliceAtRuntime(zcu)) {
@@ -5269,6 +5277,14 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
 
             const error_set_ra = try isel.allocIntReg();
             defer isel.freeReg(error_set_ra);
+            // Instructions are emitted backwards: the discriminant load must
+            // execute before CBZ, rather than only in the error branch. A
+            // caller-clobbered register still holds an arbitrary call result
+            // until this load executes.
+            try isel.emit(.cbz(
+                error_set_ra.w(),
+                @intCast((isel.instructions.items.len + 1 - cont_label) << 2),
+            ));
             try isel.loadReg(
                 error_set_ra,
                 ZigType.fromInterned(error_union_info.error_set_type).abiSize(zcu),
@@ -5277,10 +5293,6 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                 codegen.errUnionErrorOffset(payload_ty, zcu),
             );
             try error_union_ptr_mat.finish(isel);
-            try isel.emit(.cbz(
-                error_set_ra.w(),
-                @intCast((isel.instructions.items.len + 1 - cont_label) << 2),
-            ));
 
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
@@ -5342,6 +5354,31 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                     5...8 => .subs(.xzr, has_value_part_mat.ra.x(), .{ .immediate = 0 }),
                 });
                 try has_value_part_mat.finish(isel);
+            }
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .is_null_ptr, .is_non_null_ptr => |air_tag| {
+            if (isel.live_values.fetchRemove(air.inst_index)) |is_vi| unused: {
+                defer is_vi.value.deref(isel);
+                const is_ra = try is_vi.value.defReg(isel) orelse break :unused;
+                const operand = air.data(air.inst_index).un_op;
+                const ptr_ty = isel.air.typeOf(operand, ip);
+                const opt_ty = ptr_ty.childType(zcu);
+                const payload_ty = opt_ty.optionalChild(zcu);
+                const payload_size = payload_ty.abiSize(zcu);
+                const flag_offset: u64 = if (opt_ty.optionalReprIsPayload(zcu)) 0 else payload_size;
+                const flag_size: u64 = if (!opt_ty.optionalReprIsPayload(zcu)) 1 else if (payload_ty.isSlice(zcu)) 8 else payload_size;
+                const ptr_vi = try isel.use(operand);
+                const ptr_mat = try ptr_vi.matReg(isel);
+                const flag_ra = try isel.allocIntReg();
+                defer isel.freeReg(flag_ra);
+                try isel.emit(.csinc(is_ra.w(), .wzr, .wzr, .invert(if (air_tag == .is_null_ptr) .eq else .ne)));
+                try isel.emit(if (flag_size <= 4)
+                    .subs(.wzr, flag_ra.w(), .{ .immediate = 0 })
+                else
+                    .subs(.xzr, flag_ra.x(), .{ .immediate = 0 }));
+                try isel.loadReg(flag_ra, flag_size, .unsigned, ptr_mat.ra, flag_offset);
+                try ptr_mat.finish(isel);
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
@@ -6222,9 +6259,23 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                 const error_set_size = error_set_ty.abiSize(zcu);
                 const payload_size = payload_ty.abiSize(zcu);
 
-                var payload_part_it = error_union_vi.value.field(error_union_ty, payload_offset, payload_size);
-                const payload_part_vi = try payload_part_it.only(isel);
-                try payload_part_vi.?.move(isel, ty_op.operand);
+                if (payload_size != 0) {
+                    if (payload_size <= 16) {
+                        // Preserve register-part definitions for small payloads
+                        // (notably slices). Merely storing their bytes through
+                        // the aggregate address leaves future payload registers
+                        // undefined when the error union is returned indirectly.
+                        var payload_part_it = error_union_vi.value.field(error_union_ty, payload_offset, payload_size);
+                        const payload_part_vi = try payload_part_it.only(isel);
+                        try payload_part_vi.?.move(isel, ty_op.operand);
+                    } else try error_union_vi.value.copyIntoField(
+                        isel,
+                        error_union_ty,
+                        payload_offset,
+                        try isel.use(ty_op.operand),
+                        payload_ty,
+                    );
+                }
                 var error_set_part_it = error_union_vi.value.field(error_union_ty, error_set_offset, error_set_size);
                 const error_set_part_vi = try error_set_part_it.only(isel);
                 if (try error_set_part_vi.?.defReg(isel)) |error_set_part_ra| try isel.emit(switch (error_set_size) {
@@ -6252,7 +6303,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                 var error_set_part_it = error_union_vi.value.field(error_union_ty, error_set_offset, error_set_size);
                 const error_set_part_vi = try error_set_part_it.only(isel);
                 try error_set_part_vi.?.move(isel, ty_op.operand);
-                if (payload_size > 0) {
+                if (payload_size > 0 and payload_size <= 8) {
                     var payload_part_it = error_union_vi.value.field(error_union_ty, payload_offset, payload_size);
                     const payload_part_vi = try payload_part_it.only(isel);
                     try payload_part_vi.?.defUndef(isel, payload_ty, .{});
@@ -6395,6 +6446,16 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                 switch (agg_ty.zigTypeTag(zcu)) {
                     else => unreachable,
                     .@"struct" => {
+                        // HFAs can arrive in up to four vector registers even
+                        // above 16 bytes. Preserve their scalar decomposition
+                        // so a producer returning the aggregate can define each
+                        // register instead of an opaque stack-backed value.
+                        if (field_ty.abiSize(zcu) > 8 and agg_ty.abiSize(zcu) > 16 and
+                            !CallAbiIterator.hasVectorAggregateAbi(zcu, agg_ty))
+                        {
+                            try field_vi.value.copyFromField(isel, field_ty, agg_vi, agg_ty, @divExact(field_bit_offset, 8));
+                            break :unused;
+                        }
                         var agg_part_it = agg_vi.field(agg_ty, @divExact(field_bit_offset, 8), @divExact(field_bit_size, 8));
                         while (agg_part_it.next(isel) catch |err| switch (err) {
                             error.OutOfMemory, error.AlreadyReported => |e| return e,
@@ -6438,10 +6499,8 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
 
                         try call.prepareParams(isel);
                         const union_layout = agg_ty.unionGetLayout(zcu);
-                        var payload_it = agg_vi.field(agg_ty, union_layout.payloadOffset(), union_layout.payload_size);
-                        const payload_vi = try payload_it.only(isel);
                         try isel.movImmediate(.x2, field_vi.value.size(isel));
-                        try call.paramAddress(isel, payload_vi.?, .r1);
+                        try call.paramFieldAddress(isel, agg_vi, agg_ty, union_layout.payloadOffset(), .r1);
                         try call.paramAddress(isel, field_vi.value, .r0);
                         try call.finishParams(isel);
                     },
@@ -7439,17 +7498,13 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                         var elem_offset: u64 = 0;
                         const elem_size = ZigType.fromInterned(array_type.child).abiSize(zcu);
                         for (elems) |elem| {
-                            var agg_part_it = agg_vi.value.field(agg_ty, elem_offset, elem_size);
-                            const agg_part_vi = try agg_part_it.only(isel);
-                            try agg_part_vi.?.move(isel, elem);
+                            try agg_vi.value.copyIntoField(isel, agg_ty, elem_offset, try isel.use(elem), .fromInterned(array_type.child));
                             elem_offset += elem_size;
                         }
                         switch (array_type.sentinel) {
                             .none => {},
                             else => |sentinel| {
-                                var agg_part_it = agg_vi.value.field(agg_ty, elem_offset, elem_size);
-                                const agg_part_vi = try agg_part_it.only(isel);
-                                try agg_part_vi.?.move(isel, .fromIntern(sentinel));
+                                try agg_vi.value.copyIntoField(isel, agg_ty, elem_offset, try isel.use(.fromIntern(sentinel)), .fromInterned(array_type.child));
                             },
                         }
                     },
@@ -7464,9 +7519,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             field_offset = loaded_struct.field_offsets.get(ip)[field_index];
                             const field_size = field_ty.abiSize(zcu);
                             if (field_size == 0) continue;
-                            var agg_part_it = agg_vi.value.field(agg_ty, field_offset, field_size);
-                            const agg_part_vi = try agg_part_it.only(isel);
-                            try agg_part_vi.?.move(isel, elems[field_index]);
+                            try agg_vi.value.copyIntoField(isel, agg_ty, field_offset, try isel.use(elems[field_index]), field_ty);
                             field_offset += field_size;
                         }
                         assert(loaded_struct.alignment.forward(field_offset) == agg_vi.value.size(isel));
@@ -7488,9 +7541,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             field_offset = field_align.forward(field_offset);
                             const field_size = field_ty.abiSize(zcu);
                             if (field_size == 0) continue;
-                            var agg_part_it = agg_vi.value.field(agg_ty, field_offset, field_size);
-                            const agg_part_vi = try agg_part_it.only(isel);
-                            try agg_part_vi.?.move(isel, elem);
+                            try agg_vi.value.copyIntoField(isel, agg_ty, field_offset, try isel.use(elem), field_ty);
                             field_offset += field_size;
                         }
                         assert(tuple_align.forward(field_offset) == agg_vi.value.size(isel));
@@ -9819,6 +9870,26 @@ pub const Value = struct {
                 try dst_field_vi.?.copy(isel, src_ty, src_vi);
                 return;
             }
+            // Large non-HFA values live in caller storage. HFAs still use up
+            // to four vector registers, so keep the store/decomposition path
+            // below for those instead of addressing an uninitialized slot.
+            if (src_size > 16 and !CallAbiIterator.hasVectorAggregateAbi(isel.pt.zcu, src_ty)) {
+                try call.prepareReturn(isel);
+                try call.finishReturn(isel);
+                try call.prepareCallee(isel);
+                try isel.global_relocs.append(isel.pt.zcu.gpa, .{
+                    .name = "memcpy",
+                    .reloc = .{ .label = @intCast(isel.instructions.items.len) },
+                });
+                try isel.emit(.bl(0));
+                try call.finishCallee(isel);
+                try call.prepareParams(isel);
+                try isel.movImmediate(.x2, src_size);
+                try call.paramAddress(isel, src_vi, .r1);
+                try call.paramFieldAddress(isel, dst_vi, dst_ty, field_offset, .r0);
+                try call.finishParams(isel);
+                return;
+            }
             // Write the multi-register source (e.g. a 12-byte `?Token` payload) into the
             // destination field by storing the source's register parts directly to the
             // destination field's address, mirroring the `.ret` indirect-return path
@@ -9893,6 +9964,27 @@ pub const Value = struct {
             src_offset: u64,
         }) !void {
             if (dst_vi == src_vi) return;
+            // Opaque wide unions have no scalar register representation.
+            // Copy their complete addressable storage instead of forcing a
+            // payload through FieldPartIterator.only().
+            if (root.ty.zigTypeTag(isel.pt.zcu) == .@"union" and src_vi.size(isel) > 16) {
+                try dst_vi.defAddr(isel, root.ty, .{ .root_vi = root.dst_vi }) orelse return;
+                try call.prepareReturn(isel);
+                try call.finishReturn(isel);
+                try call.prepareCallee(isel);
+                try isel.global_relocs.append(isel.pt.zcu.gpa, .{
+                    .name = "memcpy",
+                    .reloc = .{ .label = @intCast(isel.instructions.items.len) },
+                });
+                try isel.emit(.bl(0));
+                try call.finishCallee(isel);
+                try call.prepareParams(isel);
+                try isel.movImmediate(.x2, src_vi.size(isel));
+                try call.paramAddress(isel, src_vi, .r1);
+                try call.paramAddress(isel, dst_vi, .r0);
+                try call.finishParams(isel);
+                return;
+            }
             var dst_part_it = dst_vi.parts(isel);
             if (dst_part_it.only()) |dst_part_vi| {
                 var src_part_it = src_vi.parts(isel);
@@ -10550,7 +10642,12 @@ pub const Value = struct {
                     _ = subpart_it.next(isel) catch |err| switch (err) {
                         error.OutOfMemory, error.AlreadyReported => |e| return e,
                         error.Canceled => |e| return e,
-                        error.PartBudgetExceeded => return isel.fail("aggregate too large for register decomposition", .{}),
+                        // Undefined wide storage need not be split or poisoned
+                        // byte-by-byte. Its address supplies any future uses.
+                        error.PartBudgetExceeded => {
+                            _ = try part_vi.defAddr(isel, root_ty, .{ .root_vi = root_vi });
+                            return;
+                        },
                     };
                     part_it = def_vi.parts(isel);
                     assert(part_it.only() == null);
@@ -11031,8 +11128,9 @@ pub const Value = struct {
                     .anyframe_type => unreachable,
                     .error_union_type => |error_union_type| {
                         const min_part_log2_stride: u5 = if (size > 16) 4 else if (size > 8) 3 else 0;
-                        if ((@divCeil(size, @as(u64, 1) << min_part_log2_stride)) > Value.max_parts)
-                            return error.PartBudgetExceeded;
+                        // Only two layout fields are allocated below, regardless
+                        // of the payload size. A wide payload remains addressable;
+                        // extracting the small error tag must not exhaust parts.
                         const alignment = vi.alignment(isel);
                         const payload_ty: ZigType = .fromInterned(error_union_type.payload_type);
                         const error_set_offset = codegen.errUnionErrorOffset(payload_ty, zcu);
@@ -11303,25 +11401,21 @@ pub const Value = struct {
                         // read). To keep parts register-addressable, split any head/tail
                         // longer than 8 bytes into 8-byte lanes.
                         const req_end2 = next_part_offset + next_part_size;
-                        var bounds: [Value.max_parts]u64 = undefined;
-                        var nb: usize = 0;
-                        const addBound = struct {
-                            fn f(arr: *[Value.max_parts]u64, n: *usize, v: u64) void {
-                                if (n.* > 0 and arr[n.* - 1] == v) return;
-                                arr[n.*] = v;
-                                n.* += 1;
-                            }
-                        }.f;
-                        // Emit 8-byte lane boundaries within [0, npo), then npo, then
-                        // 8-byte lanes within [npo+nps, size), then size.
-                        {
-                            var b: u64 = 0;
-                            while (b < next_part_offset) : (b += 8) addBound(&bounds, &nb, b);
-                            addBound(&bounds, &nb, next_part_offset);
-                            addBound(&bounds, &nb, req_end2);
-                            var t: u64 = req_end2;
-                            while (t < size) : (t += 8) addBound(&bounds, &nb, t);
-                            addBound(&bounds, &nb, size);
+                        // Unselected head/tail bytes remain opaque addressable
+                        // parts. Expanding them into lanes would overflow the
+                        // fixed part table while extracting a tag from a large
+                        // payload (e.g. a 136-byte SQL text cell).
+                        var bounds: [4]u64 = .{ 0, 0, 0, 0 };
+                        var nb: usize = 1;
+                        if (next_part_offset != 0) {
+                            bounds[nb] = next_part_offset;
+                            nb += 1;
+                        }
+                        bounds[nb] = req_end2;
+                        nb += 1;
+                        if (req_end2 != size) {
+                            bounds[nb] = size;
+                            nb += 1;
                         }
                         const parts_len = nb - 1;
                         if (parts_len < 2) return error.PartBudgetExceeded;
@@ -11541,11 +11635,12 @@ pub const Value = struct {
                                     .u64 => |imm| if (size > 8 and mat.ra.isVector())
                                         // A wide value assigned a whole vector (Q) register.
                                         break :free try mat.emitWideInt(isel, @as(u128, imm))
-                                    else try isel.movImmediate(switch (size) {
-                                        else => mat.ra.x(), // GPR-sized part of a wider value; `offset` selects the 8-byte chunk.
-                                        1...4 => mat.ra.w(),
-                                        5...8 => mat.ra.x(),
-                                    }, @bitCast(std.math.shr(u64, imm, 8 * offset))),
+                                    else
+                                        try isel.movImmediate(switch (size) {
+                                            else => mat.ra.x(), // GPR-sized part of a wider value; `offset` selects the 8-byte chunk.
+                                            1...4 => mat.ra.w(),
+                                            5...8 => mat.ra.x(),
+                                        }, @bitCast(std.math.shr(u64, imm, 8 * offset))),
                                     .i64 => |imm| if (size > 8 and mat.ra.isVector())
                                         break :free try mat.emitWideInt(isel, @as(u128, @bitCast(@as(i128, imm))))
                                     else switch (size) {
@@ -13314,6 +13409,16 @@ pub const CallAbiIterator = struct {
             .struct_type => homogeneousStructBaseType(zcu, &ip.loadStructType(ty)),
             .tuple_type => |tuple_type| homogeneousTupleBaseType(zcu, tuple_type),
         };
+    }
+    fn hasVectorAggregateAbi(zcu: *Zcu, ty: ZigType) bool {
+        switch (ty.zigTypeTag(zcu)) {
+            .@"struct" => {},
+            else => return false,
+        }
+        const size = ty.abiSize(zcu);
+        if (size > 16 * 4) return false;
+        const fdt = homogeneousAggregateBaseType(zcu, ty.toIntern()) orelse return false;
+        return @shrExact(size, fdt.log2Size()) <= 4;
     }
     fn homogeneousStructBaseType(zcu: *Zcu, loaded_struct: *const InternPool.LoadedStructType) ?FundamentalDataType {
         const ip = &zcu.intern_pool;
