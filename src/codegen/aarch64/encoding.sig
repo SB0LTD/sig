@@ -1167,6 +1167,8 @@ pub const Register = struct {
         pub const scxtnum_el2: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b111 };
         /// D19.2.130 SCXTNUM_EL3, EL3 Read/Write Software Context Number
         pub const scxtnum_el3: System = .{ .op0 = 0b11, .op1 = 0b110, .CRn = 0b1101, .CRm = 0b0000, .op2 = 0b111 };
+        /// SP_EL1, Stack Pointer (EL1), accessible via `S3_4_C4_C1_0`.
+        pub const sp_el1: System = .{ .op0 = 0b11, .op1 = 0b100, .CRn = 0b0100, .CRm = 0b0001, .op2 = 0b000 };
         /// D19.2.131 SMCR_EL1, SME Control Register (EL1)
         pub const smcr_el1: System = .{ .op0 = 0b11, .op1 = 0b000, .CRn = 0b0001, .CRm = 0b0010, .op2 = 0b110 };
         /// D19.2.131 SMCR_EL12, SME Control Register (EL12)
@@ -2797,6 +2799,7 @@ pub const Instruction = packed union {
             br: Br,
             blr: Blr,
             ret: Ret,
+            eret: Eret,
 
             pub const Group = packed struct {
                 op4: u5,
@@ -2849,11 +2852,22 @@ pub const Instruction = packed union {
                 decoded25: u7 = 0b1101011,
             };
 
+            /// ERET, exception return. All operand fields are fixed.
+            pub const Eret = packed struct {
+                decoded0: u5 = 0b00000,
+                decoded5: u5 = 0b11111,
+                decoded10: u6 = 0b000000,
+                decoded16: u5 = 0b11111,
+                decoded21: u4 = 0b0100,
+                decoded25: u7 = 0b1101011,
+            };
+
             pub const Decoded = union(enum) {
                 unallocated,
                 br: Br,
                 blr: Blr,
                 ret: Ret,
+                eret: Eret,
             };
             pub fn decode(inst: @This()) @This().Decoded {
                 return switch (inst.group.op2) {
@@ -2871,6 +2885,8 @@ pub const Instruction = packed union {
                             else => .unallocated,
                             0b00000 => .{ .ret = inst.ret },
                         },
+                        0b0100 => if (inst.group.op4 == 0 and inst.group.op3 == 0 and
+                            inst.group.Rn == no_reg) .{ .eret = inst.eret } else .unallocated,
                         else => .unallocated,
                     },
                 };
@@ -12044,6 +12060,12 @@ pub const Instruction = packed union {
     pub fn brk(imm: u16) Instruction {
         return .{ .branch_exception_generating_system = .{ .exception_generating = .{
             .brk = .{ .imm16 = imm },
+        } } };
+    }
+    /// ERET, exception return.
+    pub fn eret() Instruction {
+        return .{ .branch_exception_generating_system = .{ .unconditional_branch_register = .{
+            .eret = .{},
         } } };
     }
     /// C6.2.46 CBNZ

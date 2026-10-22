@@ -961,6 +961,12 @@
         },
         .encode = .{ .hint, .imm },
     },
+    // ERET, exception return
+    .{
+        .pattern = "ERET",
+        .symbols = .{},
+        .encode = .{.eret},
+    },
     // C6.2.127 HLT
     .{
         .pattern = "HLT #<imm>",

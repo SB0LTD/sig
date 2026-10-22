@@ -2560,6 +2560,43 @@ test "branch register" {
 
     try std.testing.expect(null == try as.nextInstruction());
 }
+test "exception return and privileged stack register" {
+    var as: Assemble = .{
+        .source =
+        \\eret
+        \\ERET
+        \\mrs x3, SP_EL1
+        \\msr sp_el1, x7
+        ,
+        .operands = .empty,
+    };
+    const encoded = Instruction.eret();
+    try std.testing.expectEqual(@as(u32, 0xd69f03e0), instWord(encoded));
+    try std.testing.expectEqual(instWord(encoded), instWord((try as.nextInstruction()).?));
+    const decoded: Instruction = @bitCast(@as(u32, 0xd69f03e0));
+    try std.testing.expect(decoded.decode().branch_exception_generating_system.decode()
+        .unconditional_branch_register.decode() == .eret);
+    try std.testing.expectFmt("eret", "{f}", .{decoded});
+    var uppercase_buffer: [4]u8 = undefined;
+    var uppercase: std.Io.Writer = .fixed(&uppercase_buffer);
+    try (aarch64.Disassemble{ .case = .upper }).printInstruction(decoded, &uppercase);
+    try std.testing.expectEqualStrings("ERET", uppercase.buffered());
+    try std.testing.expectFmt("eret", "{f}", .{(try as.nextInstruction()).?});
+    // Every fixed operand field must match; adjacent encodings are not ERET.
+    for ([_]u32{ 1, 1 << 5, 1 << 10, 1 << 16, 1 << 21 }) |bit| {
+        const invalid: Instruction = @bitCast(@as(u32, 0xd69f03e0) ^ bit);
+        try std.testing.expect(invalid.branch_exception_generating_system
+            .unconditional_branch_register.decode() == .unallocated);
+    }
+    const R = aarch64.encoding.Register.System;
+    try std.testing.expectEqual(@as(u16, 0xe208), @as(u16, @bitCast(R.sp_el1)));
+    try std.testing.expectEqual(R.sp_el1, R.parse("S3_4_C4_C1_0").?);
+    try std.testing.expectEqual(R.sp_el1, R.parse("SP_EL1").?);
+    try std.testing.expectEqual(@as(u32, 0xd53c4103), instWord((try as.nextInstruction()).?));
+    try std.testing.expectEqual(@as(u32, 0xd51c4107), instWord((try as.nextInstruction()).?));
+    try std.testing.expect(null == try as.nextInstruction());
+}
+
 test "division" {
     var as: Assemble = .{
         .source =

@@ -327,6 +327,7 @@ pub fn printInstruction(dis: Disassemble, inst: aarch64.encoding.Instruction, wr
             .unconditional_branch_register => |unconditional_branch_register| {
                 const decoded = unconditional_branch_register.decode();
                 if (decoded == .unallocated) break :unallocated;
+                if (decoded == .eret) return writer.print("{f}", .{fmtCase(.eret, dis.case)});
                 const group = unconditional_branch_register.group;
                 const Rn = group.Rn.decode(.{}).x();
                 try writer.print("{f}", .{fmtCase(decoded, dis.case)});
