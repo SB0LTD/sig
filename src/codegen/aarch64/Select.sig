@@ -5512,10 +5512,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                 const loaded_ty = ZigType.fromInterned(ptr_info.child);
                 // Non-payload optionals have no register decomposition, so load them
                 // wholesale via `memcpy` like unions and oversized aggregates.
-                const loaded_via_registers = size <= Value.max_parts and
-                    ip.zigTypeTag(ptr_info.child) != .@"union" and
-                    !(loaded_ty.zigTypeTag(zcu) == .optional and !loaded_ty.optionalReprIsPayload(zcu));
-                if (loaded_via_registers) {
+                if (isel.loadsViaRegisters(loaded_ty, size)) {
                     const ptr_vi = try isel.use(ty_op.operand);
                     const ptr_mat = try ptr_vi.matReg(isel);
                     _ = try dst_vi.value.load(isel, ty_op.ty, ptr_mat.ra, .{
@@ -6743,7 +6740,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                         const array_vi = try isel.use(bin_op.lhs);
                         try array_vi.address(isel, 0, array_ptr_ra);
                     },
-                    else => {
+                    else => if (isel.loadsViaRegisters(elem_ty, elem_size)) {
                         const ptr_ra = try isel.allocIntReg();
                         defer isel.freeReg(ptr_ra);
                         if (!try elem_vi.value.load(isel, elem_ty, ptr_ra, .{})) break :unused;
@@ -6751,6 +6748,15 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                         try isel.elemPtr(ptr_ra, ptr_ra, .add, elem_size, index_vi);
                         const array_vi = try isel.use(bin_op.lhs);
                         try array_vi.address(isel, 0, ptr_ra);
+                    } else {
+                        // Unions and aggregates above the register decomposition limit: `memcpy`
+                        // from `array + index * elem_size` into a fresh slot of the result.
+                        try isel.beginElemMemcpy(elem_vi.value, elem_ty, elem_size) orelse break :unused;
+                        const index_vi = try isel.use(bin_op.rhs);
+                        try isel.elemPtr(.r1, .r1, .add, elem_size, index_vi);
+                        const array_vi = try isel.use(bin_op.lhs);
+                        try array_vi.address(isel, 0, .r1);
+                        try isel.finishElemMemcpy(elem_vi.value);
                     },
                 }
             }
@@ -6830,6 +6836,18 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                     });
                     try index_mat.finish(isel);
                     try base_mat.finish(isel);
+                } else if (!isel.loadsViaRegisters(slice_ty.childType(zcu), elem_size)) {
+                    // Unions and aggregates above the register decomposition limit: `memcpy`
+                    // from `slice.ptr + index * elem_size` into a fresh slot of the result.
+                    try isel.beginElemMemcpy(elem_vi.value, slice_ty.childType(zcu), elem_size) orelse break :unused;
+                    const slice_vi = try isel.use(bin_op.lhs);
+                    var ptr_part_it = slice_vi.field(slice_ty, 0, 8);
+                    const ptr_part_vi = try ptr_part_it.only(isel);
+                    const ptr_part_mat = try ptr_part_vi.?.matReg(isel);
+                    const index_vi = try isel.use(bin_op.rhs);
+                    try isel.elemPtr(.r1, ptr_part_mat.ra, .add, elem_size, index_vi);
+                    try ptr_part_mat.finish(isel);
+                    try isel.finishElemMemcpy(elem_vi.value);
                 } else {
                     const elem_ptr_ra = try isel.allocIntReg();
                     defer isel.freeReg(elem_ptr_ra);
@@ -6938,6 +6956,16 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                     });
                     try index_mat.finish(isel);
                     try base_mat.finish(isel);
+                } else if (!isel.loadsViaRegisters(ptr_ty.childType(zcu), elem_size)) {
+                    // Unions and aggregates above the register decomposition limit: `memcpy`
+                    // from `ptr + index * elem_size` into a fresh slot of the result.
+                    try isel.beginElemMemcpy(elem_vi.value, ptr_ty.childType(zcu), elem_size) orelse break :unused;
+                    const base_vi = try isel.use(bin_op.lhs);
+                    const base_mat = try base_vi.matReg(isel);
+                    const index_vi = try isel.use(bin_op.rhs);
+                    try isel.elemPtr(.r1, base_mat.ra, .add, elem_size, index_vi);
+                    try base_mat.finish(isel);
+                    try isel.finishElemMemcpy(elem_vi.value);
                 } else {
                     const elem_ptr_ra = try isel.allocIntReg();
                     defer isel.freeReg(elem_ptr_ra);
@@ -8708,6 +8736,45 @@ fn emitLiteral(isel: *Select, bytes: []const u8) !void {
 fn fail(isel: *Select, comptime format: []const u8, args: anytype) codegen.Error {
     @branchHint(.cold);
     return isel.pt.zcu.codegenFail(isel.nav_index, format, args);
+}
+
+/// Whether a value of type `ty` (ABI size `size`) can be loaded into register parts.
+/// Unions, oversized aggregates and optionals without a payload representation have no
+/// register decomposition; they are copied wholesale with `memcpy` instead.
+fn loadsViaRegisters(isel: *Select, ty: ZigType, size: u64) bool {
+    const zcu = isel.pt.zcu;
+    return size <= Value.max_parts and
+        ty.zigTypeTag(zcu) != .@"union" and
+        !(ty.zigTypeTag(zcu) == .optional and !ty.optionalReprIsPayload(zcu));
+}
+
+/// Start the `memcpy` that defines the element value `elem_vi` of type `elem_ty` from memory.
+/// Emission is in reverse execution order: the caller then emits the computation of the source
+/// address into `.r1` (it executes before this sequence), then calls `finishElemMemcpy`.
+/// Returns null when `elem_vi` is unused.
+fn beginElemMemcpy(isel: *Select, elem_vi: Value.Index, elem_ty: ZigType, size: u64) !?void {
+    const gpa = isel.pt.zcu.gpa;
+    try elem_vi.defAddr(isel, elem_ty, .{}) orelse return null;
+
+    try call.prepareReturn(isel);
+    try call.finishReturn(isel);
+
+    try call.prepareCallee(isel);
+    try isel.global_relocs.append(gpa, .{
+        .name = "memcpy",
+        .reloc = .{ .label = @intCast(isel.instructions.items.len) },
+    });
+    try isel.emit(.bl(0));
+    try call.finishCallee(isel);
+
+    try call.prepareParams(isel);
+    try isel.movImmediate(.x2, size);
+}
+
+/// Complete the sequence started by `beginElemMemcpy`: the destination address goes into `.r0`.
+fn finishElemMemcpy(isel: *Select, elem_vi: Value.Index) !void {
+    try call.paramAddress(isel, elem_vi, .r0);
+    try call.finishParams(isel);
 }
 
 /// dst = src
