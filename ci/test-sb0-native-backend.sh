@@ -22,6 +22,7 @@ PROBES=(
   "float-eu|test/sb0_float_errunion_probe.sig|SB0-FLOAT-EU-PASS"
   "aggregate|test/sb0_aggregate_load_probe.sig|SB0-AGG-PASS"
   "overflow|test/sb0_overflow_probe.sig|SB0-OVF-PASS"
+  "enum|test/sb0_enum_codegen_probe.sig|SB0-TAGNAME-PASS"
 )
 for entry in "${PROBES[@]}"; do
   IFS='|' read -r name source marker <<<"$entry"
