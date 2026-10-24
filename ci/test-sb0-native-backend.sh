@@ -20,6 +20,8 @@ PROBES=(
   "database|test/sb0_database_codegen_probe.sig|SB0-DATABASE-CODEGEN-PASS"
   "partsplit|test/sb0_partsplit_probe.sig|SB0-PARTSPLIT-PASS"
   "float-eu|test/sb0_float_errunion_probe.sig|SB0-FLOAT-EU-PASS"
+  "aggregate|test/sb0_aggregate_load_probe.sig|SB0-AGG-PASS"
+  "overflow|test/sb0_overflow_probe.sig|SB0-OVF-PASS"
 )
 for entry in "${PROBES[@]}"; do
   IFS='|' read -r name source marker <<<"$entry"
@@ -64,3 +66,31 @@ print(f'native backend probe passed: {path}')
 PY
   done
 done
+
+# Vectors are not supported by the aarch64-sb0 backend: `@mulWithOverflow` of vectors has to be rejected
+# with a diagnostic (compiler exit status 1 and an error line naming the vector type), not crash the compiler.
+cat >"$WORK/vector_mulo.sig" <<'SIG'
+const std = @import("std");
+pub const panic = std.debug.no_panic;
+export fn _start() callconv(.c) noreturn {
+    var a: @Vector(4, u32) = .{ 1, 2, 3, 4 };
+    _ = &a;
+    const r = @mulWithOverflow(a, a);
+    const flag: [4]u1 = r[1];
+    while (flag[0] == 0) {}
+    while (true) {}
+}
+SIG
+set +e
+negative_output="$(timeout "$COMPILE_TIMEOUT" "$SIG" build-exe "$WORK/vector_mulo.sig" \
+  -target aarch64-sb0 -mcpu=baseline -OReleaseSmall --Sig-lib-dir "$ROOT/lib" --script test/sb0_runner.ld \
+  -fno-stack-check -fno-stack-protector -fno-unwind-tables -fstrip \
+  --cache-dir "$WORK/cache-vector-mulo" "-femit-bin=$WORK/vector_mulo.sb0k" 2>&1)"
+negative_status=$?
+set -e
+if [[ "$negative_status" != 1 ]] || ! grep -Eq 'error:.*Vector' <<<"$negative_output"; then
+  echo "vector @mulWithOverflow must fail with a diagnostic (status $negative_status):" >&2
+  echo "$negative_output" >&2
+  exit 1
+fi
+echo "native backend negative test passed: vector @mulWithOverflow is rejected"

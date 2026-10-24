@@ -214,6 +214,10 @@ pub const Feature = enum {
     /// Replace `ptr_elem_val` with an `ptr_elem_ptr` followed by a `load`.
     expand_ptr_elem_val,
 
+    /// Replace a scalar `shl_with_overflow` with `shl`, a `shr` by the same amount and a `cmp_neq` against the
+    /// original operand; the result tuple is assembled in memory. Vectors are not handled by this feature
+    /// (see `scalarize_shl_with_overflow`).
+    expand_shl_with_overflow,
     /// Replace all arithmetic operations on 16-bit floating-point types with calls to soft-float
     /// routines in compiler_rt, including `fptrunc`/`fpext`/`float_from_int`/`int_from_float`
     /// where the operand or target type is a 16-bit floating-point type. This feature implies:
@@ -479,10 +483,14 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .sub_with_overflow,
             .mul_with_overflow,
             .shl_with_overflow,
-            => |air_tag| if (l.features.has(comptime .scalarize(air_tag))) {
+            => |air_tag| {
                 const ty_pl = l.air_instructions.items(.data)[@backingInt(inst)].ty_pl;
-                if (ty_pl.ty.fieldType(0, zcu).isVector(zcu)) {
+                const is_vector = ty_pl.ty.fieldType(0, zcu).isVector(zcu);
+                if (is_vector and l.features.has(comptime .scalarize(air_tag))) {
                     continue :inst l.replaceInst(inst, .block, try l.scalarizeOverflowBlockPayload(inst));
+                }
+                if (air_tag == .shl_with_overflow and !is_vector and l.features.has(.expand_shl_with_overflow)) {
+                    continue :inst l.replaceInst(inst, .block, try l.shlWithOverflowBlockPayload(inst));
                 }
             },
             .alloc => {},
@@ -2602,6 +2610,53 @@ fn safeArithmeticBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index, overflow_
     } };
 }
 
+/// `@shlWithOverflow(lhs, rhs)` is `{ lhs << rhs, ((lhs << rhs) >> rhs) != lhs }`, where the right shift is
+/// arithmetic for signed integers (`shr` is) so that the check also catches a changed sign.
+///
+/// The tuple is assembled in memory and loaded: a block that yields an `aggregate_init` with a wide integer
+/// element is not handled by the register part model of the backends that enable this feature.
+fn shlWithOverflowBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.Inst.Data {
+    const pt = l.pt;
+    const zcu = pt.zcu;
+    const ty_pl = l.air_instructions.items(.data)[@backingInt(orig_inst)].ty_pl;
+    const operands = l.extraData(Air.Bin, ty_pl.payload).data;
+    const tuple_ty = ty_pl.ty;
+    const int_ty = tuple_ty.fieldType(0, zcu);
+
+    // %1 = block(struct { Int, u1 }, {
+    //   %2 = alloc(*struct { Int, u1 })
+    //   %3 = struct_field_ptr_index_0(*Int, %2)
+    //   %4 = struct_field_ptr_index_1(*u1, %2)
+    //   %5 = shl(%lhs, %rhs)
+    //   %6 = store(%3, %5)
+    //   %7 = shr(%5, %rhs)
+    //   %8 = cmp_neq(%7, %lhs)
+    //   %9 = bit_cast(u1, %8)
+    //   %10 = store(%4, %9)
+    //   %11 = load(struct { Int, u1 }, %2)
+    //   %12 = br(%1, %11)
+    // })
+    var inst_buf: [11]Air.Inst.Index = undefined;
+    try l.air_instructions.ensureUnusedCapacity(zcu.gpa, inst_buf.len);
+    var main_block: Block = .init(&inst_buf);
+
+    const result_ptr = main_block.addTy(l, .alloc, try pt.singleMutPtrType(tuple_ty)).toRef();
+    const int_ptr = main_block.addTyOp(l, .struct_field_ptr_index_0, try pt.singleMutPtrType(int_ty), result_ptr).toRef();
+    const overflow_ptr = main_block.addTyOp(l, .struct_field_ptr_index_1, try pt.singleMutPtrType(.u1), result_ptr).toRef();
+    const shifted = main_block.addBinOp(l, .shl, operands.lhs, operands.rhs).toRef();
+    _ = main_block.addBinOp(l, .store, int_ptr, shifted);
+    const shifted_back = main_block.addBinOp(l, .shr, shifted, operands.rhs).toRef();
+    const changed = main_block.addCmpScalar(l, .neq, shifted_back, operands.lhs, false).toRef();
+    const overflow_bit = main_block.addTyOp(l, .bit_cast, .u1, changed).toRef();
+    _ = main_block.addBinOp(l, .store, overflow_ptr, overflow_bit);
+    const result = main_block.addTyOp(l, .load, tuple_ty, result_ptr).toRef();
+    main_block.addBr(l, orig_inst, result);
+
+    return .{ .ty_pl = .{
+        .ty = tuple_ty,
+        .payload = try l.addBlockBody(main_block.body()),
+    } };
+}
 fn divCeilBlockPayload(
     l: *Legalize,
     orig_inst: Air.Inst.Index,
