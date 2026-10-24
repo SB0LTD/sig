@@ -46,6 +46,7 @@ pub fn generate(
     assert(liveness.* == null);
 
     const mod = zcu.navFileScope(func.owner_nav).mod.?;
+    encoding.current_function = ip.getNav(func.owner_nav).fqn.toSlice(ip);
     var isel: Select = .{
         .pt = pt,
         .target = &mod.resolved_target.result,
