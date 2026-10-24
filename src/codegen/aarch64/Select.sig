@@ -10384,8 +10384,13 @@ pub const Value = struct {
                 var wrapped_res_part_it = res_vi.field(ty, part_offset, part_size);
                 const wrapped_res_part_vi = try wrapped_res_part_it.only(isel);
                 const wrapped_res_part_ra = wrapped_res_part_ra: {
+                    // The overflow register is only reserved while the result part is defined. A previous
+                    // (higher) part may have materialized an operand part in it since (the flag is written
+                    // after that part is read), so it is not necessarily free: locking it unconditionally
+                    // would free it again on unlock and let a later operand part be assigned the same
+                    // register while the live one is still in it (`mov x1, x0` over a live `lhs_hi`).
                     const overflow_ra_lock: RegLock = switch (opts.overflow) {
-                        .ra => |ra| isel.lockReg(ra),
+                        .ra => |ra| isel.lockRegIfFree(ra),
                         else => .empty,
                     };
                     defer overflow_ra_lock.unlock(isel);
@@ -12940,6 +12945,18 @@ fn lockReg(isel: *Select, ra: Register.Alias) RegLock {
     assert(live_vi.* == .free);
     live_vi.* = .allocating;
     return .{ .ra = ra };
+}
+/// Lock `ra` when it is free; when it is in use (allocating or holding a live value) leave it alone.
+fn lockRegIfFree(isel: *Select, ra: Register.Alias) RegLock {
+    assert(ra != .zr);
+    const live_vi = isel.live_registers.getPtr(ra);
+    switch (live_vi.*) {
+        .free => {
+            live_vi.* = .allocating;
+            return .{ .ra = ra };
+        },
+        _, .allocating => return .empty,
+    }
 }
 fn tryLockReg(isel: *Select, ra: Register.Alias) RegLock {
     assert(ra != .zr);
