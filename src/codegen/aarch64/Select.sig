@@ -2738,6 +2738,212 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
+        .mul_with_overflow => |air_tag| {
+            if (isel.live_values.fetchRemove(air.inst_index)) |res_vi| unused: {
+                defer res_vi.value.deref(isel);
+
+                const ty_pl = air.data(air.inst_index).ty_pl;
+                const bin_op = isel.air.extraData(Air.Bin, ty_pl.payload).data;
+                const ty = isel.air.typeOf(bin_op.lhs, ip);
+                if (!ty.isAbiInt(zcu)) return isel.fail("bad {t} {f}", .{ air_tag, isel.fmtType(ty) });
+                const int_info = ty.intInfo(zcu);
+                const signed = int_info.signedness == .signed;
+                const ty_size = ty.abiSize(zcu);
+                var overflow_it = res_vi.value.field(ty_pl.ty, ty_size, 1);
+                const overflow_vi = try overflow_it.only(isel);
+                var wrapped_it = res_vi.value.field(ty_pl.ty, 0, ty_size);
+                const wrapped_vi = try wrapped_it.only(isel);
+                switch (int_info.bits) {
+                    0 => unreachable,
+                    // Every result is written after all operands are read and the result registers stay
+                    // locked, so no result or temporary register aliases an operand register.
+                    1...64 => |bits| {
+                        const wrapped_ra = try wrapped_vi.?.defReg(isel);
+                        const wrapped_lock: RegLock = if (wrapped_ra) |ra| isel.lockReg(ra) else .empty;
+                        defer wrapped_lock.unlock(isel);
+                        const overflow_ra = try overflow_vi.?.defReg(isel);
+                        const overflow_lock: RegLock = if (overflow_ra) |ra| isel.lockReg(ra) else .empty;
+                        defer overflow_lock.unlock(isel);
+                        if (wrapped_ra == null and overflow_ra == null) break :unused;
+                        switch (bits) {
+                            else => unreachable,
+                            1...32 => {
+                                // The operands are extended to 32 bits, so the 64-bit product is exact.
+                                const prod_ra = try isel.allocIntReg();
+                                defer isel.freeReg(prod_ra);
+                                const ext_ra: Register.Alias = if (overflow_ra != null) try isel.allocIntReg() else .zr;
+                                defer if (ext_ra != .zr) isel.freeReg(ext_ra);
+                                if (overflow_ra) |ra| {
+                                    // Overflow iff the product differs from its extension from `bits`.
+                                    try isel.emit(.csinc(ra.w(), .wzr, .wzr, .eq));
+                                    switch (int_info.signedness) {
+                                        .signed => {
+                                            try isel.emit(.subs(.xzr, prod_ra.x(), .{ .register = ext_ra.x() }));
+                                            try isel.emit(.sbfm(ext_ra.x(), prod_ra.x(), .{
+                                                .N = .doubleword,
+                                                .immr = 0,
+                                                .imms = @intCast(bits - 1),
+                                            }));
+                                        },
+                                        .unsigned => {
+                                            try isel.emit(.subs(.xzr, ext_ra.x(), .{ .immediate = 0 }));
+                                            try isel.emit(.ubfm(ext_ra.x(), prod_ra.x(), .{
+                                                .N = .doubleword,
+                                                .immr = @intCast(bits),
+                                                .imms = 63,
+                                            }));
+                                        },
+                                    }
+                                }
+                                if (wrapped_ra) |ra| try isel.emit(switch (bits) {
+                                    else => switch (int_info.signedness) {
+                                        .signed => .sbfm(ra.w(), prod_ra.w(), .{
+                                            .N = .word,
+                                            .immr = 0,
+                                            .imms = @intCast(bits - 1),
+                                        }),
+                                        .unsigned => .ubfm(ra.w(), prod_ra.w(), .{
+                                            .N = .word,
+                                            .immr = 0,
+                                            .imms = @intCast(bits - 1),
+                                        }),
+                                    },
+                                    32 => .orr(ra.w(), .wzr, .{ .register = prod_ra.w() }),
+                                });
+                                const lhs_vi = try isel.use(bin_op.lhs);
+                                const rhs_vi = try isel.use(bin_op.rhs);
+                                const lhs_mat = try lhs_vi.matReg(isel);
+                                const rhs_mat = try rhs_vi.matReg(isel);
+                                try isel.emit(switch (int_info.signedness) {
+                                    .signed => .smaddl(prod_ra.x(), lhs_mat.ra.w(), rhs_mat.ra.w(), .xzr),
+                                    .unsigned => .umaddl(prod_ra.x(), lhs_mat.ra.w(), rhs_mat.ra.w(), .xzr),
+                                });
+                                try rhs_mat.finish(isel);
+                                try lhs_mat.finish(isel);
+                            },
+                            33...64 => {
+                                // `lo` is the low half of the 128-bit product, `hi` the high half.
+                                const lo_ra = try isel.allocIntReg();
+                                defer isel.freeReg(lo_ra);
+                                const hi_ra: Register.Alias = if (overflow_ra != null) try isel.allocIntReg() else .zr;
+                                defer if (hi_ra != .zr) isel.freeReg(hi_ra);
+                                // The sign extension of the low `bits` bits of `lo` (signed, below 64 bits).
+                                const ext_ra: Register.Alias = if (signed and bits < 64 and (overflow_ra != null or wrapped_ra != null))
+                                    try isel.allocIntReg()
+                                else
+                                    .zr;
+                                defer if (ext_ra != .zr) isel.freeReg(ext_ra);
+                                if (overflow_ra) |ra| {
+                                    try isel.emit(.csinc(ra.w(), .wzr, .wzr, .eq));
+                                    switch (int_info.signedness) {
+                                        .signed => {
+                                            // The product fits iff `hi` is the sign of `lo` and, below 64 bits,
+                                            // `lo` equals its own extension from `bits`.
+                                            if (bits < 64) try isel.emit(.ccmp(
+                                                lo_ra.x(),
+                                                .{ .register = ext_ra.x() },
+                                                .{ .n = false, .z = false, .c = false, .v = false },
+                                                .eq,
+                                            ));
+                                            try isel.emit(.subs(.xzr, hi_ra.x(), .{ .shifted_register = .{
+                                                .register = lo_ra.x(),
+                                                .shift = .{ .asr = 63 },
+                                            } }));
+                                        },
+                                        .unsigned => {
+                                            try isel.emit(.subs(.xzr, hi_ra.x(), .{ .immediate = 0 }));
+                                            if (bits < 64) try isel.emit(.orr(hi_ra.x(), hi_ra.x(), .{ .shifted_register = .{
+                                                .register = lo_ra.x(),
+                                                .shift = .{ .lsr = @intCast(bits) },
+                                            } }));
+                                        },
+                                    }
+                                }
+                                // Emission is in reverse execution order: the wrapped value is read from `ext`
+                                // (or `lo`), so it is emitted before `ext` is computed.
+                                if (wrapped_ra) |ra| try isel.emit(switch (bits) {
+                                    else => switch (int_info.signedness) {
+                                        .signed => .orr(ra.x(), .xzr, .{ .register = ext_ra.x() }),
+                                        .unsigned => .ubfm(ra.x(), lo_ra.x(), .{
+                                            .N = .doubleword,
+                                            .immr = 0,
+                                            .imms = @intCast(bits - 1),
+                                        }),
+                                    },
+                                    64 => .orr(ra.x(), .xzr, .{ .register = lo_ra.x() }),
+                                });
+                                if (ext_ra != .zr) try isel.emit(.sbfm(ext_ra.x(), lo_ra.x(), .{
+                                    .N = .doubleword,
+                                    .immr = 0,
+                                    .imms = @intCast(bits - 1),
+                                }));
+                                const lhs_vi = try isel.use(bin_op.lhs);
+                                const rhs_vi = try isel.use(bin_op.rhs);
+                                const lhs_mat = try lhs_vi.matReg(isel);
+                                const rhs_mat = try rhs_vi.matReg(isel);
+                                if (overflow_ra != null) try isel.emit(switch (int_info.signedness) {
+                                    .signed => .smulh(hi_ra.x(), lhs_mat.ra.x(), rhs_mat.ra.x()),
+                                    .unsigned => .umulh(hi_ra.x(), lhs_mat.ra.x(), rhs_mat.ra.x()),
+                                });
+                                try isel.emit(.madd(lo_ra.x(), lhs_mat.ra.x(), rhs_mat.ra.x(), .xzr));
+                                try rhs_mat.finish(isel);
+                                try lhs_mat.finish(isel);
+                            },
+                        }
+                    },
+                    // The product is formed by compiler_rt on the operands extended to 128 bits: it returns
+                    // the low 128 bits wrapped to `bits` and extended, and writes the overflow flag (0 or 1)
+                    // through the pointer in x5.
+                    65...128 => |bits| {
+                        const flag_offset = InternPool.Alignment.@"4".forward(isel.stack_size);
+                        isel.stack_size = @intCast(flag_offset + 4);
+                        const overflow_ra = try overflow_vi.?.defReg(isel);
+                        if (overflow_ra) |ra| try isel.loadReg(ra, 4, .unsigned, .sp, flag_offset);
+
+                        try call.prepareReturn(isel);
+                        var res_hi64_it = wrapped_vi.?.field(ty, 8, 8);
+                        const res_hi64_vi = try res_hi64_it.only(isel);
+                        try call.returnLiveIn(isel, res_hi64_vi.?, .r1);
+                        var res_lo64_it = wrapped_vi.?.field(ty, 0, 8);
+                        const res_lo64_vi = try res_lo64_it.only(isel);
+                        try call.returnLiveIn(isel, res_lo64_vi.?, .r0);
+                        try call.finishReturn(isel);
+
+                        try call.prepareCallee(isel);
+                        try isel.global_relocs.append(gpa, .{
+                            .name = switch (int_info.signedness) {
+                                .signed => "__mulobi128",
+                                .unsigned => "__umulobi128",
+                            },
+                            .reloc = .{ .label = @intCast(isel.instructions.items.len) },
+                        });
+                        try isel.emit(.bl(0));
+                        try call.finishCallee(isel);
+
+                        try call.prepareParams(isel);
+                        const lhs_vi = try isel.use(bin_op.lhs);
+                        const rhs_vi = try isel.use(bin_op.rhs);
+                        try call.paramReg(isel, .sp, flag_offset, .r5);
+                        try isel.movImmediate(.x4, bits);
+                        var rhs_hi64_it = rhs_vi.field(ty, 8, 8);
+                        const rhs_hi64_vi = try rhs_hi64_it.only(isel);
+                        try call.paramLiveOut(isel, rhs_hi64_vi.?, .r3);
+                        var rhs_lo64_it = rhs_vi.field(ty, 0, 8);
+                        const rhs_lo64_vi = try rhs_lo64_it.only(isel);
+                        try call.paramLiveOut(isel, rhs_lo64_vi.?, .r2);
+                        var lhs_hi64_it = lhs_vi.field(ty, 8, 8);
+                        const lhs_hi64_vi = try lhs_hi64_it.only(isel);
+                        try call.paramLiveOut(isel, lhs_hi64_vi.?, .r1);
+                        var lhs_lo64_it = lhs_vi.field(ty, 0, 8);
+                        const lhs_lo64_vi = try lhs_lo64_it.only(isel);
+                        try call.paramLiveOut(isel, lhs_lo64_vi.?, .r0);
+                        try call.finishParams(isel);
+                    },
+                    else => return isel.fail("too big {t} {f}", .{ air_tag, isel.fmtType(ty) }),
+                }
+            }
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
         .alloc, .ret_ptr => |air_tag| {
             if (isel.live_values.fetchRemove(air.inst_index)) |ptr_vi| unused: {
                 defer ptr_vi.value.deref(isel);
