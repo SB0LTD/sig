@@ -214,6 +214,11 @@ pub const Feature = enum {
     /// Replace `ptr_elem_val` with an `ptr_elem_ptr` followed by a `load`.
     expand_ptr_elem_val,
 
+    /// Replace `tag_name` with a chain of `cmp_eq` and `cond_br` over the fields of the enum, where each
+    /// branch yields the interned `[:0]const u8` name of its field. Backends that cannot emit the lazy
+    /// name table enable this. The last field is selected without a comparison: an operand that does not
+    /// name any field is illegal behavior, as for the lazy table. Code size is linear in the field count.
+    expand_tag_name,
     /// Replace a scalar `shl_with_overflow` with `shl`, a `shr` by the same amount and a `cmp_neq` against the
     /// original operand; the result tuple is assembled in memory. Vectors are not handled by this feature
     /// (see `scalarize_shl_with_overflow`).
@@ -987,10 +992,12 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
             .atomic_store_seq_cst,
             .atomic_rmw,
             .is_named_enum_value,
-            .tag_name,
             .error_name,
             .error_set_has_value,
             => {},
+            .tag_name => if (l.features.has(.expand_tag_name)) {
+                continue :inst l.replaceInst(inst, .block, try l.tagNameBlockPayload(inst));
+            },
             .aggregate_init => if (l.features.has(.expand_packed_aggregate_init)) {
                 const ty_pl = l.air_instructions.items(.data)[@backingInt(inst)].ty_pl;
                 const agg_ty = ty_pl.ty;
@@ -2654,6 +2661,82 @@ fn shlWithOverflowBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Ai
 
     return .{ .ty_pl = .{
         .ty = tuple_ty,
+        .payload = try l.addBlockBody(main_block.body()),
+    } };
+}
+/// Expand `tag_name` into a chain over the fields of the enum:
+///
+/// %1 = block([:0]const u8, {
+///   %2 = cmp_eq(%tag, @field_0)
+///   %3 = cond_br(%2, {
+///     %4 = br(%1, "field_0")
+///   }, {
+///     %5 = cmp_eq(%tag, @field_1)
+///     ...
+///       %n = br(%1, "field_last")
+///   })
+/// })
+///
+/// The last field needs no comparison: a value that is none of the fields is illegal behavior.
+fn tagNameBlockPayload(l: *Legalize, orig_inst: Air.Inst.Index) Error!Air.Inst.Data {
+    const pt = l.pt;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    const tag_ref = l.air_instructions.items(.data)[@backingInt(orig_inst)].un_op;
+    const enum_ty = l.typeOf(tag_ref);
+    const slice_ty = l.typeOfIndex(orig_inst);
+    const fields_len = enum_ty.enumFieldCount(zcu);
+
+    // Per field but the last: `cmp_eq`, `cond_br` and the `br` of its then-branch; then one final `br`
+    // (or, without fields, an `unreach`).
+    const inst_len = if (fields_len == 0) 1 else 3 * (fields_len - 1) + 1;
+    const inst_buf = try gpa.alloc(Air.Inst.Index, inst_len);
+    defer gpa.free(inst_buf);
+    const condbr_buf = try gpa.alloc(CondBr, fields_len -| 1);
+    defer gpa.free(condbr_buf);
+    try l.air_instructions.ensureUnusedCapacity(gpa, inst_len);
+
+    var main_block: Block = .init(inst_buf);
+    var cur_block: *Block = &main_block;
+    if (fields_len == 0) {
+        _ = cur_block.add(l, .{ .tag = .unreach, .data = .{ .no_op = {} } });
+    }
+    for (0..fields_len) |field_index| {
+        const name = enum_ty.enumFieldName(field_index, zcu);
+        const name_len = name.length(&zcu.intern_pool);
+        const name_ref = Air.internedToRef(try pt.intern(.{ .slice = .{
+            .ty = .slice_const_u8_sentinel_0_type,
+            .ptr = try pt.intern(.{ .ptr = .{
+                .ty = .manyptr_const_u8_sentinel_0_type,
+                .base_addr = .{ .uav = .{
+                    .orig_ty = .slice_const_u8_sentinel_0_type,
+                    .val = try pt.intern(.{ .aggregate = .{
+                        .ty = (try pt.arrayType(.{ .len = name_len, .sentinel = .zero_u8, .child = .u8_type })).toIntern(),
+                        .storage = .{ .bytes = name.toString() },
+                    } }),
+                } },
+                .byte_offset = 0,
+            } }),
+            .len = (try pt.intValue(.usize, name_len)).toIntern(),
+        } }));
+        if (field_index + 1 == fields_len) {
+            cur_block.addBr(l, orig_inst, name_ref);
+            break;
+        }
+        const field_tag_ref = Air.internedToRef((try pt.enumValueFieldIndex(enum_ty, @intCast(field_index))).toIntern());
+        const is_field = cur_block.addCmpScalar(l, .eq, tag_ref, field_tag_ref, false);
+        const condbr = &condbr_buf[field_index];
+        condbr.* = .init(l, is_field.toRef(), cur_block, .{});
+        condbr.then_block = .init(cur_block.stealRemainingCapacity());
+        condbr.then_block.addBr(l, orig_inst, name_ref);
+        condbr.else_block = .init(condbr.then_block.stealRemainingCapacity());
+        cur_block = &condbr.else_block;
+    }
+    _ = cur_block.stealRemainingCapacity();
+
+    for (condbr_buf) |condbr| try condbr.finish(l);
+    return .{ .ty_pl = .{
+        .ty = slice_ty,
         .payload = try l.addBlockBody(main_block.body()),
     } };
 }

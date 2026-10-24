@@ -30,6 +30,8 @@ pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
         .expand_mul_safe,
         // `@shlWithOverflow` of scalars is `shl`, `shr` and a comparison.
         .expand_shl_with_overflow,
+        // There is no lazy table of enum names for this target: `@tagName` is a compare chain.
+        .expand_tag_name,
     });
 }
 
