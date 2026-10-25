@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build and execute the aarch64-sb0 native backend runtime probes as SB0K images under QEMU.
-# Every probe is built in ReleaseSafe (-fno-compiler-rt) and ReleaseSmall, must print its PASS
-# marker and must not print its FAIL marker. The compile step runs under `timeout` so a compiler
+# Every probe is built in ReleaseSafe (-fno-compiler-rt) and ReleaseSmall (unless its entry lists other
+# modes), must print its PASS marker and must not print its FAIL marker. The compile step runs under `timeout` so a compiler
 # hang (for example a non-terminating FieldPartIterator request) fails the test instead of the job.
 set -euo pipefail
 if [[ $# != 2 ]]; then
@@ -15,7 +15,8 @@ WORK="$(realpath "$2")"
 QEMU="${SB0_QEMU:-qemu-system-aarch64}"
 COMPILE_TIMEOUT="${SB0_COMPILE_TIMEOUT:-120}"
 cd "$ROOT"
-# name|probe source|PASS marker (the FAIL marker is the PASS marker with PASS replaced by FAIL)
+# name|probe source|PASS marker (the FAIL marker is the PASS marker with PASS replaced by FAIL)[|modes|seconds]
+# The wide integer probe needs the compiler_rt big-integer helpers, so it only runs in ReleaseSmall.
 PROBES=(
   "database|test/sb0_database_codegen_probe.sig|SB0-DATABASE-CODEGEN-PASS"
   "partsplit|test/sb0_partsplit_probe.sig|SB0-PARTSPLIT-PASS"
@@ -23,10 +24,13 @@ PROBES=(
   "aggregate|test/sb0_aggregate_load_probe.sig|SB0-AGG-PASS"
   "overflow|test/sb0_overflow_probe.sig|SB0-OVF-PASS"
   "enum|test/sb0_enum_codegen_probe.sig|SB0-TAGNAME-PASS"
+  "wide|test/sb0_wide_int_probe.sig|SB0-WIDE-PASS|ReleaseSmall|90"
 )
 for entry in "${PROBES[@]}"; do
-  IFS='|' read -r name source marker <<<"$entry"
-  for mode in ReleaseSafe ReleaseSmall; do
+  IFS='|' read -r name source marker modes limit <<<"$entry"
+  modes="${modes:-ReleaseSafe ReleaseSmall}"
+  limit="${limit:-8}"
+  for mode in $modes; do
     image="$WORK/$name-$mode.sb0k"
     runtime=()
     if [[ "$mode" == ReleaseSafe ]]; then runtime=(-fno-compiler-rt); fi
@@ -35,9 +39,10 @@ for entry in "${PROBES[@]}"; do
       --Sig-lib-dir "$ROOT/lib" --script test/sb0_runner.ld \
       -fno-stack-check -fno-stack-protector -fno-unwind-tables -fstrip "${runtime[@]}" \
       --cache-dir "$WORK/cache-$name-$mode" "-femit-bin=$image"
-    python3 - "$QEMU" "$image" "$WORK/$name-$mode.serial.log" "$marker" <<'PY'
-import pathlib, struct, subprocess, sys
-qemu, path, log, marker = sys.argv[1:]
+    python3 - "$QEMU" "$image" "$WORK/$name-$mode.serial.log" "$marker" "$limit" <<'PY'
+import os, pathlib, select, struct, subprocess, sys, time
+qemu, path, log, marker, limit = sys.argv[1:]
+limit = float(limit)
 assert marker.endswith('-PASS')
 fail_marker = marker[:-len('PASS')] + 'FAIL'
 data = pathlib.Path(path).read_bytes()
@@ -51,15 +56,27 @@ command = [qemu, '-machine', 'virt', '-cpu', 'cortex-a57', '-m', '128M',
            '-device', f'loader,addr={0x40200000 + entry:#x},cpu-num=0']
 process = subprocess.Popen(command, stdin=subprocess.DEVNULL,
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+# Read the serial output until the probe reports (the probes park after the marker) or the time limit ends.
+output = b''
+deadline = time.monotonic() + limit
+while time.monotonic() < deadline:
+    ready, _, _ = select.select([process.stdout], [], [], 0.2)
+    if ready:
+        chunk = os.read(process.stdout.fileno(), 65536)
+        if not chunk:
+            break
+        output += chunk
+        if (marker + '\n').encode() in output or b'mismatches=' in output:
+            break
+    elif process.poll() is not None:
+        break
+process.terminate()
 try:
-    output, errors = process.communicate(timeout=8)
+    rest, errors = process.communicate(timeout=3)
 except subprocess.TimeoutExpired:
-    process.terminate()
-    try:
-        output, errors = process.communicate(timeout=3)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        output, errors = process.communicate(timeout=3)
+    process.kill()
+    rest, errors = process.communicate(timeout=3)
+output += rest
 pathlib.Path(log).write_bytes(output + errors)
 assert (marker + '\n').encode() in output, (output, errors)
 assert fail_marker.encode() not in output, output
