@@ -995,18 +995,36 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
 
                 const bin_op = air.data(air.inst_index).bin_op;
                 const ty = isel.air.typeOf(bin_op.lhs, ip);
-                if (!ty.isRuntimeFloat()) try res_vi.value.addOrSubtract(isel, ty, try isel.use(bin_op.lhs), switch (air_tag) {
-                    else => unreachable,
-                    .add, .add_safe, .add_wrap => .add,
-                    .sub, .sub_safe, .sub_wrap => .sub,
-                }, try isel.use(bin_op.rhs), .{
-                    .overflow = switch (air_tag) {
+                if (!ty.isRuntimeFloat()) {
+                    if (try isel.wideIntBits(air_tag, ty)) |_| {
+                        try isel.wideAddOrSub(res_vi.value, air_tag, ty, bin_op.lhs, bin_op.rhs);
+                        break :unused;
+                    }
+                    try res_vi.value.addOrSubtract(isel, ty, try isel.use(bin_op.lhs), switch (air_tag) {
                         else => unreachable,
-                        .add, .sub => .@"unreachable",
-                        .add_safe, .sub_safe => .{ .panic = .integer_overflow },
-                        .add_wrap, .sub_wrap => .wrap,
-                    },
-                }) else switch (ty.floatBits(isel.target)) {
+                        .add, .add_safe, .add_wrap => .add,
+                        .sub, .sub_safe, .sub_wrap => .sub,
+                    }, try isel.use(bin_op.rhs), .{
+                        .overflow = switch (air_tag) {
+                            else => unreachable,
+                            .add, .sub => .@"unreachable",
+                            .add_safe, .sub_safe => .{ .panic = .integer_overflow },
+                            .add_wrap, .sub_wrap => .wrap,
+                        },
+                    });
+                } else switch (ty.floatBits(isel.target)) {
+                            .add, .sub => .@"unreachable",
+                            .add_safe, .sub_safe => .{ .panic = .integer_overflow },
+                            .add_wrap, .sub_wrap => .wrap,
+                        },
+                    });
+                } else switch (ty.floatBits(isel.target)) {
+                            .add, .sub => .@"unreachable",
+                            .add_safe, .sub_safe => .{ .panic = .integer_overflow },
+                            .add_wrap, .sub_wrap => .wrap,
+                        },
+                    });
+                } else switch (ty.floatBits(isel.target)) {
                     else => unreachable,
                     16, 32, 64 => |bits| {
                         const res_ra = try res_vi.value.defReg(isel) orelse break :unused;
@@ -1330,10 +1348,6 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             var res_hi64_it = res_vi.value.field(ty, 8, 8);
                             const res_hi64_vi = try res_hi64_it.only(isel);
                             const res_hi64_ra = try res_hi64_vi.?.defReg(isel);
-                            // The low half is defined next: without the lock a part that is spilled to the
-                            // stack gets the same scratch register as the high half.
-                            const res_hi64_lock: RegLock = if (res_hi64_ra) |ra| isel.lockReg(ra) else .empty;
-                            defer res_hi64_lock.unlock(isel);
                             var res_lo64_it = res_vi.value.field(ty, 0, 8);
                             const res_lo64_vi = try res_lo64_it.only(isel);
                             const res_lo64_ra = try res_lo64_vi.?.defReg(isel);
@@ -1361,6 +1375,12 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             const lhs_vi = try isel.use(bin_op.lhs);
                             const rhs_vi = try isel.use(bin_op.rhs);
                             const lhs_lo64_mat, const rhs_lo64_mat = lo64_mat: {
+                                const res_hi64_lock: RegLock = if (res_hi64_ra != null and res_lo64_ra != null)
+                                    isel.lockReg(res_hi64_ra.?)
+                                else
+                                    .empty;
+                                defer res_hi64_lock.unlock(isel);
+
                                 var rhs_lo64_it = rhs_vi.field(ty, 0, 8);
                                 const rhs_lo64_vi = try rhs_lo64_it.only(isel);
                                 const rhs_lo64_mat = try rhs_lo64_vi.?.matReg(isel);
@@ -1379,12 +1399,13 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                                 const lhs_hi64_mat = try lhs_hi64_vi.?.matReg(isel);
                                 const acc_ra = try isel.allocIntReg();
                                 defer isel.freeReg(acc_ra);
-                                try isel.emit(.madd(res_ra.x(), lhs_hi64_mat.ra.x(), rhs_lo64_mat.ra.x(), acc_ra.x()));
-                                try isel.emit(.madd(acc_ra.x(), lhs_lo64_mat.ra.x(), rhs_hi64_mat.ra.x(), acc_ra.x()));
-                                try isel.emit(.umulh(acc_ra.x(), lhs_lo64_mat.ra.x(), rhs_lo64_mat.ra.x()));
-                                try rhs_hi64_mat.finish(isel);
-                                try lhs_hi64_mat.finish(isel);
-                            }
+                            try rhs_lo64_mat.finish(isel);
+                            try lhs_lo64_mat.finish(isel);
+                        },
+                        129...wide_int_max_bits => try isel.wideBinary(res_vi.value, ty, "__mulei4", bin_op.lhs, bin_op.rhs),
+                        else => return isel.fail("too big {t} {f}", .{ air_tag, isel.fmtType(ty) }),
+                    }
+                } else switch (ty.floatBits(isel.target)) {
                             try rhs_lo64_mat.finish(isel);
                             try lhs_lo64_mat.finish(isel);
                         },
@@ -2028,15 +2049,18 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                                     .unsigned => .udiv(div_ra.w(), lhs_mat.ra.w(), rhs_mat.ra.w()),
                                 },
                                 33...64 => switch (int_info.signedness) {
-                                    .signed => .sdiv(div_ra.x(), lhs_mat.ra.x(), rhs_mat.ra.x()),
-                                    .unsigned => .udiv(div_ra.x(), lhs_mat.ra.x(), rhs_mat.ra.x()),
-                                },
-                            });
-                            try rhs_mat.finish(isel);
-                            try lhs_mat.finish(isel);
-                        },
                         65...128 => {
                             switch (air_tag) {
+                                else => unreachable,
+                                .div_trunc, .div_exact => {},
+                                .div_floor => switch (int_info.signedness) {
+                                    .signed => {
+                                        try isel.wideBinary(res_vi.value, ty, "__divfloorei4", bin_op.lhs, bin_op.rhs);
+                                        break :unused;
+                                    },
+                                    .unsigned => {},
+                                },
+                            }
                                 else => unreachable,
                                 .div_trunc, .div_exact => {},
                                 .div_floor => switch (int_info.signedness) {
@@ -2069,12 +2093,17 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             const lhs_vi = try isel.use(bin_op.lhs);
                             const rhs_vi = try isel.use(bin_op.rhs);
                             var rhs_hi64_it = rhs_vi.field(ty, 8, 8);
-                            const rhs_hi64_vi = try rhs_hi64_it.only(isel);
-                            try call.paramLiveOut(isel, rhs_hi64_vi.?, .r3);
-                            var rhs_lo64_it = rhs_vi.field(ty, 0, 8);
-                            const rhs_lo64_vi = try rhs_lo64_it.only(isel);
-                            try call.paramLiveOut(isel, rhs_lo64_vi.?, .r2);
-                            var lhs_hi64_it = lhs_vi.field(ty, 8, 8);
+                            try call.paramLiveOut(isel, lhs_lo64_vi.?, .r0);
+                            try call.finishParams(isel);
+                        },
+                        129...wide_int_max_bits => try isel.wideBinary(res_vi.value, ty, switch (air_tag) {
+                            else => unreachable,
+                            .div_trunc, .div_exact => "__divtruncei4",
+                            .div_floor => "__divfloorei4",
+                        }, bin_op.lhs, bin_op.rhs),
+                        else => return isel.fail("too big {t} {f}", .{ air_tag, isel.fmtType(ty) }),
+                    }
+                } else switch (ty.floatBits(isel.target)) {ty, 8, 8);
                             const lhs_hi64_vi = try lhs_hi64_it.only(isel);
                             try call.paramLiveOut(isel, lhs_hi64_vi.?, .r1);
                             var lhs_lo64_it = lhs_vi.field(ty, 0, 8);
@@ -2225,15 +2254,23 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                                 const lhs_lo64_vi = try lhs_lo64_it.only(isel);
                                 try call.paramLiveOut(isel, lhs_lo64_vi.?, .r0);
                             },
-                        }
-                        try call.finishParams(isel);
-                    },
-                }
-            }
-            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
-        },
-        .rem, .rem_optimized, .mod, .mod_optimized => |air_tag| {
-            if (isel.live_values.fetchRemove(air.inst_index)) |res_vi| unused: {
+                    const int_info = ty.intInfo(zcu);
+                    if (int_info.bits > 64) {
+                        if (int_info.bits > wide_int_max_bits) return isel.fail("too big {t} {f}", .{ air_tag, isel.fmtType(ty) });
+                        try isel.wideBinary(res_vi.value, ty, switch (air_tag) {
+                            else => unreachable,
+                            .rem => "__remei4",
+                            .mod => "__floormodei4",
+                        }, bin_op.lhs, bin_op.rhs);
+                        break :unused;
+                    }
+
+                    const res_ra = try res_vi.value.defReg(isel) orelse break :unused;
+                    const lhs_vi = try isel.use(bin_op.lhs);
+                    const rhs_vi = try isel.use(bin_op.rhs);
+                    const lhs_mat = try lhs_vi.matReg(isel);
+                    const rhs_mat = try rhs_vi.matReg(isel);
+                    const div_ra = try isel.allocIntReg();x)) |res_vi| unused: {
                 defer res_vi.value.deref(isel);
 
                 const bin_op = air.data(air.inst_index).bin_op;
@@ -2690,13 +2727,17 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             16, 32, 64, 128 => {
                                 try call.paramLiveOut(isel, rhs_vi, .v1);
                                 try call.paramLiveOut(isel, lhs_vi, .v0);
-                            },
-                            80 => {
-                                var rhs_hi16_it = rhs_vi.field(ty, 8, 8);
-                                const rhs_hi16_vi = try rhs_hi16_it.only(isel);
-                                try call.paramLiveOut(isel, rhs_hi16_vi.?, .r3);
-                                var rhs_lo64_it = rhs_vi.field(ty, 0, 8);
-                                const rhs_lo64_vi = try rhs_lo64_it.only(isel);
+            if (isel.live_values.fetchRemove(air.inst_index)) |res_vi| unused: {
+                defer res_vi.value.deref(isel);
+
+                const ty_pl = air.data(air.inst_index).ty_pl;
+                const bin_op = isel.air.extraData(Air.Bin, ty_pl.payload).data;
+                const ty = isel.air.typeOf(bin_op.lhs, ip);
+                if (try isel.wideIntBits(air_tag, ty)) |_| {
+                    try isel.wideOverflow(res_vi.value, air_tag, ty_pl.ty, ty, bin_op.lhs, bin_op.rhs);
+                    break :unused;
+                }
+                const lhs_vi = try isel.use(bin_op.lhs);rhs_lo64_it.only(isel);
                                 try call.paramLiveOut(isel, rhs_lo64_vi.?, .r2);
                                 var lhs_hi16_it = lhs_vi.field(ty, 8, 8);
                                 const lhs_hi16_vi = try lhs_hi16_it.only(isel);
@@ -2910,12 +2951,13 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                         try call.prepareCallee(isel);
                         try isel.global_relocs.append(gpa, .{
                             .name = switch (int_info.signedness) {
-                                .signed => "__mulobi128",
-                                .unsigned => "__umulobi128",
-                            },
-                            .reloc = .{ .label = @intCast(isel.instructions.items.len) },
-                        });
-                        try isel.emit(.bl(0));
+                    129...wide_int_max_bits => try isel.wideOverflow(res_vi.value, air_tag, ty_pl.ty, ty, bin_op.lhs, bin_op.rhs),
+                    else => return isel.fail("too big {t} {f}", .{ air_tag, isel.fmtType(ty) }),
+                }
+            }
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .alloc, .ret_ptr => |air_tag| {bl(0));
                         try call.finishCallee(isel);
 
                         try call.prepareParams(isel);
@@ -3455,18 +3497,26 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                 const constraint = input.constraint;
                 const name = input.name;
 
-                if (std.mem.startsWith(u8, constraint, "{") and std.mem.endsWith(u8, constraint, "}")) {
-                    try input_mats[index].vi.liveOut(isel, input_mats[index].ra);
-                } else if (std.mem.eql(u8, constraint, "r")) {
-                    try input_mats[index].finish(isel);
-                } else if (std.mem.eql(u8, constraint, "S")) {
-                    // Symbolic-address operand: no register was materialized;
-                    // the name is substituted textually and relocated.
-                } else if (std.mem.eql(u8, name, "_")) {
-                    try input_mats[index].vi.mat(isel);
-                } else unreachable;
-            }
+            if (isel.live_values.fetchRemove(air.inst_index)) |res_vi| unused: {
+                defer res_vi.value.deref(isel);
 
+                const bin_op = air.data(air.inst_index).bin_op;
+                const ty = isel.air.typeOf(bin_op.lhs, ip);
+                const int_info: std.lang.Type.Int = if (ty.toIntern() == .bool_type)
+                    .{ .signedness = .unsigned, .bits = 1 }
+                else if (ty.isAbiInt(zcu))
+                    ty.intInfo(zcu)
+                else
+                    return isel.fail("bad {t} {f}", .{ air_tag, isel.fmtType(ty) });
+                if (try isel.wideIntBits(air_tag, ty)) |_| {
+                    try isel.wideBinary(res_vi.value, ty, switch (air_tag) {
+                        else => unreachable,
+                        .bit_and => "__andei4",
+                        .bit_or => "__orei4",
+                        .xor => "__xorei4",
+                    }, bin_op.lhs, bin_op.rhs);
+                    break :unused;
+                }
             for (0..clobbers_ty.structFieldCount(zcu)) |field_index| {
                 const limb_bits = @bitSizeOf(std.math.big.Limb);
                 if (field_index / limb_bits >= clobbers_bigint.limbs.len) continue; // field is false
@@ -8950,6 +9000,262 @@ fn loadsViaRegisters(isel: *Select, ty: ZigType, size: u64) bool {
     return size <= Value.max_parts and
         ty.zigTypeTag(zcu) != .@"union" and
         !(ty.zigTypeTag(zcu) == .optional and !ty.optionalReprIsPayload(zcu));
+}
+
+/// The largest integer width with a register part model (`Value.max_parts` 64 bit parts).
+const wide_int_max_bits = 1024;
+
+/// Integers of more than 128 bits have no inline lowering. Their operations call the big-integer helpers of
+/// `lib/compiler_rt/bigint.sig`, which take operands and results as little-endian 64 bit limbs in memory.
+/// Returns the width of `ty` if it is such an integer type of at most 1024 bits, null for any other type,
+/// and fails for wider integers.
+fn wideIntBits(isel: *Select, air_tag: Air.Inst.Tag, ty: ZigType) !?u16 {
+    const zcu = isel.pt.zcu;
+    if (!ty.isAbiInt(zcu)) return null;
+    const bits = ty.intInfo(zcu).bits;
+    if (bits <= 128) return null;
+    if (bits > wide_int_max_bits) return isel.fail("too big {t} {f}", .{ air_tag, isel.fmtType(ty) });
+    return bits;
+}
+
+fn wideSigned(isel: *Select, ty: ZigType) u64 {
+    return @intFromBool(ty.intInfo(isel.pt.zcu).signedness == .signed);
+}
+
+/// An argument of a call to a big-integer helper; the arguments take the registers x0, x1, ... in order.
+const WideArg = union(enum) {
+    /// The address of the memory that receives the result value passed to `wideArgs`.
+    result,
+    /// The address of the memory image of the integer `ref`.
+    address: Air.Inst.Ref,
+    /// The integer `ref` of at most 64 bits, in a register.
+    value: Air.Inst.Ref,
+    /// The 64 bit part at `offset` of the integer `ref` of 65...128 bits, in a register.
+    part: struct { ref: Air.Inst.Ref, offset: u64 },
+    imm: u64,
+    /// The address `sp + offset` of the 4 byte overflow flag.
+    flag: u64,
+};
+
+/// Begin a call of the compiler_rt function `name` that returns in x0 the value `ret_vi` (or nothing).
+/// Emission is in reverse execution order: the sequence that follows (`wideArgs`) executes first.
+fn beginWideCall(isel: *Select, name: []const u8, ret_vi: ?Value.Index) !void {
+    const gpa = isel.pt.zcu.gpa;
+    try call.prepareReturn(isel);
+    if (ret_vi) |vi| try call.returnLiveIn(isel, vi, .r0);
+    try call.finishReturn(isel);
+
+    try call.prepareCallee(isel);
+    try isel.global_relocs.append(gpa, .{
+        .name = name,
+        .reloc = .{ .label = @intCast(isel.instructions.items.len) },
+    });
+    try isel.emit(.bl(0));
+    try call.finishCallee(isel);
+
+    try call.prepareParams(isel);
+}
+
+/// Pass `args` to the call begun with `beginWideCall`. `res_vi` is the value whose address `.result` passes.
+fn wideArgs(isel: *Select, res_vi: Value.Index, args: []const WideArg) !void {
+    const ip = &isel.pt.zcu.intern_pool;
+    const param_regs = [_]Register.Alias{ .r0, .r1, .r2, .r3, .r4, .r5, .r6, .r7 };
+    var index = args.len;
+    while (index > 0) {
+        index -= 1;
+        const ra = param_regs[index];
+        switch (args[index]) {
+            .result => try call.paramAddress(isel, res_vi, ra),
+            .address => |ref| try call.paramAddress(isel, try isel.use(ref), ra),
+            .value => |ref| try call.paramLiveOut(isel, try isel.use(ref), ra),
+            .part => |part| {
+                const vi = try isel.use(part.ref);
+                var part_it = vi.field(isel.air.typeOf(part.ref, ip), part.offset, 8);
+                const part_vi = try part_it.only(isel);
+                try call.paramLiveOut(isel, part_vi.?, ra);
+            },
+            .imm => |imm| try isel.movImmediate(ra.x(), imm),
+            .flag => |offset| try call.paramReg(isel, .sp, offset, ra),
+        }
+    }
+    try call.finishParams(isel);
+}
+
+/// `res = helper(&res, &lhs, &rhs, bits, signed)` of the wrapping big-integer helpers of `bigint.sig`.
+fn wideBinary(
+    isel: *Select,
+    res_vi: Value.Index,
+    ty: ZigType,
+    name: []const u8,
+    lhs: Air.Inst.Ref,
+    rhs: Air.Inst.Ref,
+) !void {
+    try res_vi.defAddr(isel, ty, .{}) orelse return;
+    try isel.beginWideCall(name, null);
+    try isel.wideArgs(res_vi, &.{
+        .result,
+        .{ .address = lhs },
+        .{ .address = rhs },
+        .{ .imm = ty.intInfo(isel.pt.zcu).bits },
+        .{ .imm = isel.wideSigned(ty) },
+    });
+}
+
+/// `res = helper(&res, &operand, bits, signed)`.
+fn wideUnary(isel: *Select, res_vi: Value.Index, ty: ZigType, name: []const u8, operand: Air.Inst.Ref) !void {
+    try res_vi.defAddr(isel, ty, .{}) orelse return;
+    try isel.beginWideCall(name, null);
+    try isel.wideArgs(res_vi, &.{
+        .result,
+        .{ .address = operand },
+        .{ .imm = ty.intInfo(isel.pt.zcu).bits },
+        .{ .imm = isel.wideSigned(ty) },
+    });
+}
+
+/// `res = helper(&res, &lhs, amount, bits, signed)`: the shift amount is passed in a register.
+fn wideShift(isel: *Select, res_vi: Value.Index, ty: ZigType, name: []const u8, lhs: Air.Inst.Ref, amount: Air.Inst.Ref) !void {
+    try res_vi.defAddr(isel, ty, .{}) orelse return;
+    try isel.beginWideCall(name, null);
+    try isel.wideArgs(res_vi, &.{
+        .result,
+        .{ .address = lhs },
+        .{ .value = amount },
+        .{ .imm = ty.intInfo(isel.pt.zcu).bits },
+        .{ .imm = isel.wideSigned(ty) },
+    });
+}
+
+/// `res = __cmpei4(&lhs, &rhs, bits, signed, op)`: the boolean result comes back in x0.
+fn wideCompare(
+    isel: *Select,
+    res_vi: Value.Index,
+    ty: ZigType,
+    op: std.math.CompareOperator,
+    lhs: Air.Inst.Ref,
+    rhs: Air.Inst.Ref,
+) !void {
+    if (!res_vi.isUsed(isel)) return;
+    try isel.beginWideCall("__cmpei4", res_vi);
+    try isel.wideArgs(res_vi, &.{
+        .{ .address = lhs },
+        .{ .address = rhs },
+        .{ .imm = ty.intInfo(isel.pt.zcu).bits },
+        .{ .imm = isel.wideSigned(ty) },
+        .{ .imm = @intFromEnum(op) },
+    });
+}
+
+/// `res = (dst_ty)operand` for an integer cast or truncation to an integer of more than 128 bits, or between
+/// integers that are not both of at most 128 bits.
+fn wideResize(isel: *Select, res_vi: Value.Index, dst_ty: ZigType, operand: Air.Inst.Ref, src_ty: ZigType) !void {
+    const zcu = isel.pt.zcu;
+    const dst_info = dst_ty.intInfo(zcu);
+    const src_info = src_ty.intInfo(zcu);
+    try res_vi.defAddr(isel, dst_ty, .{}) orelse return;
+    if (src_info.bits > 128) {
+        try isel.beginWideCall("__resizeei4", null);
+        try isel.wideArgs(res_vi, &.{
+            .result,
+            .{ .imm = dst_info.bits },
+            .{ .imm = isel.wideSigned(dst_ty) },
+            .{ .address = operand },
+            .{ .imm = src_info.bits },
+            .{ .imm = isel.wideSigned(src_ty) },
+        });
+    } else {
+        try isel.beginWideCall("__resize128ei4", null);
+        try isel.wideArgs(res_vi, &.{
+            .result,
+            .{ .imm = dst_info.bits },
+            .{ .imm = isel.wideSigned(dst_ty) },
+            if (src_info.bits > 64) .{ .part = .{ .ref = operand, .offset = 0 } } else .{ .value = operand },
+            if (src_info.bits > 64) .{ .part = .{ .ref = operand, .offset = 8 } } else .{ .imm = 0 },
+            .{ .imm = src_info.bits },
+            .{ .imm = isel.wideSigned(src_ty) },
+        });
+    }
+}
+
+/// `add`/`sub` (and their wrapping and checked forms) of an integer of more than 128 bits. The checked forms
+/// call the overflow variant of the helper and panic when it reports an overflow.
+fn wideAddOrSub(
+    isel: *Select,
+    res_vi: Value.Index,
+    air_tag: Air.Inst.Tag,
+    ty: ZigType,
+    lhs: Air.Inst.Ref,
+    rhs: Air.Inst.Ref,
+) !void {
+    const signed = isel.wideSigned(ty) != 0;
+    const is_add = switch (air_tag) {
+        .add, .add_wrap, .add_safe => true,
+        else => false,
+    };
+    switch (air_tag) {
+        .add_safe, .sub_safe => {
+            const flag_offset = InternPool.Alignment.@"4".forward(isel.stack_size);
+            isel.stack_size = @intCast(flag_offset + 4);
+            try res_vi.defAddr(isel, ty, .{}) orelse return;
+            const flag_ra = try isel.allocIntReg();
+            defer isel.freeReg(flag_ra);
+            // Panic unless the flag read back from the stack is zero.
+            const skip_label = isel.instructions.items.len;
+            try isel.emitPanic(.integer_overflow);
+            try isel.emit(.@"b."(.eq, @intCast((isel.instructions.items.len + 1 - skip_label) << 2)));
+            try isel.emit(.subs(.wzr, flag_ra.w(), .{ .immediate = 0 }));
+            try isel.loadReg(flag_ra, 4, .unsigned, .sp, flag_offset);
+            try isel.beginWideCall(if (is_add)
+                (if (signed) "__addoei4" else "__uaddoei4")
+            else
+                (if (signed) "__suboei4" else "__usuboei4"), null);
+            try isel.wideArgs(res_vi, &.{
+                .result,
+                .{ .address = lhs },
+                .{ .address = rhs },
+                .{ .imm = ty.intInfo(isel.pt.zcu).bits },
+                .{ .flag = flag_offset },
+            });
+        },
+        else => try isel.wideBinary(res_vi, ty, if (is_add) "__addei4" else "__subei4", lhs, rhs),
+    }
+}
+
+/// `add_with_overflow`, `sub_with_overflow` and `mul_with_overflow` of an integer of more than 128 bits: the
+/// helper writes the wrapped value and the 4 byte flag.
+fn wideOverflow(
+    isel: *Select,
+    res_vi: Value.Index,
+    air_tag: Air.Inst.Tag,
+    ty_pl: Air.Inst.Data.TyPl,
+    ty: ZigType,
+    lhs: Air.Inst.Ref,
+    rhs: Air.Inst.Ref,
+) !void {
+    const signed = isel.wideSigned(ty) != 0;
+    const ty_size = ty.abiSize(isel.pt.zcu);
+    var overflow_it = res_vi.field(ty_pl.ty, ty_size, 1);
+    const overflow_vi = try overflow_it.only(isel);
+    var wrapped_it = res_vi.field(ty_pl.ty, 0, ty_size);
+    const wrapped_vi = (try wrapped_it.only(isel)).?;
+    const flag_offset = InternPool.Alignment.@"4".forward(isel.stack_size);
+    isel.stack_size = @intCast(flag_offset + 4);
+    const overflow_ra = try overflow_vi.?.defReg(isel);
+    if (overflow_ra) |ra| try isel.loadReg(ra, 4, .unsigned, .sp, flag_offset);
+    const wrapped_used = try wrapped_vi.defAddr(isel, ty, .{}) != null;
+    if (overflow_ra == null and !wrapped_used) return;
+    try isel.beginWideCall(switch (air_tag) {
+        .add_with_overflow => if (signed) "__addoei4" else "__uaddoei4",
+        .sub_with_overflow => if (signed) "__suboei4" else "__usuboei4",
+        else => if (signed) "__muloei4" else "__umuloei4",
+    }, null);
+    try isel.wideArgs(wrapped_vi, &.{
+        .result,
+        .{ .address = lhs },
+        .{ .address = rhs },
+        .{ .imm = ty.intInfo(isel.pt.zcu).bits },
+        .{ .flag = flag_offset },
+    });
 }
 
 /// Start the `memcpy` that defines the element value `elem_vi` of type `elem_ty` from memory.
