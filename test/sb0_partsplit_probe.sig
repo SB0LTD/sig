@@ -292,7 +292,53 @@ noinline fn case16(x: u8) void {
     expect(makeOpt16(0) == null, "s16 optional null path");
 }
 
-var seed_cell: u8 = 0;
+// ---- a struct with a bare union field, built from an anonymous literal and passed by value -------------
+// (compiler/frontend/sema.sig `emitIR`): the 16 byte union is a single part wider than a register.
+const Node = struct {
+    tag: u16,
+    data: Data,
+    type_index: u32,
+    const Data = union {
+        binary: struct { lhs: u32, rhs: u32 },
+        constant: struct { value: u64 },
+        branch: struct { cond: u32, then_block: u32, else_block: u32 },
+        none: void,
+    };
+};
+var node_sink: [4]Node = undefined;
+var node_count: usize = 0;
+noinline fn emitNode(ir: Node) void {
+    node_sink[node_count & 3] = ir;
+    node_count += 1;
+}
+noinline fn emitConstant(value: u64, type_index: u32) u32 {
+    emitNode(.{ .tag = 1, .data = .{ .constant = .{ .value = value } }, .type_index = type_index });
+    return type_index;
+}
+noinline fn emitBinary(lhs: u32, rhs: u32, type_index: u32) u32 {
+    emitNode(.{ .tag = 2, .data = .{ .binary = .{ .lhs = lhs, .rhs = rhs } }, .type_index = type_index });
+    return type_index;
+}
+noinline fn emitBranch(x: u32) void {
+    emitNode(.{ .tag = 3, .data = .{ .branch = .{ .cond = x, .then_block = x +% 1, .else_block = x +% 2 } }, .type_index = x *% 3 });
+}
+noinline fn caseNode(x: u8) void {
+    const before = node_count;
+    const value: u64 = 0x1122_3344_5566_7788 ^ (@as(u64, x) << 8);
+    expect(emitConstant(value, x) == x, "node constant result");
+    const c = node_sink[before & 3];
+    expect(c.tag == 1 and c.type_index == x and c.data.constant.value == value, "node constant");
+    expect(emitBinary(x, ~@as(u32, x), x +% 40) == x +% 40, "node binary result");
+    const b = node_sink[(before + 1) & 3];
+    expect(b.tag == 2 and b.type_index == x +% 40 and b.data.binary.lhs == x and b.data.binary.rhs == ~@as(u32, x), "node binary");
+    emitBranch(x);
+    const r = node_sink[(before + 2) & 3];
+    expect(r.tag == 3 and r.type_index == @as(u32, x) *% 3 and r.data.branch.cond == x and
+        r.data.branch.then_block == @as(u32, x) +% 1 and r.data.branch.else_block == @as(u32, x) +% 2, "node branch");
+    expect(node_count == before + 3, "node count");
+    // the entries emitted before are not clobbered by later ones (4 entry ring)
+    expect(node_sink[before & 3].data.constant.value == value and node_sink[before & 3].type_index == x, "node constant kept");
+}var seed_cell: u8 = 0;
 noinline fn seed(value: u8) u8 {
     const cell: *volatile u8 = &seed_cell;
     cell.* = value;
@@ -309,6 +355,7 @@ export fn mainNative() callconv(.c) noreturn {
         case8(x);
         case12(x);
         case16(x);
+        caseNode(x);
     }
     if (failures == 0) write("SB0-PARTSPLIT-PASS\n");
     park();

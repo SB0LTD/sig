@@ -10753,7 +10753,11 @@ pub const Value = struct {
             // Large non-HFA values live in caller storage. HFAs still use up
             // to four vector registers, so keep the store/decomposition path
             // below for those instead of addressing an uninitialized slot.
-            if (src_size > 16 and !CallAbiIterator.hasVectorAggregateAbi(isel.pt.zcu, src_ty)) {
+            // A union of more than one register has no register decomposition either (its single part is wider than a
+            // register and cannot be split), so it is copied through memory like the other large values.
+            if ((src_size > 16 and !CallAbiIterator.hasVectorAggregateAbi(isel.pt.zcu, src_ty)) or
+                (src_size > 8 and src_ty.zigTypeTag(isel.pt.zcu) == .@"union"))
+            {
                 try call.prepareReturn(isel);
                 try call.finishReturn(isel);
                 try call.prepareCallee(isel);
