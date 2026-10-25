@@ -1330,6 +1330,10 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             var res_hi64_it = res_vi.value.field(ty, 8, 8);
                             const res_hi64_vi = try res_hi64_it.only(isel);
                             const res_hi64_ra = try res_hi64_vi.?.defReg(isel);
+                            // The low half is defined next: without the lock a part that is spilled to the
+                            // stack gets the same scratch register as the high half.
+                            const res_hi64_lock: RegLock = if (res_hi64_ra) |ra| isel.lockReg(ra) else .empty;
+                            defer res_hi64_lock.unlock(isel);
                             var res_lo64_it = res_vi.value.field(ty, 0, 8);
                             const res_lo64_vi = try res_lo64_it.only(isel);
                             const res_lo64_ra = try res_lo64_vi.?.defReg(isel);
@@ -1357,12 +1361,6 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             const lhs_vi = try isel.use(bin_op.lhs);
                             const rhs_vi = try isel.use(bin_op.rhs);
                             const lhs_lo64_mat, const rhs_lo64_mat = lo64_mat: {
-                                const res_hi64_lock: RegLock = if (res_hi64_ra != null and res_lo64_ra != null)
-                                    isel.lockReg(res_hi64_ra.?)
-                                else
-                                    .empty;
-                                defer res_hi64_lock.unlock(isel);
-
                                 var rhs_lo64_it = rhs_vi.field(ty, 0, 8);
                                 const rhs_lo64_vi = try rhs_lo64_it.only(isel);
                                 const rhs_lo64_mat = try rhs_lo64_vi.?.matReg(isel);
