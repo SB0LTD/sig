@@ -143,6 +143,7 @@ comptime {
     _ = @import("compiler_rt/trunc.sig");
 
     // BigInt. Alphabetically sorted.
+    _ = @import("compiler_rt/bigint.sig");
     _ = @import("compiler_rt/divmodei4.sig");
     _ = @import("compiler_rt/udivmodei4.sig");
 

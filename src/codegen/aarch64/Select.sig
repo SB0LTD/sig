@@ -995,18 +995,24 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
 
                 const bin_op = air.data(air.inst_index).bin_op;
                 const ty = isel.air.typeOf(bin_op.lhs, ip);
-                if (!ty.isRuntimeFloat()) try res_vi.value.addOrSubtract(isel, ty, try isel.use(bin_op.lhs), switch (air_tag) {
-                    else => unreachable,
-                    .add, .add_safe, .add_wrap => .add,
-                    .sub, .sub_safe, .sub_wrap => .sub,
-                }, try isel.use(bin_op.rhs), .{
-                    .overflow = switch (air_tag) {
+                if (!ty.isRuntimeFloat()) {
+                    if (try isel.wideIntBits(air_tag, ty)) |_| {
+                        try isel.wideAddOrSub(res_vi.value, air_tag, ty, bin_op.lhs, bin_op.rhs);
+                        break :unused;
+                    }
+                    try res_vi.value.addOrSubtract(isel, ty, try isel.use(bin_op.lhs), switch (air_tag) {
                         else => unreachable,
-                        .add, .sub => .@"unreachable",
-                        .add_safe, .sub_safe => .{ .panic = .integer_overflow },
-                        .add_wrap, .sub_wrap => .wrap,
-                    },
-                }) else switch (ty.floatBits(isel.target)) {
+                        .add, .add_safe, .add_wrap => .add,
+                        .sub, .sub_safe, .sub_wrap => .sub,
+                    }, try isel.use(bin_op.rhs), .{
+                        .overflow = switch (air_tag) {
+                            else => unreachable,
+                            .add, .sub => .@"unreachable",
+                            .add_safe, .sub_safe => .{ .panic = .integer_overflow },
+                            .add_wrap, .sub_wrap => .wrap,
+                        },
+                    });
+                } else switch (ty.floatBits(isel.target)) {
                     else => unreachable,
                     16, 32, 64 => |bits| {
                         const res_ra = try res_vi.value.defReg(isel) orelse break :unused;
@@ -1232,6 +1238,45 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             try lhs_mat.finish(isel);
                         },
                     },
+                    1...31, 33...63 => {
+                        // Widths below the register size: the operands are kept zero- or sign-extended, so the
+                        // exact sum or difference fits the register and is clamped to the type's range.
+                        const res_ra = try res_vi.value.defReg(isel) orelse break :unused;
+                        const lhs_vi = try isel.use(bin_op.lhs);
+                        const rhs_vi = try isel.use(bin_op.rhs);
+                        const lhs_mat = try lhs_vi.matReg(isel);
+                        const rhs_mat = try rhs_vi.matReg(isel);
+                        try isel.narrowSat(air_tag, int_info, res_ra, lhs_mat.ra, rhs_mat.ra);
+                        try rhs_mat.finish(isel);
+                        try lhs_mat.finish(isel);
+                    },
+                    else => return isel.fail("too big {t} {f}", .{ air_tag, isel.fmtType(ty) }),
+                }
+            }
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .shl_sat => |air_tag| {
+            if (isel.live_values.fetchRemove(air.inst_index)) |res_vi| unused: {
+                defer res_vi.value.deref(isel);
+
+                const bin_op = air.data(air.inst_index).bin_op;
+                const ty = isel.air.typeOf(bin_op.lhs, ip);
+                if (!ty.isAbiInt(zcu)) return isel.fail("bad {t} {f}", .{ air_tag, isel.fmtType(ty) });
+                const int_info = ty.intInfo(zcu);
+                switch (int_info.bits) {
+                    0 => unreachable,
+                    // The shift amount of a 1 bit integer has no bits.
+                    1 => return isel.fail("unimplemented {t} {f}", .{ air_tag, isel.fmtType(ty) }),
+                    2...64 => {
+                        const res_ra = try res_vi.value.defReg(isel) orelse break :unused;
+                        const lhs_vi = try isel.use(bin_op.lhs);
+                        const rhs_vi = try isel.use(bin_op.rhs);
+                        const lhs_mat = try lhs_vi.matReg(isel);
+                        const rhs_mat = try rhs_vi.matReg(isel);
+                        try isel.narrowShlSat(int_info, res_ra, lhs_mat.ra, rhs_mat.ra);
+                        try rhs_mat.finish(isel);
+                        try lhs_mat.finish(isel);
+                    },
                     else => return isel.fail("too big {t} {f}", .{ air_tag, isel.fmtType(ty) }),
                 }
             }
@@ -1330,6 +1375,10 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             var res_hi64_it = res_vi.value.field(ty, 8, 8);
                             const res_hi64_vi = try res_hi64_it.only(isel);
                             const res_hi64_ra = try res_hi64_vi.?.defReg(isel);
+                            // The low half is defined next: without the lock a part that is spilled to the
+                            // stack gets the same scratch register as the high half.
+                            const res_hi64_lock: RegLock = if (res_hi64_ra) |ra| isel.lockReg(ra) else .empty;
+                            defer res_hi64_lock.unlock(isel);
                             var res_lo64_it = res_vi.value.field(ty, 0, 8);
                             const res_lo64_vi = try res_lo64_it.only(isel);
                             const res_lo64_ra = try res_lo64_vi.?.defReg(isel);
@@ -1357,12 +1406,6 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             const lhs_vi = try isel.use(bin_op.lhs);
                             const rhs_vi = try isel.use(bin_op.rhs);
                             const lhs_lo64_mat, const rhs_lo64_mat = lo64_mat: {
-                                const res_hi64_lock: RegLock = if (res_hi64_ra != null and res_lo64_ra != null)
-                                    isel.lockReg(res_hi64_ra.?)
-                                else
-                                    .empty;
-                                defer res_hi64_lock.unlock(isel);
-
                                 var rhs_lo64_it = rhs_vi.field(ty, 0, 8);
                                 const rhs_lo64_vi = try rhs_lo64_it.only(isel);
                                 const rhs_lo64_mat = try rhs_lo64_vi.?.matReg(isel);
@@ -1390,6 +1433,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             try rhs_lo64_mat.finish(isel);
                             try lhs_lo64_mat.finish(isel);
                         },
+                        129...wide_int_max_bits => try isel.wideBinary(res_vi.value, ty, "__mulei4", bin_op.lhs, bin_op.rhs),
                         else => return isel.fail("too big {t} {f}", .{ air_tag, isel.fmtType(ty) }),
                     }
                 } else switch (ty.floatBits(isel.target)) {
@@ -2042,7 +2086,10 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                                 else => unreachable,
                                 .div_trunc, .div_exact => {},
                                 .div_floor => switch (int_info.signedness) {
-                                    .signed => return isel.fail("unimplemented {t}", .{air_tag}),
+                                    .signed => {
+                                        try isel.wideBinary(res_vi.value, ty, "__divfloorei4", bin_op.lhs, bin_op.rhs);
+                                        break :unused;
+                                    },
                                     .unsigned => {},
                                 },
                             }
@@ -2084,6 +2131,11 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             try call.paramLiveOut(isel, lhs_lo64_vi.?, .r0);
                             try call.finishParams(isel);
                         },
+                        129...wide_int_max_bits => try isel.wideBinary(res_vi.value, ty, switch (air_tag) {
+                            else => unreachable,
+                            .div_trunc, .div_exact => "__divtruncei4",
+                            .div_floor => "__divfloorei4",
+                        }, bin_op.lhs, bin_op.rhs),
                         else => return isel.fail("too big {t} {f}", .{ air_tag, isel.fmtType(ty) }),
                     }
                 } else switch (ty.floatBits(isel.target)) {
@@ -2243,7 +2295,15 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                 if (!ty.isRuntimeFloat()) {
                     if (!ty.isAbiInt(zcu)) return isel.fail("bad {t} {f}", .{ air_tag, isel.fmtType(ty) });
                     const int_info = ty.intInfo(zcu);
-                    if (int_info.bits > 64) return isel.fail("too big {t} {f}", .{ air_tag, isel.fmtType(ty) });
+                    if (int_info.bits > 64) {
+                        if (int_info.bits > wide_int_max_bits) return isel.fail("too big {t} {f}", .{ air_tag, isel.fmtType(ty) });
+                        try isel.wideBinary(res_vi.value, ty, switch (air_tag) {
+                            else => unreachable,
+                            .rem => "__remei4",
+                            .mod => "__floormodei4",
+                        }, bin_op.lhs, bin_op.rhs);
+                        break :unused;
+                    }
 
                     const res_ra = try res_vi.value.defReg(isel) orelse break :unused;
                     const lhs_vi = try isel.use(bin_op.lhs);
@@ -2715,12 +2775,16 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
         .add_with_overflow, .sub_with_overflow => |air_tag| {
-            if (isel.live_values.fetchRemove(air.inst_index)) |res_vi| {
+            if (isel.live_values.fetchRemove(air.inst_index)) |res_vi| unused: {
                 defer res_vi.value.deref(isel);
 
                 const ty_pl = air.data(air.inst_index).ty_pl;
                 const bin_op = isel.air.extraData(Air.Bin, ty_pl.payload).data;
                 const ty = isel.air.typeOf(bin_op.lhs, ip);
+                if (try isel.wideIntBits(air_tag, ty)) |_| {
+                    try isel.wideOverflow(res_vi.value, air_tag, ty_pl.ty, ty, bin_op.lhs, bin_op.rhs);
+                    break :unused;
+                }
                 const lhs_vi = try isel.use(bin_op.lhs);
                 const rhs_vi = try isel.use(bin_op.rhs);
                 const ty_size = lhs_vi.size(isel);
@@ -2735,6 +2799,213 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                 }, rhs_vi, .{
                     .overflow = if (try overflow_vi.?.defReg(isel)) |overflow_ra| .{ .ra = overflow_ra } else .wrap,
                 });
+            }
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .mul_with_overflow => |air_tag| {
+            if (isel.live_values.fetchRemove(air.inst_index)) |res_vi| unused: {
+                defer res_vi.value.deref(isel);
+
+                const ty_pl = air.data(air.inst_index).ty_pl;
+                const bin_op = isel.air.extraData(Air.Bin, ty_pl.payload).data;
+                const ty = isel.air.typeOf(bin_op.lhs, ip);
+                if (!ty.isAbiInt(zcu)) return isel.fail("bad {t} {f}", .{ air_tag, isel.fmtType(ty) });
+                const int_info = ty.intInfo(zcu);
+                const signed = int_info.signedness == .signed;
+                const ty_size = ty.abiSize(zcu);
+                var overflow_it = res_vi.value.field(ty_pl.ty, ty_size, 1);
+                const overflow_vi = try overflow_it.only(isel);
+                var wrapped_it = res_vi.value.field(ty_pl.ty, 0, ty_size);
+                const wrapped_vi = try wrapped_it.only(isel);
+                switch (int_info.bits) {
+                    0 => unreachable,
+                    // Every result is written after all operands are read and the result registers stay
+                    // locked, so no result or temporary register aliases an operand register.
+                    1...64 => |bits| {
+                        const wrapped_ra = try wrapped_vi.?.defReg(isel);
+                        const wrapped_lock: RegLock = if (wrapped_ra) |ra| isel.lockReg(ra) else .empty;
+                        defer wrapped_lock.unlock(isel);
+                        const overflow_ra = try overflow_vi.?.defReg(isel);
+                        const overflow_lock: RegLock = if (overflow_ra) |ra| isel.lockReg(ra) else .empty;
+                        defer overflow_lock.unlock(isel);
+                        if (wrapped_ra == null and overflow_ra == null) break :unused;
+                        switch (bits) {
+                            else => unreachable,
+                            1...32 => {
+                                // The operands are extended to 32 bits, so the 64-bit product is exact.
+                                const prod_ra = try isel.allocIntReg();
+                                defer isel.freeReg(prod_ra);
+                                const ext_ra: Register.Alias = if (overflow_ra != null) try isel.allocIntReg() else .zr;
+                                defer if (ext_ra != .zr) isel.freeReg(ext_ra);
+                                if (overflow_ra) |ra| {
+                                    // Overflow iff the product differs from its extension from `bits`.
+                                    try isel.emit(.csinc(ra.w(), .wzr, .wzr, .eq));
+                                    switch (int_info.signedness) {
+                                        .signed => {
+                                            try isel.emit(.subs(.xzr, prod_ra.x(), .{ .register = ext_ra.x() }));
+                                            try isel.emit(.sbfm(ext_ra.x(), prod_ra.x(), .{
+                                                .N = .doubleword,
+                                                .immr = 0,
+                                                .imms = @intCast(bits - 1),
+                                            }));
+                                        },
+                                        .unsigned => {
+                                            try isel.emit(.subs(.xzr, ext_ra.x(), .{ .immediate = 0 }));
+                                            try isel.emit(.ubfm(ext_ra.x(), prod_ra.x(), .{
+                                                .N = .doubleword,
+                                                .immr = @intCast(bits),
+                                                .imms = 63,
+                                            }));
+                                        },
+                                    }
+                                }
+                                if (wrapped_ra) |ra| try isel.emit(switch (bits) {
+                                    else => switch (int_info.signedness) {
+                                        .signed => .sbfm(ra.w(), prod_ra.w(), .{
+                                            .N = .word,
+                                            .immr = 0,
+                                            .imms = @intCast(bits - 1),
+                                        }),
+                                        .unsigned => .ubfm(ra.w(), prod_ra.w(), .{
+                                            .N = .word,
+                                            .immr = 0,
+                                            .imms = @intCast(bits - 1),
+                                        }),
+                                    },
+                                    32 => .orr(ra.w(), .wzr, .{ .register = prod_ra.w() }),
+                                });
+                                const lhs_vi = try isel.use(bin_op.lhs);
+                                const rhs_vi = try isel.use(bin_op.rhs);
+                                const lhs_mat = try lhs_vi.matReg(isel);
+                                const rhs_mat = try rhs_vi.matReg(isel);
+                                try isel.emit(switch (int_info.signedness) {
+                                    .signed => .smaddl(prod_ra.x(), lhs_mat.ra.w(), rhs_mat.ra.w(), .xzr),
+                                    .unsigned => .umaddl(prod_ra.x(), lhs_mat.ra.w(), rhs_mat.ra.w(), .xzr),
+                                });
+                                try rhs_mat.finish(isel);
+                                try lhs_mat.finish(isel);
+                            },
+                            33...64 => {
+                                // `lo` is the low half of the 128-bit product, `hi` the high half.
+                                const lo_ra = try isel.allocIntReg();
+                                defer isel.freeReg(lo_ra);
+                                const hi_ra: Register.Alias = if (overflow_ra != null) try isel.allocIntReg() else .zr;
+                                defer if (hi_ra != .zr) isel.freeReg(hi_ra);
+                                // The sign extension of the low `bits` bits of `lo` (signed, below 64 bits).
+                                const ext_ra: Register.Alias = if (signed and bits < 64 and (overflow_ra != null or wrapped_ra != null))
+                                    try isel.allocIntReg()
+                                else
+                                    .zr;
+                                defer if (ext_ra != .zr) isel.freeReg(ext_ra);
+                                if (overflow_ra) |ra| {
+                                    try isel.emit(.csinc(ra.w(), .wzr, .wzr, .eq));
+                                    switch (int_info.signedness) {
+                                        .signed => {
+                                            // The product fits iff `hi` is the sign of `lo` and, below 64 bits,
+                                            // `lo` equals its own extension from `bits`.
+                                            if (bits < 64) try isel.emit(.ccmp(
+                                                lo_ra.x(),
+                                                .{ .register = ext_ra.x() },
+                                                .{ .n = false, .z = false, .c = false, .v = false },
+                                                .eq,
+                                            ));
+                                            try isel.emit(.subs(.xzr, hi_ra.x(), .{ .shifted_register = .{
+                                                .register = lo_ra.x(),
+                                                .shift = .{ .asr = 63 },
+                                            } }));
+                                        },
+                                        .unsigned => {
+                                            try isel.emit(.subs(.xzr, hi_ra.x(), .{ .immediate = 0 }));
+                                            if (bits < 64) try isel.emit(.orr(hi_ra.x(), hi_ra.x(), .{ .shifted_register = .{
+                                                .register = lo_ra.x(),
+                                                .shift = .{ .lsr = @intCast(bits) },
+                                            } }));
+                                        },
+                                    }
+                                }
+                                // Emission is in reverse execution order: the wrapped value is read from `ext`
+                                // (or `lo`), so it is emitted before `ext` is computed.
+                                if (wrapped_ra) |ra| try isel.emit(switch (bits) {
+                                    else => switch (int_info.signedness) {
+                                        .signed => .orr(ra.x(), .xzr, .{ .register = ext_ra.x() }),
+                                        .unsigned => .ubfm(ra.x(), lo_ra.x(), .{
+                                            .N = .doubleword,
+                                            .immr = 0,
+                                            .imms = @intCast(bits - 1),
+                                        }),
+                                    },
+                                    64 => .orr(ra.x(), .xzr, .{ .register = lo_ra.x() }),
+                                });
+                                if (ext_ra != .zr) try isel.emit(.sbfm(ext_ra.x(), lo_ra.x(), .{
+                                    .N = .doubleword,
+                                    .immr = 0,
+                                    .imms = @intCast(bits - 1),
+                                }));
+                                const lhs_vi = try isel.use(bin_op.lhs);
+                                const rhs_vi = try isel.use(bin_op.rhs);
+                                const lhs_mat = try lhs_vi.matReg(isel);
+                                const rhs_mat = try rhs_vi.matReg(isel);
+                                if (overflow_ra != null) try isel.emit(switch (int_info.signedness) {
+                                    .signed => .smulh(hi_ra.x(), lhs_mat.ra.x(), rhs_mat.ra.x()),
+                                    .unsigned => .umulh(hi_ra.x(), lhs_mat.ra.x(), rhs_mat.ra.x()),
+                                });
+                                try isel.emit(.madd(lo_ra.x(), lhs_mat.ra.x(), rhs_mat.ra.x(), .xzr));
+                                try rhs_mat.finish(isel);
+                                try lhs_mat.finish(isel);
+                            },
+                        }
+                    },
+                    // The product is formed by compiler_rt on the operands extended to 128 bits: it returns
+                    // the low 128 bits wrapped to `bits` and extended, and writes the overflow flag (0 or 1)
+                    // through the pointer in x5.
+                    65...128 => |bits| {
+                        const flag_offset = InternPool.Alignment.@"4".forward(isel.stack_size);
+                        isel.stack_size = @intCast(flag_offset + 4);
+                        const overflow_ra = try overflow_vi.?.defReg(isel);
+                        if (overflow_ra) |ra| try isel.loadReg(ra, 4, .unsigned, .sp, flag_offset);
+
+                        try call.prepareReturn(isel);
+                        var res_hi64_it = wrapped_vi.?.field(ty, 8, 8);
+                        const res_hi64_vi = try res_hi64_it.only(isel);
+                        try call.returnLiveIn(isel, res_hi64_vi.?, .r1);
+                        var res_lo64_it = wrapped_vi.?.field(ty, 0, 8);
+                        const res_lo64_vi = try res_lo64_it.only(isel);
+                        try call.returnLiveIn(isel, res_lo64_vi.?, .r0);
+                        try call.finishReturn(isel);
+
+                        try call.prepareCallee(isel);
+                        try isel.global_relocs.append(gpa, .{
+                            .name = switch (int_info.signedness) {
+                                .signed => "__mulobi128",
+                                .unsigned => "__umulobi128",
+                            },
+                            .reloc = .{ .label = @intCast(isel.instructions.items.len) },
+                        });
+                        try isel.emit(.bl(0));
+                        try call.finishCallee(isel);
+
+                        try call.prepareParams(isel);
+                        const lhs_vi = try isel.use(bin_op.lhs);
+                        const rhs_vi = try isel.use(bin_op.rhs);
+                        try call.paramReg(isel, .sp, flag_offset, .r5);
+                        try isel.movImmediate(.x4, bits);
+                        var rhs_hi64_it = rhs_vi.field(ty, 8, 8);
+                        const rhs_hi64_vi = try rhs_hi64_it.only(isel);
+                        try call.paramLiveOut(isel, rhs_hi64_vi.?, .r3);
+                        var rhs_lo64_it = rhs_vi.field(ty, 0, 8);
+                        const rhs_lo64_vi = try rhs_lo64_it.only(isel);
+                        try call.paramLiveOut(isel, rhs_lo64_vi.?, .r2);
+                        var lhs_hi64_it = lhs_vi.field(ty, 8, 8);
+                        const lhs_hi64_vi = try lhs_hi64_it.only(isel);
+                        try call.paramLiveOut(isel, lhs_hi64_vi.?, .r1);
+                        var lhs_lo64_it = lhs_vi.field(ty, 0, 8);
+                        const lhs_lo64_vi = try lhs_lo64_it.only(isel);
+                        try call.paramLiveOut(isel, lhs_lo64_vi.?, .r0);
+                        try call.finishParams(isel);
+                    },
+                    129...wide_int_max_bits => try isel.wideOverflow(res_vi.value, air_tag, ty_pl.ty, ty, bin_op.lhs, bin_op.rhs),
+                    else => return isel.fail("too big {t} {f}", .{ air_tag, isel.fmtType(ty) }),
+                }
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
@@ -3279,11 +3550,20 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
         .bit_and, .bit_or, .xor => |air_tag| {
-            if (isel.live_values.fetchRemove(air.inst_index)) |res_vi| {
+            if (isel.live_values.fetchRemove(air.inst_index)) |res_vi| unused: {
                 defer res_vi.value.deref(isel);
 
                 const bin_op = air.data(air.inst_index).bin_op;
                 const ty = isel.air.typeOf(bin_op.lhs, ip);
+                if (try isel.wideIntBits(air_tag, ty)) |_| {
+                    try isel.wideBinary(res_vi.value, ty, switch (air_tag) {
+                        else => unreachable,
+                        .bit_and => "__andei4",
+                        .bit_or => "__orei4",
+                        .xor => "__xorei4",
+                    }, bin_op.lhs, bin_op.rhs);
+                    break :unused;
+                }
                 const int_info: std.lang.Type.Int = if (ty.toIntern() == .bool_type)
                     .{ .signedness = .unsigned, .bits = 1 }
                 else if (ty.isAbiInt(zcu))
@@ -3530,17 +3810,32 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                         try lhs_hi64_mat.finish(isel);
                         break :unused;
                     },
+                    129...wide_int_max_bits => {
+                        try isel.wideShift(res_vi.value, ty, switch (air_tag) {
+                            else => unreachable,
+                            .shl, .shl_exact => "__shlei4",
+                            .shr, .shr_exact => switch (int_info.signedness) {
+                                .signed => "__ashrei4",
+                                .unsigned => "__lshrei4",
+                            },
+                        }, bin_op.lhs, bin_op.rhs);
+                        break :unused;
+                    },
                     else => return isel.fail("too big {t} {f}", .{ air_tag, isel.fmtType(ty) }),
                 }
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
         .not => |air_tag| {
-            if (isel.live_values.fetchRemove(air.inst_index)) |res_vi| {
+            if (isel.live_values.fetchRemove(air.inst_index)) |res_vi| unused: {
                 defer res_vi.value.deref(isel);
 
                 const ty_op = air.data(air.inst_index).ty_op;
                 const ty = ty_op.ty;
+                if (try isel.wideIntBits(air_tag, ty)) |_| {
+                    try isel.wideUnary(res_vi.value, ty, "__notei4", ty_op.operand);
+                    break :unused;
+                }
                 const int_info: std.lang.Type.Int = int_info: {
                     if (ty_op.ty.ip_index == .bool_type) break :int_info .{ .signedness = .unsigned, .bits = 1 };
                     if (!ty.isAbiInt(zcu)) return isel.fail("bad {t} {f}", .{ air_tag, isel.fmtType(ty) });
@@ -3680,6 +3975,8 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             }
                         },
                         128 => try dst_vi.value.move(isel, ty_op.operand),
+                        // Same bits, other signedness: the top limb is extended differently.
+                        129...wide_int_max_bits => try isel.wideResize(dst_vi.value, dst_ty, ty_op.operand, src_ty),
                         else => return isel.fail("bad {t} {f} {f}", .{ air_tag, isel.fmtType(dst_ty), isel.fmtType(src_ty) }),
                     }
                 } else if (dst_tag == .bool and src_ty.isAbiInt(zcu) and src_ty.intInfo(zcu).bits == 1) {
@@ -4097,12 +4394,41 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             param_part_it = param_vi.parts(isel);
                             arg_part_it = arg_vi.parts(isel);
                         }
+                        // An argument built field by field has parts that need not line up with the ABI
+                        // parts of its parameter (a 12-byte struct of small fields is passed in two
+                        // registers whatever its fields are). Pairing mismatched parts by index would pass
+                        // the wrong bytes.
+                        const parts_match = parts_match: {
+                            var param_check_it = param_part_it;
+                            var arg_check_it = arg_part_it;
+                            if (param_check_it.remaining != arg_check_it.remaining) break :parts_match false;
+                            while (param_check_it.next()) |param_part_vi| {
+                                const arg_part_vi = arg_check_it.next().?;
+                                if (param_part_vi.get(isel).offset_from_parent != arg_part_vi.get(isel).offset_from_parent or
+                                    param_part_vi.size(isel) != arg_part_vi.size(isel)) break :parts_match false;
+                            }
+                            break :parts_match true;
+                        };
                         while (param_part_it.next()) |param_part_vi| {
-                            const arg_part_vi = arg_part_it.next().?;
-                            assert(arg_part_vi.get(isel).offset_from_parent ==
-                                param_part_vi.get(isel).offset_from_parent);
-                            assert(arg_part_vi.size(isel) == param_part_vi.size(isel));
-                            try call.paramLiveOut(isel, arg_part_vi, param_part_vi.hint(isel).?);
+                            const param_ra = param_part_vi.hint(isel).?;
+                            if (parts_match) {
+                                try call.paramLiveOut(isel, arg_part_it.next().?, param_ra);
+                                continue;
+                            }
+                            // Take the register's bytes from the argument's part when one covers exactly
+                            // that region, otherwise from the argument's memory image.
+                            const param_part_offset, const param_part_size = param_part_vi.position(isel);
+                            var arg_field_it = arg_vi.field(param_ty, param_part_offset, param_part_size);
+                            const arg_field_vi = arg_field_it.tryOnly(isel) catch |err| switch (err) {
+                                error.PartStraddle => null,
+                                error.OutOfMemory, error.AlreadyReported => |e| return e,
+                                error.Canceled => |e| return e,
+                            };
+                            if (arg_field_vi) |field_vi| if (field_vi.coversRegion(isel, arg_vi, param_part_offset, param_part_size)) {
+                                try call.paramLiveOut(isel, field_vi, param_ra);
+                                continue;
+                            };
+                            try call.paramRegion(isel, arg_vi, param_part_offset, param_part_size, param_part_vi.signedness(isel), param_ra);
                         }
                     },
                     .stack_slot => |stack_slot| try arg_vi.store(isel, param_ty, stack_slot.base, .{
@@ -4900,6 +5226,10 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                         },
                     },
                 }
+                if (try isel.wideIntBits(air_tag, ty)) |_| {
+                    try isel.wideCompare(res_vi.value, ty, air_tag.toCmpOp().?, bin_op.lhs, bin_op.rhs);
+                    break :unused;
+                }
                 _ = try isel.cmp(
                     try res_vi.value.defReg(isel) orelse break :unused,
                     ty,
@@ -5220,8 +5550,23 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                     codegen.errUnionPayloadOffset(payload_ty, zcu),
                     payload_vi.value.size(isel),
                 );
-                const payload_part_vi = try payload_part_it.only(isel);
-                try payload_vi.value.copy(isel, payload_ty, payload_part_vi.?);
+                const payload_part_vi = payload_part_it.tryOnly(isel) catch |err| switch (err) {
+                    error.PartStraddle => null,
+                    error.OutOfMemory, error.AlreadyReported => |e| return e,
+                    error.Canceled => |e| return e,
+                };
+                // A payload that covers more than one part of the error union (a 12-byte struct returned
+                // in x0 and x1) has no single part to copy: copy it through the union's memory image.
+                if (payload_part_vi) |part_vi|
+                    try payload_vi.value.copy(isel, payload_ty, part_vi)
+                else
+                    try payload_vi.value.copyFromField(
+                        isel,
+                        payload_ty,
+                        error_union_vi,
+                        error_union_ty,
+                        codegen.errUnionPayloadOffset(payload_ty, zcu),
+                    );
             }
 
             const cont_label = isel.instructions.items.len;
@@ -5468,10 +5813,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                 const loaded_ty = ZigType.fromInterned(ptr_info.child);
                 // Non-payload optionals have no register decomposition, so load them
                 // wholesale via `memcpy` like unions and oversized aggregates.
-                const loaded_via_registers = size <= Value.max_parts and
-                    ip.zigTypeTag(ptr_info.child) != .@"union" and
-                    !(loaded_ty.zigTypeTag(zcu) == .optional and !loaded_ty.optionalReprIsPayload(zcu));
-                if (loaded_via_registers) {
+                if (isel.loadsViaRegisters(loaded_ty, size)) {
                     const ptr_vi = try isel.use(ty_op.operand);
                     const ptr_mat = try ptr_vi.matReg(isel);
                     _ = try dst_vi.value.load(isel, ty_op.ty, ptr_mat.ra, .{
@@ -5533,10 +5875,23 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             ret_part_it = ret_vi.parts(isel);
                             src_part_it = src_vi.parts(isel);
                         }
+                        // The parts of the operand must line up with the ABI parts of the return value:
+                        // they are paired by index below.
+                        const parts_match = parts_match: {
+                            var ret_check_it = ret_part_it;
+                            var src_check_it = src_part_it;
+                            if (ret_check_it.remaining != src_check_it.remaining) break :parts_match false;
+                            while (ret_check_it.next()) |ret_part_vi| {
+                                const src_part_vi = src_check_it.next().?;
+                                if (ret_part_vi.get(isel).offset_from_parent != src_part_vi.get(isel).offset_from_parent or
+                                    ret_part_vi.size(isel) != src_part_vi.size(isel)) break :parts_match false;
+                            }
+                            break :parts_match true;
+                        };
+                        // Asserts are compiled out of the release compiler: report the mismatch instead.
+                        if (!parts_match) return isel.fail("return value parts do not match the ABI parts of {f}", .{isel.fmtType(isel.air.typeOf(un_op, ip))});
                         while (ret_part_it.next()) |ret_part_vi| {
                             const src_part_vi = src_part_it.next().?;
-                            assert(ret_part_vi.get(isel).offset_from_parent == src_part_vi.get(isel).offset_from_parent);
-                            assert(ret_part_vi.size(isel) == src_part_vi.size(isel));
                             try src_part_vi.liveOut(isel, ret_part_vi.hint(isel).?);
                         }
                     },
@@ -5778,7 +6133,10 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                     (dst_int_info.bits > 32 and dst_int_info.bits <= 64 and
                         src_int_info.bits > 32 and src_int_info.bits <= 64) or
                     (dst_int_info.bits > 64 and src_int_info.bits > 64 and
-                        (dst_int_info.bits - 1) / 128 == (src_int_info.bits - 1) / 128))
+                        (if (dst_int_info.bits > 128 or src_int_info.bits > 128)
+                            @divCeil(dst_int_info.bits, 64) == @divCeil(src_int_info.bits, 64)
+                        else
+                            (dst_int_info.bits - 1) / 128 == (src_int_info.bits - 1) / 128)))
                 {
                     try dst_vi.value.move(isel, ty_op.operand);
                 } else if (dst_int_info.bits <= 32 and src_int_info.bits <= 64) {
@@ -5797,7 +6155,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                         .imms = @intCast(src_int_info.bits - 1),
                     }) else .orr(dst_ra.w(), .wzr, .{ .register = src_mat.ra.w() }));
                     try src_mat.finish(isel);
-                } else if (dst_int_info.bits <= 32 and src_int_info.bits <= 128) {
+                } else if (dst_int_info.bits <= 32 and src_int_info.bits <= wide_int_max_bits) {
                     assert(src_int_info.bits > 64);
                     const dst_ra = try dst_vi.value.defReg(isel) orelse break :unused;
                     const src_vi = try isel.use(ty_op.operand);
@@ -5807,7 +6165,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                     const src_lo64_mat = try src_lo64_vi.?.matReg(isel);
                     try isel.emit(.orr(dst_ra.w(), .wzr, .{ .register = src_lo64_mat.ra.w() }));
                     try src_lo64_mat.finish(isel);
-                } else if (dst_int_info.bits <= 64 and src_int_info.bits <= 128) {
+                } else if (dst_int_info.bits <= 64 and src_int_info.bits <= wide_int_max_bits) {
                     assert(dst_int_info.bits > 32 and src_int_info.bits > 64);
                     const src_vi = try isel.use(ty_op.operand);
 
@@ -5846,6 +6204,26 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             try src_mat.finish(isel);
                         },
                     };
+                } else if (dst_int_info.bits <= 128 and src_int_info.bits <= wide_int_max_bits) {
+                    // Only the two low limbs of a wider source are needed: its value fits the destination.
+                    assert(dst_int_info.bits > 64 and src_int_info.bits > 128);
+                    const src_vi = try isel.use(ty_op.operand);
+                    var dst_hi64_it = dst_vi.value.field(dst_ty, 8, 8);
+                    const dst_hi64_vi = try dst_hi64_it.only(isel);
+                    if (try dst_hi64_vi.?.defReg(isel)) |dst_hi64_ra| {
+                        var src_hi64_it = src_vi.field(src_ty, 8, 8);
+                        const src_hi64_vi = try src_hi64_it.only(isel);
+                        try src_hi64_vi.?.liveOut(isel, dst_hi64_ra);
+                    }
+                    var dst_lo64_it = dst_vi.value.field(dst_ty, 0, 8);
+                    const dst_lo64_vi = try dst_lo64_it.only(isel);
+                    if (try dst_lo64_vi.?.defReg(isel)) |dst_lo64_ra| {
+                        var src_lo64_it = src_vi.field(src_ty, 0, 8);
+                        const src_lo64_vi = try src_lo64_it.only(isel);
+                        try src_lo64_vi.?.liveOut(isel, dst_lo64_ra);
+                    }
+                } else if (dst_int_info.bits <= wide_int_max_bits) {
+                    try isel.wideResize(dst_vi.value, dst_ty, ty_op.operand, src_ty);
                 } else return isel.fail("too big {t} {f} {f}", .{ air_tag, isel.fmtType(dst_ty), isel.fmtType(src_ty) });
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
@@ -6002,7 +6380,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                     },
                     65...128 => |dst_bits| switch (src_ty.intInfo(zcu).bits) {
                         0 => unreachable,
-                        65...128 => {
+                        65...wide_int_max_bits => {
                             const src_vi = try isel.use(ty_op.operand);
                             var dst_hi64_it = dst_vi.value.field(dst_ty, 8, 8);
                             const dst_hi64_vi = try dst_hi64_it.only(isel);
@@ -6034,6 +6412,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                         },
                         else => return isel.fail("too big {t} {f} {f}", .{ air_tag, isel.fmtType(dst_ty), isel.fmtType(src_ty) }),
                     },
+                    129...wide_int_max_bits => try isel.wideResize(dst_vi.value, dst_ty, ty_op.operand, src_ty),
                     else => return isel.fail("too big {t} {f} {f}", .{ air_tag, isel.fmtType(dst_ty), isel.fmtType(src_ty) }),
                 }
             }
@@ -6119,13 +6498,18 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                 // Large optional: memory-resident. Store the has-value flag byte at
                 // `[payload_size]` through the optional's own address, then `memcpy` the
                 // payload into `[0, payload_size)` via `copyIntoField`.
-                const flag_ra = try isel.allocIntReg();
-                defer isel.freeReg(flag_ra);
-                const opt_addr_ra = try isel.allocIntReg();
-                defer isel.freeReg(opt_addr_ra);
-                try isel.storeReg(flag_ra, 1, opt_addr_ra, @intCast(payload_size));
-                try isel.emit(.movz(flag_ra.w(), 1, .{ .lsl = .@"0" }));
-                try opt_vi.value.address(isel, 0, opt_addr_ra);
+                {
+                    // These registers are only live around the flag store, which executes after the
+                    // payload copy. Release them before `copyIntoField`, whose `memcpy` call requires
+                    // every caller-saved register to be free.
+                    const flag_ra = try isel.allocIntReg();
+                    defer isel.freeReg(flag_ra);
+                    const opt_addr_ra = try isel.allocIntReg();
+                    defer isel.freeReg(opt_addr_ra);
+                    try isel.storeReg(flag_ra, 1, opt_addr_ra, @intCast(payload_size));
+                    try isel.emit(.movz(flag_ra.w(), 1, .{ .lsl = .@"0" }));
+                    try opt_vi.value.address(isel, 0, opt_addr_ra);
+                }
                 try opt_vi.value.copyIntoField(isel, ty_op.ty, 0, payload_operand_vi, payload_ty);
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
@@ -6266,8 +6650,21 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                         // the aggregate address leaves future payload registers
                         // undefined when the error union is returned indirectly.
                         var payload_part_it = error_union_vi.value.field(error_union_ty, payload_offset, payload_size);
-                        const payload_part_vi = try payload_part_it.only(isel);
-                        try payload_part_vi.?.move(isel, ty_op.operand);
+                        const payload_part_vi = payload_part_it.tryOnly(isel) catch |err| switch (err) {
+                            error.PartStraddle => null,
+                            error.OutOfMemory, error.AlreadyReported => |e| return e,
+                            error.Canceled => |e| return e,
+                        };
+                        // A payload that covers more than one part of the error union (a 12-byte struct
+                        // returned in x0 and x1) has no single part to move into: define the parts that
+                        // cover it from the payload's memory image instead.
+                        if (payload_part_vi) |part_vi| try part_vi.move(isel, ty_op.operand) else try error_union_vi.value.copyIntoField(
+                            isel,
+                            error_union_ty,
+                            payload_offset,
+                            try isel.use(ty_op.operand),
+                            payload_ty,
+                        );
                     } else try error_union_vi.value.copyIntoField(
                         isel,
                         error_union_ty,
@@ -6460,7 +6857,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                         while (agg_part_it.next(isel) catch |err| switch (err) {
                             error.OutOfMemory, error.AlreadyReported => |e| return e,
                             error.Canceled => |e| return e,
-                            error.PartBudgetExceeded => return isel.fail("aggregate too large for register decomposition", .{}),
+                            error.PartBudgetExceeded, error.PartStraddle => return isel.fail("aggregate too large for register decomposition", .{}),
                         }) |agg_part| {
                             var field_part_it = field_vi.value.field(ty_pl.ty, agg_part.offset, agg_part.vi.size(isel));
                             const field_part_vi = try field_part_it.only(isel);
@@ -6668,7 +7065,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                         const array_vi = try isel.use(bin_op.lhs);
                         try array_vi.address(isel, 0, array_ptr_ra);
                     },
-                    else => {
+                    else => if (isel.loadsViaRegisters(elem_ty, elem_size)) {
                         const ptr_ra = try isel.allocIntReg();
                         defer isel.freeReg(ptr_ra);
                         if (!try elem_vi.value.load(isel, elem_ty, ptr_ra, .{})) break :unused;
@@ -6676,6 +7073,15 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                         try isel.elemPtr(ptr_ra, ptr_ra, .add, elem_size, index_vi);
                         const array_vi = try isel.use(bin_op.lhs);
                         try array_vi.address(isel, 0, ptr_ra);
+                    } else {
+                        // Unions and aggregates above the register decomposition limit: `memcpy`
+                        // from `array + index * elem_size` into a fresh slot of the result.
+                        try isel.beginElemMemcpy(elem_vi.value, elem_ty, elem_size) orelse break :unused;
+                        const index_vi = try isel.use(bin_op.rhs);
+                        try isel.elemPtr(.r1, .r1, .add, elem_size, index_vi);
+                        const array_vi = try isel.use(bin_op.lhs);
+                        try array_vi.address(isel, 0, .r1);
+                        try isel.finishElemMemcpy(elem_vi.value);
                     },
                 }
             }
@@ -6755,6 +7161,18 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                     });
                     try index_mat.finish(isel);
                     try base_mat.finish(isel);
+                } else if (!isel.loadsViaRegisters(slice_ty.childType(zcu), elem_size)) {
+                    // Unions and aggregates above the register decomposition limit: `memcpy`
+                    // from `slice.ptr + index * elem_size` into a fresh slot of the result.
+                    try isel.beginElemMemcpy(elem_vi.value, slice_ty.childType(zcu), elem_size) orelse break :unused;
+                    const slice_vi = try isel.use(bin_op.lhs);
+                    var ptr_part_it = slice_vi.field(slice_ty, 0, 8);
+                    const ptr_part_vi = try ptr_part_it.only(isel);
+                    const ptr_part_mat = try ptr_part_vi.?.matReg(isel);
+                    const index_vi = try isel.use(bin_op.rhs);
+                    try isel.elemPtr(.r1, ptr_part_mat.ra, .add, elem_size, index_vi);
+                    try ptr_part_mat.finish(isel);
+                    try isel.finishElemMemcpy(elem_vi.value);
                 } else {
                     const elem_ptr_ra = try isel.allocIntReg();
                     defer isel.freeReg(elem_ptr_ra);
@@ -6863,6 +7281,16 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                     });
                     try index_mat.finish(isel);
                     try base_mat.finish(isel);
+                } else if (!isel.loadsViaRegisters(ptr_ty.childType(zcu), elem_size)) {
+                    // Unions and aggregates above the register decomposition limit: `memcpy`
+                    // from `ptr + index * elem_size` into a fresh slot of the result.
+                    try isel.beginElemMemcpy(elem_vi.value, ptr_ty.childType(zcu), elem_size) orelse break :unused;
+                    const base_vi = try isel.use(bin_op.lhs);
+                    const base_mat = try base_vi.matReg(isel);
+                    const index_vi = try isel.use(bin_op.rhs);
+                    try isel.elemPtr(.r1, base_mat.ra, .add, elem_size, index_vi);
+                    try base_mat.finish(isel);
+                    try isel.finishElemMemcpy(elem_vi.value);
                 } else {
                     const elem_ptr_ra = try isel.allocIntReg();
                     defer isel.freeReg(elem_ptr_ra);
@@ -8635,6 +9063,449 @@ fn fail(isel: *Select, comptime format: []const u8, args: anytype) codegen.Error
     return isel.pt.zcu.codegenFail(isel.nav_index, format, args);
 }
 
+/// Whether a value of type `ty` (ABI size `size`) can be loaded into register parts.
+/// Unions, oversized aggregates and optionals without a payload representation have no
+/// register decomposition; they are copied wholesale with `memcpy` instead.
+fn loadsViaRegisters(isel: *Select, ty: ZigType, size: u64) bool {
+    const zcu = isel.pt.zcu;
+    return size <= Value.max_parts and
+        ty.zigTypeTag(zcu) != .@"union" and
+        !(ty.zigTypeTag(zcu) == .optional and !ty.optionalReprIsPayload(zcu));
+}
+
+/// Saturating add/sub of an integer of 1...31 or 33...63 bits (word or doubleword register arithmetic).
+/// Emission is in reverse execution order; the program order is
+///   add/sub  sum, a, b
+///   unsigned add:  ubfm t, sum, #0, #bits-1 ; cmp sum, t ; csinv res, sum, zr, eq ; ubfm res, res, #0, #bits-1
+///   unsigned sub:  csel res, sum, zr, cs  (the flags come from subs sum, a, b)
+///   signed:        sbfm t, sum, #0, #bits-1 ; cmp sum, t ; sbfm t, sum, #rb-1, #rb-1 ; eor t, t, #maxInt ; csel res, sum, t, eq
+fn narrowSat(
+    isel: *Select,
+    air_tag: Air.Inst.Tag,
+    int_info: std.lang.Type.Int,
+    res_ra: Register.Alias,
+    lhs_ra: Register.Alias,
+    rhs_ra: Register.Alias,
+) !void {
+    const gs: Register.GeneralSize = if (int_info.bits > 32) .doubleword else .word;
+    const reg_bits: u6 = if (int_info.bits > 32) 63 else 31;
+    const sum_ra = try isel.allocIntReg();
+    defer isel.freeReg(sum_ra);
+    switch (int_info.signedness) {
+        .unsigned => switch (air_tag) {
+            else => unreachable,
+            .add_sat => {
+                const t_ra = try isel.allocIntReg();
+                defer isel.freeReg(t_ra);
+                try isel.emit(.ubfm(res_ra.general(gs), res_ra.general(gs), .{
+                    .N = gs,
+                    .immr = 0,
+                    .imms = @intCast(int_info.bits - 1),
+                }));
+                try isel.emit(.csinv(res_ra.general(gs), sum_ra.general(gs), Register.Alias.zr.general(gs), .eq));
+                try isel.emit(.subs(Register.Alias.zr.general(gs), sum_ra.general(gs), .{ .register = t_ra.general(gs) }));
+                try isel.emit(.ubfm(t_ra.general(gs), sum_ra.general(gs), .{
+                    .N = gs,
+                    .immr = 0,
+                    .imms = @intCast(int_info.bits - 1),
+                }));
+                try isel.emit(.add(sum_ra.general(gs), lhs_ra.general(gs), .{ .register = rhs_ra.general(gs) }));
+            },
+            .sub_sat => {
+                try isel.emit(.csel(res_ra.general(gs), sum_ra.general(gs), Register.Alias.zr.general(gs), .cs));
+                try isel.emit(.subs(sum_ra.general(gs), lhs_ra.general(gs), .{ .register = rhs_ra.general(gs) }));
+            },
+        },
+        .signed => {
+            const t_ra = try isel.allocIntReg();
+            defer isel.freeReg(t_ra);
+            try isel.emit(.csel(res_ra.general(gs), sum_ra.general(gs), t_ra.general(gs), .eq));
+            // The saturated value: the sign of the exact result decides between minInt and maxInt.
+            if (int_info.bits > 1) try isel.emit(.eor(t_ra.general(gs), t_ra.general(gs), .{ .immediate = .{
+                .N = gs,
+                .immr = 0,
+                .imms = @intCast(int_info.bits - 2),
+            } }));
+            try isel.emit(.sbfm(t_ra.general(gs), sum_ra.general(gs), .{
+                .N = gs,
+                .immr = reg_bits,
+                .imms = reg_bits,
+            }));
+            try isel.emit(.subs(Register.Alias.zr.general(gs), sum_ra.general(gs), .{ .register = t_ra.general(gs) }));
+            try isel.emit(.sbfm(t_ra.general(gs), sum_ra.general(gs), .{
+                .N = gs,
+                .immr = 0,
+                .imms = @intCast(int_info.bits - 1),
+            }));
+            try isel.emit(switch (air_tag) {
+                else => unreachable,
+                .add_sat => .add(sum_ra.general(gs), lhs_ra.general(gs), .{ .register = rhs_ra.general(gs) }),
+                .sub_sat => .sub(sum_ra.general(gs), lhs_ra.general(gs), .{ .register = rhs_ra.general(gs) }),
+            });
+        },
+    }
+}
+/// Saturating shift left of an integer of 2...64 bits. The value is shifted to the top of the register
+/// (`k = register bits - bits`), shifted left by the amount, and shifted back: the shift lost no bits
+/// exactly when the round trip gives the shifted-up value again. Emission is in reverse execution order;
+/// the program order is
+///   lsl t, a, #k ; lslv u, t, s ; lsrv/asrv v, u, s ; cmp v, t
+///   unsigned: lsr r, u, #k ; csinv res, r, zr, eq ; (ubfm res, res, #0, #bits-1)
+///   signed:   asr r, u, #k ; asr z, a, #rb-1 ; eor z, z, #maxInt ; csel res, r, z, eq
+fn narrowShlSat(
+    isel: *Select,
+    int_info: std.lang.Type.Int,
+    res_ra: Register.Alias,
+    lhs_ra: Register.Alias,
+    rhs_ra: Register.Alias,
+) !void {
+    const gs: Register.GeneralSize = if (int_info.bits > 32) .doubleword else .word;
+    const reg_bits: u7 = if (int_info.bits > 32) 64 else 32;
+    const bits: u7 = @intCast(int_info.bits);
+    const k: u7 = reg_bits - bits;
+    const top_ra = if (k == 0) lhs_ra else try isel.allocIntReg();
+    defer if (k != 0) isel.freeReg(top_ra);
+    const shifted_ra = try isel.allocIntReg();
+    defer isel.freeReg(shifted_ra);
+    const back_ra = try isel.allocIntReg();
+    defer isel.freeReg(back_ra);
+    switch (int_info.signedness) {
+        .unsigned => {
+            if (k != 0) try isel.emit(.ubfm(res_ra.general(gs), res_ra.general(gs), .{
+                .N = gs,
+                .immr = 0,
+                .imms = @intCast(bits - 1),
+            }));
+            try isel.emit(.csinv(res_ra.general(gs), back_ra.general(gs), Register.Alias.zr.general(gs), .eq));
+            try isel.emit(.ubfm(back_ra.general(gs), shifted_ra.general(gs), .{
+                .N = gs,
+                .immr = @intCast(k),
+                .imms = @intCast(reg_bits - 1),
+            }));
+        },
+        .signed => {
+            const sat_ra = try isel.allocIntReg();
+            defer isel.freeReg(sat_ra);
+            try isel.emit(.csel(res_ra.general(gs), back_ra.general(gs), sat_ra.general(gs), .eq));
+            try isel.emit(.eor(sat_ra.general(gs), sat_ra.general(gs), .{ .immediate = .{
+                .N = gs,
+                .immr = 0,
+                .imms = @intCast(bits - 2),
+            } }));
+            try isel.emit(.sbfm(sat_ra.general(gs), lhs_ra.general(gs), .{
+                .N = gs,
+                .immr = @intCast(reg_bits - 1),
+                .imms = @intCast(reg_bits - 1),
+            }));
+            try isel.emit(.sbfm(back_ra.general(gs), shifted_ra.general(gs), .{
+                .N = gs,
+                .immr = @intCast(k),
+                .imms = @intCast(reg_bits - 1),
+            }));
+        },
+    }
+    // The comparison needs the round trip value, which is computed from the shifted value: emitted after
+    // (that is, executed before) the selection above. `back_ra` holds the selection result, so the round
+    // trip uses `check_ra`.
+    const check_ra = try isel.allocIntReg();
+    defer isel.freeReg(check_ra);
+    try isel.emit(.subs(Register.Alias.zr.general(gs), check_ra.general(gs), .{ .register = top_ra.general(gs) }));
+    try isel.emit(switch (int_info.signedness) {
+        .unsigned => .lsrv(check_ra.general(gs), shifted_ra.general(gs), rhs_ra.general(gs)),
+        .signed => .asrv(check_ra.general(gs), shifted_ra.general(gs), rhs_ra.general(gs)),
+    });
+    try isel.emit(.lslv(shifted_ra.general(gs), top_ra.general(gs), rhs_ra.general(gs)));
+    if (k != 0) try isel.emit(.ubfm(top_ra.general(gs), lhs_ra.general(gs), .{
+        .N = gs,
+        .immr = @intCast(reg_bits - k),
+        .imms = @intCast(bits - 1),
+    }));
+}
+/// The largest integer width with a register part model (`Value.max_parts` 64 bit parts).
+const wide_int_max_bits = 1024;
+
+/// Integers of more than 128 bits have no inline lowering. Their operations call the big-integer helpers of
+/// `lib/compiler_rt/bigint.sig`, which take operands and results as little-endian 64 bit limbs in memory.
+/// Returns the width of `ty` if it is such an integer type of at most 1024 bits, null for any other type,
+/// and fails for wider integers.
+fn wideIntBits(isel: *Select, air_tag: Air.Inst.Tag, ty: ZigType) !?u16 {
+    const zcu = isel.pt.zcu;
+    if (!ty.isAbiInt(zcu)) return null;
+    const bits = ty.intInfo(zcu).bits;
+    if (bits <= 128) return null;
+    if (bits > wide_int_max_bits) return isel.fail("too big {t} {f}", .{ air_tag, isel.fmtType(ty) });
+    return bits;
+}
+
+fn wideSigned(isel: *Select, ty: ZigType) u64 {
+    return @intFromBool(ty.intInfo(isel.pt.zcu).signedness == .signed);
+}
+
+/// An argument of a call to a big-integer helper; the arguments take the registers x0, x1, ... in order.
+const WideArg = union(enum) {
+    /// The address of the memory that receives the result value passed to `wideArgs`.
+    result,
+    /// The address of the memory image of the integer `ref`.
+    address: Air.Inst.Ref,
+    /// The integer `ref` of at most 64 bits, in a register.
+    value: Air.Inst.Ref,
+    /// The 64 bit part at `offset` of the integer `ref` of 65...128 bits, in a register.
+    part: struct { ref: Air.Inst.Ref, offset: u64 },
+    imm: u64,
+    /// The address `sp + offset` of the 4 byte overflow flag.
+    flag: u64,
+};
+
+/// Begin a call of the compiler_rt function `name` that returns in x0 the value `ret_vi` (or nothing).
+/// Emission is in reverse execution order: the sequence that follows (`wideArgs`) executes first.
+fn beginWideCall(isel: *Select, name: [*:0]const u8, ret_vi: ?Value.Index) !void {
+    const gpa = isel.pt.zcu.gpa;
+    try call.prepareReturn(isel);
+    if (ret_vi) |vi| try call.returnLiveIn(isel, vi, .r0);
+    try call.finishReturn(isel);
+
+    try call.prepareCallee(isel);
+    try isel.global_relocs.append(gpa, .{
+        .name = name,
+        .reloc = .{ .label = @intCast(isel.instructions.items.len) },
+    });
+    try isel.emit(.bl(0));
+    try call.finishCallee(isel);
+
+    try call.prepareParams(isel);
+}
+
+/// Pass `args` to the call begun with `beginWideCall`. `res_vi` is the value whose address `.result` passes.
+fn wideArgs(isel: *Select, res_vi: Value.Index, args: []const WideArg) !void {
+    const ip = &isel.pt.zcu.intern_pool;
+    const param_regs = [_]Register.Alias{ .r0, .r1, .r2, .r3, .r4, .r5, .r6, .r7 };
+    var index = args.len;
+    while (index > 0) {
+        index -= 1;
+        const ra = param_regs[index];
+        switch (args[index]) {
+            .result => try call.paramAddress(isel, res_vi, ra),
+            .address => |ref| try call.paramAddress(isel, try isel.use(ref), ra),
+            .value => |ref| try call.paramLiveOut(isel, try isel.use(ref), ra),
+            .part => |part| {
+                const vi = try isel.use(part.ref);
+                var part_it = vi.field(isel.air.typeOf(part.ref, ip), part.offset, 8);
+                const part_vi = try part_it.only(isel);
+                try call.paramLiveOut(isel, part_vi.?, ra);
+            },
+            .imm => |imm| try isel.movImmediate(ra.x(), imm),
+            .flag => |offset| try call.paramReg(isel, .sp, offset, ra),
+        }
+    }
+    try call.finishParams(isel);
+}
+
+/// `res = helper(&res, &lhs, &rhs, bits, signed)` of the wrapping big-integer helpers of `bigint.sig`.
+fn wideBinary(
+    isel: *Select,
+    res_vi: Value.Index,
+    ty: ZigType,
+    name: [*:0]const u8,
+    lhs: Air.Inst.Ref,
+    rhs: Air.Inst.Ref,
+) !void {
+    try res_vi.defAddr(isel, ty, .{}) orelse return;
+    try isel.beginWideCall(name, null);
+    try isel.wideArgs(res_vi, &.{
+        .result,
+        .{ .address = lhs },
+        .{ .address = rhs },
+        .{ .imm = ty.intInfo(isel.pt.zcu).bits },
+        .{ .imm = isel.wideSigned(ty) },
+    });
+}
+
+/// `res = helper(&res, &operand, bits, signed)`.
+fn wideUnary(isel: *Select, res_vi: Value.Index, ty: ZigType, name: [*:0]const u8, operand: Air.Inst.Ref) !void {
+    try res_vi.defAddr(isel, ty, .{}) orelse return;
+    try isel.beginWideCall(name, null);
+    try isel.wideArgs(res_vi, &.{
+        .result,
+        .{ .address = operand },
+        .{ .imm = ty.intInfo(isel.pt.zcu).bits },
+        .{ .imm = isel.wideSigned(ty) },
+    });
+}
+
+/// `res = helper(&res, &lhs, amount, bits, signed)`: the shift amount is passed in a register.
+fn wideShift(isel: *Select, res_vi: Value.Index, ty: ZigType, name: [*:0]const u8, lhs: Air.Inst.Ref, amount: Air.Inst.Ref) !void {
+    try res_vi.defAddr(isel, ty, .{}) orelse return;
+    try isel.beginWideCall(name, null);
+    try isel.wideArgs(res_vi, &.{
+        .result,
+        .{ .address = lhs },
+        .{ .value = amount },
+        .{ .imm = ty.intInfo(isel.pt.zcu).bits },
+        .{ .imm = isel.wideSigned(ty) },
+    });
+}
+
+/// `res = __cmpei4(&lhs, &rhs, bits, signed, op)`: the boolean result comes back in x0.
+fn wideCompare(
+    isel: *Select,
+    res_vi: Value.Index,
+    ty: ZigType,
+    op: std.math.CompareOperator,
+    lhs: Air.Inst.Ref,
+    rhs: Air.Inst.Ref,
+) !void {
+    if (!res_vi.isUsed(isel)) return;
+    try isel.beginWideCall("__cmpei4", res_vi);
+    try isel.wideArgs(res_vi, &.{
+        .{ .address = lhs },
+        .{ .address = rhs },
+        .{ .imm = ty.intInfo(isel.pt.zcu).bits },
+        .{ .imm = isel.wideSigned(ty) },
+        .{ .imm = @intFromEnum(op) },
+    });
+}
+
+/// `res = (dst_ty)operand` for an integer cast or truncation to an integer of more than 128 bits, or between
+/// integers that are not both of at most 128 bits.
+fn wideResize(isel: *Select, res_vi: Value.Index, dst_ty: ZigType, operand: Air.Inst.Ref, src_ty: ZigType) !void {
+    const zcu = isel.pt.zcu;
+    const dst_info = dst_ty.intInfo(zcu);
+    const src_info = src_ty.intInfo(zcu);
+    try res_vi.defAddr(isel, dst_ty, .{}) orelse return;
+    if (src_info.bits > 128) {
+        try isel.beginWideCall("__resizeei4", null);
+        try isel.wideArgs(res_vi, &.{
+            .result,
+            .{ .imm = dst_info.bits },
+            .{ .imm = isel.wideSigned(dst_ty) },
+            .{ .address = operand },
+            .{ .imm = src_info.bits },
+            .{ .imm = isel.wideSigned(src_ty) },
+        });
+    } else {
+        try isel.beginWideCall("__resize128ei4", null);
+        try isel.wideArgs(res_vi, &.{
+            .result,
+            .{ .imm = dst_info.bits },
+            .{ .imm = isel.wideSigned(dst_ty) },
+            if (src_info.bits > 64) .{ .part = .{ .ref = operand, .offset = 0 } } else .{ .value = operand },
+            if (src_info.bits > 64) .{ .part = .{ .ref = operand, .offset = 8 } } else .{ .imm = 0 },
+            .{ .imm = src_info.bits },
+            .{ .imm = isel.wideSigned(src_ty) },
+        });
+    }
+}
+
+/// `add`/`sub` (and their wrapping and checked forms) of an integer of more than 128 bits. The checked forms
+/// call the overflow variant of the helper and panic when it reports an overflow.
+fn wideAddOrSub(
+    isel: *Select,
+    res_vi: Value.Index,
+    air_tag: Air.Inst.Tag,
+    ty: ZigType,
+    lhs: Air.Inst.Ref,
+    rhs: Air.Inst.Ref,
+) !void {
+    const signed = isel.wideSigned(ty) != 0;
+    const is_add = switch (air_tag) {
+        .add, .add_wrap, .add_safe => true,
+        else => false,
+    };
+    switch (air_tag) {
+        .add_safe, .sub_safe => {
+            const flag_offset = InternPool.Alignment.@"4".forward(isel.stack_size);
+            isel.stack_size = @intCast(flag_offset + 4);
+            try res_vi.defAddr(isel, ty, .{}) orelse return;
+            const flag_ra = try isel.allocIntReg();
+            defer isel.freeReg(flag_ra);
+            // Panic unless the flag read back from the stack is zero.
+            const skip_label = isel.instructions.items.len;
+            try isel.emitPanic(.integer_overflow);
+            try isel.emit(.@"b."(.eq, @intCast((isel.instructions.items.len + 1 - skip_label) << 2)));
+            try isel.emit(.subs(.wzr, flag_ra.w(), .{ .immediate = 0 }));
+            try isel.loadReg(flag_ra, 4, .unsigned, .sp, flag_offset);
+            try isel.beginWideCall(if (is_add)
+                (if (signed) "__addoei4" else "__uaddoei4")
+            else
+                (if (signed) "__suboei4" else "__usuboei4"), null);
+            try isel.wideArgs(res_vi, &.{
+                .result,
+                .{ .address = lhs },
+                .{ .address = rhs },
+                .{ .imm = ty.intInfo(isel.pt.zcu).bits },
+                .{ .flag = flag_offset },
+            });
+        },
+        else => try isel.wideBinary(res_vi, ty, if (is_add) "__addei4" else "__subei4", lhs, rhs),
+    }
+}
+
+/// `add_with_overflow`, `sub_with_overflow` and `mul_with_overflow` of an integer of more than 128 bits: the
+/// helper writes the wrapped value and the 4 byte flag.
+fn wideOverflow(
+    isel: *Select,
+    res_vi: Value.Index,
+    air_tag: Air.Inst.Tag,
+    result_ty: ZigType,
+    ty: ZigType,
+    lhs: Air.Inst.Ref,
+    rhs: Air.Inst.Ref,
+) !void {
+    const signed = isel.wideSigned(ty) != 0;
+    const ty_size = ty.abiSize(isel.pt.zcu);
+    var overflow_it = res_vi.field(result_ty, ty_size, 1);
+    const overflow_vi = try overflow_it.only(isel);
+    var wrapped_it = res_vi.field(result_ty, 0, ty_size);
+    const wrapped_vi = (try wrapped_it.only(isel)).?;
+    const flag_offset = InternPool.Alignment.@"4".forward(isel.stack_size);
+    isel.stack_size = @intCast(flag_offset + 4);
+    const overflow_ra = try overflow_vi.?.defReg(isel);
+    if (overflow_ra) |ra| try isel.loadReg(ra, 4, .unsigned, .sp, flag_offset);
+    const wrapped_used = try wrapped_vi.defAddr(isel, ty, .{}) != null;
+    if (overflow_ra == null and !wrapped_used) return;
+    try isel.beginWideCall(switch (air_tag) {
+        .add_with_overflow => if (signed) "__addoei4" else "__uaddoei4",
+        .sub_with_overflow => if (signed) "__suboei4" else "__usuboei4",
+        else => if (signed) "__muloei4" else "__umuloei4",
+    }, null);
+    try isel.wideArgs(wrapped_vi, &.{
+        .result,
+        .{ .address = lhs },
+        .{ .address = rhs },
+        .{ .imm = ty.intInfo(isel.pt.zcu).bits },
+        .{ .flag = flag_offset },
+    });
+}
+
+/// Start the `memcpy` that defines the element value `elem_vi` of type `elem_ty` from memory.
+/// Emission is in reverse execution order: the caller then emits the computation of the source
+/// address into `.r1` (it executes before this sequence), then calls `finishElemMemcpy`.
+/// Returns null when `elem_vi` is unused.
+fn beginElemMemcpy(isel: *Select, elem_vi: Value.Index, elem_ty: ZigType, size: u64) !?void {
+    const gpa = isel.pt.zcu.gpa;
+    try elem_vi.defAddr(isel, elem_ty, .{}) orelse return null;
+
+    try call.prepareReturn(isel);
+    try call.finishReturn(isel);
+
+    try call.prepareCallee(isel);
+    try isel.global_relocs.append(gpa, .{
+        .name = "memcpy",
+        .reloc = .{ .label = @intCast(isel.instructions.items.len) },
+    });
+    try isel.emit(.bl(0));
+    try call.finishCallee(isel);
+
+    try call.prepareParams(isel);
+    try isel.movImmediate(.x2, size);
+}
+
+/// Complete the sequence started by `beginElemMemcpy`: the destination address goes into `.r0`.
+fn finishElemMemcpy(isel: *Select, elem_vi: Value.Index) !void {
+    try call.paramAddress(isel, elem_vi, .r0);
+    try call.finishParams(isel);
+}
+
 /// dst = src
 fn movImmediate(isel: *Select, dst_reg: Register, src_imm: u64) !void {
     const sf = dst_reg.format.general;
@@ -9866,14 +10737,27 @@ pub const Value = struct {
             // via `memcpy` from the source's address, matching the union-init path.
             if (src_size <= 8) {
                 var dst_field_it = dst_vi.field(dst_ty, field_offset, src_size);
-                const dst_field_vi = try dst_field_it.only(isel);
-                try dst_field_vi.?.copy(isel, src_ty, src_vi);
-                return;
+                if (dst_field_it.tryOnly(isel)) |dst_field_vi| {
+                    if (dst_field_vi) |field_vi| {
+                        try field_vi.copy(isel, src_ty, src_vi);
+                        return;
+                    }
+                } else |err| switch (err) {
+                    // The field is not a part of the destination and cannot be made one: store the
+                    // source through the destination's address below.
+                    error.PartStraddle => {},
+                    error.OutOfMemory, error.AlreadyReported => |e| return e,
+                    error.Canceled => |e| return e,
+                }
             }
             // Large non-HFA values live in caller storage. HFAs still use up
             // to four vector registers, so keep the store/decomposition path
             // below for those instead of addressing an uninitialized slot.
-            if (src_size > 16 and !CallAbiIterator.hasVectorAggregateAbi(isel.pt.zcu, src_ty)) {
+            // A union of more than one register has no register decomposition either (its single part is wider than a
+            // register and cannot be split), so it is copied through memory like the other large values.
+            if ((src_size > 16 and !CallAbiIterator.hasVectorAggregateAbi(isel.pt.zcu, src_ty)) or
+                (src_size > 8 and src_ty.zigTypeTag(isel.pt.zcu) == .@"union"))
+            {
                 try call.prepareReturn(isel);
                 try call.finishReturn(isel);
                 try call.prepareCallee(isel);
@@ -9905,6 +10789,45 @@ pub const Value = struct {
             // Reverse emission: emit the store first (runs last at run time), then the
             // address computation (runs first), so `addr_ra` holds the field address
             // before the store executes.
+            //
+            // That store only reaches memory. A destination that is not in caller storage may have parts
+            // that live in registers (the payload of an `error{..}!S` returned in x0/x1 gets its ABI parts
+            // at the `ret`), and those would never see the stored bytes. Define every destination part
+            // that covers the field from the source's memory image instead, like the register-sized case.
+            reg_parts: {
+                _, const dst_top_vi = dst_vi.valueParent(isel);
+                switch (dst_top_vi.parent(isel)) {
+                    .unallocated, .stack_slot => {},
+                    else => break :reg_parts,
+                }
+                var dst_parts: [Value.max_parts]Value.Index = undefined;
+                var dst_parts_len: usize = 0;
+                var dst_field_it = dst_vi.field(dst_ty, field_offset, src_size);
+                while (dst_field_it.next(isel) catch |err| switch (err) {
+                    error.PartBudgetExceeded, error.PartStraddle => break :reg_parts,
+                    error.OutOfMemory, error.AlreadyReported => |e| return e,
+                    error.Canceled => |e| return e,
+                }) |dst_part| {
+                    if (dst_parts_len == dst_parts.len) break :reg_parts;
+                    // A part wider than one register cannot be defined by a single load.
+                    if (dst_part.vi.size(isel) > @as(u64, if (dst_part.vi.isVector(isel)) 16 else 8)) break :reg_parts;
+                    dst_parts[dst_parts_len] = dst_part.vi;
+                    dst_parts_len += 1;
+                }
+                var src_part_offset: u64 = 0;
+                for (dst_parts[0..dst_parts_len]) |dst_part_vi| {
+                    const dst_part_size = dst_part_vi.size(isel);
+                    defer src_part_offset += dst_part_size;
+                    const dst_part_ra = try dst_part_vi.defReg(isel) orelse continue;
+                    const dst_part_lock = isel.lockReg(dst_part_ra);
+                    defer dst_part_lock.unlock(isel);
+                    const src_addr_ra = try isel.allocIntReg();
+                    defer isel.freeReg(src_addr_ra);
+                    try isel.loadReg(dst_part_ra, dst_part_size, dst_part_vi.signedness(isel), src_addr_ra, 0);
+                    try src_vi.address(isel, src_part_offset, src_addr_ra);
+                }
+                return;
+            }
             const addr_ra = try isel.allocIntReg();
             defer isel.freeReg(addr_ra);
             try src_vi.store(isel, src_ty, addr_ra, .{ .split = true });
@@ -9932,9 +10855,18 @@ pub const Value = struct {
             // copy them wholesale via `memcpy` from the source field's address.
             if (dst_size <= 8) {
                 var field_it = src_vi.field(src_ty, field_offset, dst_size);
-                const src_field_vi = try field_it.only(isel);
-                try dst_vi.copy(isel, dst_ty, src_field_vi.?);
-                return;
+                if (field_it.tryOnly(isel)) |src_field_vi| {
+                    if (src_field_vi) |field_vi| {
+                        try dst_vi.copy(isel, dst_ty, field_vi);
+                        return;
+                    }
+                } else |err| switch (err) {
+                    // The field is not a part of the source and cannot be made one: copy it
+                    // through memory below.
+                    error.PartStraddle => {},
+                    error.OutOfMemory, error.AlreadyReported => |e| return e,
+                    error.Canceled => |e| return e,
+                }
             }
             try dst_vi.defAddr(isel, dst_ty, .{}) orelse return;
 
@@ -9956,14 +10888,57 @@ pub const Value = struct {
             try call.finishParams(isel);
         }
 
+        /// Nesting of `copyAdvanced` calls never exceeds the nesting of aggregate types (a handful of
+        /// levels in practice). The bound turns any cycle into a diagnostic instead of a stack overflow.
+        const copy_advanced_max_depth = 64;
+
+        /// Whether `vi` is exactly the `size` bytes at `offset` of the Value tree rooted at `root_vi`.
+        fn coversRegion(vi: Value.Index, isel: *Select, root_vi: Value.Index, offset: u64, region_size: u64) bool {
+            if (vi.size(isel) != region_size) return false;
+            const vi_offset, const vi_top = vi.valueParent(isel);
+            const root_offset, const root_top = root_vi.valueParent(isel);
+            return vi_top == root_top and vi_offset == root_offset + offset;
+        }
+
+        /// Define `dst_vi` from the memory behind `src_vi` with `memcpy`. Used when a region cannot be
+        /// served by register-sized parts of both sides (`FieldPartIterator.next` reports
+        /// `error.PartStraddle`): both operands are addressed in memory, so every register-resident
+        /// part is stored to (or loaded from) its stack slot by its own definition or use.
+        fn copyThroughMemory(
+            dst_vi: Value.Index,
+            isel: *Select,
+            src_vi: Value.Index,
+            root: struct { ty: ZigType, dst_vi: Value.Index },
+        ) !void {
+            const copy_size = @min(dst_vi.size(isel), src_vi.size(isel));
+            try dst_vi.defAddr(isel, root.ty, .{ .root_vi = root.dst_vi }) orelse return;
+            try call.prepareReturn(isel);
+            try call.finishReturn(isel);
+            try call.prepareCallee(isel);
+            try isel.global_relocs.append(isel.pt.zcu.gpa, .{
+                .name = "memcpy",
+                .reloc = .{ .label = @intCast(isel.instructions.items.len) },
+            });
+            try isel.emit(.bl(0));
+            try call.finishCallee(isel);
+            try call.prepareParams(isel);
+            try isel.movImmediate(.x2, copy_size);
+            try call.paramAddress(isel, src_vi, .r1);
+            try call.paramAddress(isel, dst_vi, .r0);
+            try call.finishParams(isel);
+        }
+
         fn copyAdvanced(dst_vi: Value.Index, isel: *Select, src_vi: Value.Index, root: struct {
             ty: ZigType,
             dst_vi: Value.Index,
             dst_offset: u64,
             src_vi: Value.Index,
             src_offset: u64,
+            depth: u8 = 0,
         }) !void {
             if (dst_vi == src_vi) return;
+            if (root.depth >= copy_advanced_max_depth)
+                return isel.fail("copyAdvanced recursion limit exceeded copying {f}", .{isel.fmtType(root.ty)});
             // Opaque wide unions have no scalar register representation.
             // Copy their complete addressable storage instead of forcing a
             // payload through FieldPartIterator.only().
@@ -10002,7 +10977,7 @@ pub const Value = struct {
                             // The region cannot be decomposed into register-sized parts
                             // within the fixed part budget (e.g. an unaligned byte array
                             // or an opaque union payload). Copy it wholesale via `memcpy`.
-                            error.PartBudgetExceeded => {
+                            error.PartBudgetExceeded, error.PartStraddle => {
                                 const gpa = isel.pt.zcu.gpa;
                                 try dst_part_vi.defAddr(isel, root.ty, .{ .root_vi = root.dst_vi }) orelse return;
                                 try call.prepareReturn(isel);
@@ -10025,29 +11000,66 @@ pub const Value = struct {
                     }
                     return src_part_vi.liveOut(isel, try dst_part_vi.defReg(isel) orelse return);
                 }
-                while (src_part_it.next()) |src_part_vi| {
+                // Find the destination counterpart of every source part before emitting anything. If one
+                // of them does not exist as a part (the request straddles destination parts that cannot be
+                // split to match), serve the whole region from memory instead of recursing.
+                var dst_fields: [Value.max_parts]Value.Index = undefined;
+                var fields_len: usize = 0;
+                var find_it = src_part_it;
+                while (find_it.next()) |src_part_vi| {
                     const src_part_offset, const src_part_size = src_part_vi.position(isel);
                     var dst_field_it = root.dst_vi.field(root.ty, root.dst_offset + src_part_offset, src_part_size);
-                    const dst_field_vi = try dst_field_it.only(isel);
-                    try dst_field_vi.?.copyAdvanced(isel, src_part_vi, .{
+                    const dst_field_vi = dst_field_it.tryOnly(isel) catch |err| switch (err) {
+                        error.PartStraddle => return dst_vi.copyThroughMemory(isel, src_vi, .{ .ty = root.ty, .dst_vi = root.dst_vi }),
+                        error.OutOfMemory, error.AlreadyReported => |e| return e,
+                        error.Canceled => |e| return e,
+                    };
+                    if (dst_field_vi == null or !dst_field_vi.?.coversRegion(isel, root.dst_vi, root.dst_offset + src_part_offset, src_part_size))
+                        return dst_vi.copyThroughMemory(isel, src_vi, .{ .ty = root.ty, .dst_vi = root.dst_vi });
+                    dst_fields[fields_len] = dst_field_vi.?;
+                    fields_len += 1;
+                }
+                while (src_part_it.next()) |src_part_vi| {
+                    const src_part_offset, _ = src_part_vi.position(isel);
+                    const dst_field_vi = dst_fields[fields_len - src_part_it.remaining - 1];
+                    try dst_field_vi.copyAdvanced(isel, src_part_vi, .{
                         .ty = root.ty,
                         .dst_vi = root.dst_vi,
                         .dst_offset = root.dst_offset + src_part_offset,
                         .src_vi = root.src_vi,
                         .src_offset = root.src_offset + src_part_offset,
+                        .depth = root.depth + 1,
                     });
                 }
-            } else while (dst_part_it.next()) |dst_part_vi| {
-                const dst_part_offset, const dst_part_size = dst_part_vi.position(isel);
-                var src_field_it = root.src_vi.field(root.ty, root.src_offset + dst_part_offset, dst_part_size);
-                const src_part_vi = try src_field_it.only(isel);
-                try dst_part_vi.copyAdvanced(isel, src_part_vi.?, .{
-                    .ty = root.ty,
-                    .dst_vi = root.dst_vi,
-                    .dst_offset = root.dst_offset + dst_part_offset,
-                    .src_vi = root.src_vi,
-                    .src_offset = root.src_offset + dst_part_offset,
-                });
+            } else {
+                var src_fields: [Value.max_parts]Value.Index = undefined;
+                var fields_len: usize = 0;
+                var find_it = dst_part_it;
+                while (find_it.next()) |dst_part_vi| {
+                    const dst_part_offset, const dst_part_size = dst_part_vi.position(isel);
+                    var src_field_it = root.src_vi.field(root.ty, root.src_offset + dst_part_offset, dst_part_size);
+                    const src_part_vi = src_field_it.tryOnly(isel) catch |err| switch (err) {
+                        error.PartStraddle => return dst_vi.copyThroughMemory(isel, src_vi, .{ .ty = root.ty, .dst_vi = root.dst_vi }),
+                        error.OutOfMemory, error.AlreadyReported => |e| return e,
+                        error.Canceled => |e| return e,
+                    };
+                    if (src_part_vi == null or !src_part_vi.?.coversRegion(isel, root.src_vi, root.src_offset + dst_part_offset, dst_part_size))
+                        return dst_vi.copyThroughMemory(isel, src_vi, .{ .ty = root.ty, .dst_vi = root.dst_vi });
+                    src_fields[fields_len] = src_part_vi.?;
+                    fields_len += 1;
+                }
+                while (dst_part_it.next()) |dst_part_vi| {
+                    const dst_part_offset, _ = dst_part_vi.position(isel);
+                    const src_part_vi = src_fields[fields_len - dst_part_it.remaining - 1];
+                    try dst_part_vi.copyAdvanced(isel, src_part_vi, .{
+                        .ty = root.ty,
+                        .dst_vi = root.dst_vi,
+                        .dst_offset = root.dst_offset + dst_part_offset,
+                        .src_vi = root.src_vi,
+                        .src_offset = root.src_offset + dst_part_offset,
+                        .depth = root.depth + 1,
+                    });
+                }
             }
         }
 
@@ -10105,8 +11117,13 @@ pub const Value = struct {
                 var wrapped_res_part_it = res_vi.field(ty, part_offset, part_size);
                 const wrapped_res_part_vi = try wrapped_res_part_it.only(isel);
                 const wrapped_res_part_ra = wrapped_res_part_ra: {
+                    // The overflow register is only reserved while the result part is defined. A previous
+                    // (higher) part may have materialized an operand part in it since (the flag is written
+                    // after that part is read), so it is not necessarily free: locking it unconditionally
+                    // would free it again on unlock and let a later operand part be assigned the same
+                    // register while the live one is still in it (`mov x1, x0` over a live `lhs_hi`).
                     const overflow_ra_lock: RegLock = switch (opts.overflow) {
-                        .ra => |ra| isel.lockReg(ra),
+                        .ra => |ra| isel.lockRegIfFree(ra),
                         else => .empty,
                     };
                     defer overflow_ra_lock.unlock(isel);
@@ -10318,7 +11335,7 @@ pub const Value = struct {
                     _ = subpart_it.next(isel) catch |err| switch (err) {
                         error.OutOfMemory, error.AlreadyReported => |e| return e,
                         error.Canceled => |e| return e,
-                        error.PartBudgetExceeded => return isel.fail("load of aggregate too large for register decomposition", .{}),
+                        error.PartBudgetExceeded, error.PartStraddle => return isel.fail("load of aggregate too large for register decomposition", .{}),
                     };
                     part_it = vi.parts(isel);
                     assert(part_it.only() == null);
@@ -10411,7 +11428,7 @@ pub const Value = struct {
                     _ = subpart_it.next(isel) catch |err| switch (err) {
                         error.OutOfMemory, error.AlreadyReported => |e| return e,
                         error.Canceled => |e| return e,
-                        error.PartBudgetExceeded => return isel.fail("store of aggregate too large for register decomposition", .{}),
+                        error.PartBudgetExceeded, error.PartStraddle => return isel.fail("store of aggregate too large for register decomposition", .{}),
                     };
                     part_it = vi.parts(isel);
                     assert(part_it.only() == null);
@@ -10644,7 +11661,7 @@ pub const Value = struct {
                         error.Canceled => |e| return e,
                         // Undefined wide storage need not be split or poisoned
                         // byte-by-byte. Its address supplies any future uses.
-                        error.PartBudgetExceeded => {
+                        error.PartBudgetExceeded, error.PartStraddle => {
                             _ = try part_vi.defAddr(isel, root_ty, .{ .root_vi = root_vi });
                             return;
                         },
@@ -10841,6 +11858,29 @@ pub const Value = struct {
             );
         }
 
+        /// Like `liveOut`, for a region of `vi` that is not a single part of it: `ra` receives the `size`
+        /// bytes at `offset` of `vi`, loaded from its memory image. Every part of `vi` stores itself to
+        /// that image when it is defined, because taking the address gives `vi` a stack slot.
+        fn liveOutRegion(
+            vi: Value.Index,
+            isel: *Select,
+            offset: u64,
+            region_size: u64,
+            region_signedness: std.lang.Signedness,
+            ra: Register.Alias,
+        ) !void {
+            const fill_ok = try isel.fill(ra);
+            assert(fill_ok);
+            const live_vi = isel.live_registers.getPtr(ra);
+            assert(live_vi.* == .free);
+            live_vi.* = .allocating;
+            const addr_ra = try isel.allocIntReg();
+            defer isel.freeReg(addr_ra);
+            try isel.loadReg(ra, region_size, region_signedness, addr_ra, 0);
+            try vi.address(isel, offset, addr_ra);
+            live_vi.* = .free;
+        }
+
         fn liveOut(vi: Value.Index, isel: *Select, ra: Register.Alias) !void {
             assert(try isel.fill(ra));
             const live_vi = isel.live_registers.getPtr(ra);
@@ -10976,6 +12016,9 @@ pub const Value = struct {
         field_size: u64,
         next_offset: u64,
 
+        /// `error.PartStraddle` means the request starts inside a leaf that cannot be split so that a part
+        /// begins exactly at the request start (a strict sub-range of a register-sized integer or pointer
+        /// leaf). Callers either fall back to memory (`Value.copyAdvanced`) or report a diagnostic (`only`).
         fn next(it: *FieldPartIterator, isel: *Select) !?struct { offset: u64, vi: Value.Index } {
             const next_offset = it.next_offset;
             const next_part_size = it.field_size - next_offset;
@@ -10991,7 +12034,19 @@ pub const Value = struct {
             var offset: u64 = 0;
             var size = ty_size;
             assert(next_part_offset + next_part_size <= size);
+            // AAPCS64 passes and returns a floating-point field in a general register unless the whole
+            // aggregate is a homogeneous floating-point aggregate (or too large to be passed in registers
+            // at all). Parts of such aggregates must therefore be general-register parts: giving an
+            // `error{..}!f32` a vector payload part conflicts with the general register that holds the
+            // whole value. Float values move in and out of those parts with fmov.
+            const parts_may_be_vector = ty_size > 16 or CallAbiIterator.homogeneousAggregateBaseType(zcu, ty.toIntern()) != null;
+            // Every iteration either descends into a smaller part or splits the current leaf, so the
+            // loop is bounded by the nesting depth. Asserts are compiled out of the release compiler,
+            // so a no-progress cycle must be reported here rather than assumed away.
+            var steps: u32 = 0;
             while (next_part_offset > 0 or next_part_size < size) {
+                steps += 1;
+                if (steps > 4096) return isel.fail("Value.FieldPartIterator.next({f}) made no progress", .{isel.fmtType(ty)});
                 const part_vi = vi.partAtOffset(isel, next_part_offset);
                 if (part_vi != vi) {
                     vi = part_vi;
@@ -11006,21 +12061,22 @@ pub const Value = struct {
                     else => return isel.fail("Value.FieldPartIterator.next({f})", .{isel.fmtType(ty)}),
                     .int_type => |int_type| switch (int_type.bits) {
                         0 => unreachable,
-                        1...64 => unreachable,
-                        65...256 => |bits| if (offset == 0 and size == ty_size) {
+                        // A strict sub-range of a register-sized integer leaf cannot be split further.
+                        1...64 => return error.PartStraddle,
+                        65...wide_int_max_bits => |bits| if (offset == 0 and size == ty_size) {
                             const parts_len = @divCeil(bits, 64);
                             vi.setParts(isel, @intCast(parts_len));
                             for (0..parts_len) |part_index| _ = vi.addPart(isel, 8 * part_index, 8);
-                        },
+                        } else return error.PartStraddle,
                         else => return isel.fail("Value.FieldPartIterator.next({f})", .{isel.fmtType(ty)}),
                     },
                     .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-                        .one, .many, .c => unreachable,
+                        .one, .many, .c => return error.PartStraddle,
                         .slice => if (offset == 0 and size == ty_size) {
                             vi.setParts(isel, 2);
                             _ = vi.addPart(isel, 0, 8);
                             _ = vi.addPart(isel, 8, 8);
-                        } else unreachable,
+                        } else return error.PartStraddle,
                     },
                     .opt_type => |child_type| if (ty.optionalReprIsPayload(zcu)) continue :type_key ip.indexToKey(child_type) else {
                         // Optional layout (non-payload repr) is `payload` (child_size
@@ -11077,7 +12133,7 @@ pub const Value = struct {
                             (@divCeil(size, @as(u64, 1) << min_part_log2_stride)) > Value.max_parts)
                             return error.PartBudgetExceeded;
                         const alignment = vi.alignment(isel);
-                        const Part = struct { offset: u64, size: u64 };
+                        const Part = struct { offset: u64, size: u64, clipped: bool };
                         var parts: [Value.max_parts]Part = undefined;
                         var parts_len: Value.PartsLen = 0;
                         const elem_ty: ZigType = .fromInterned(array_type.child);
@@ -11086,7 +12142,7 @@ pub const Value = struct {
                             const elem_int_info = elem_ty.intInfo(zcu);
                             break :elem_signedness if (elem_int_info.bits <= 16) elem_int_info.signedness else null;
                         } else null;
-                        const elem_is_vector = elem_size <= 16 and
+                        const elem_is_vector = parts_may_be_vector and elem_size <= 16 and
                             CallAbiIterator.homogeneousAggregateBaseType(zcu, elem_ty.toIntern()) != null;
                         var elem_end: u64 = 0;
                         for (0..@intCast(array_len)) |_| {
@@ -11100,20 +12156,25 @@ pub const Value = struct {
                                 offset -= elem_begin;
                                 continue :type_key ip.indexToKey(elem_ty.toIntern());
                             }
+                            // Clip the element to the region being split (see the field arms below).
+                            const part_begin = @max(elem_begin, offset);
+                            const part_end = @min(elem_end, offset + size);
+                            const elem_clipped = part_begin != elem_begin or part_end != elem_end;
                             if (parts_len > 0) combine: {
                                 const prev_part = &parts[parts_len - 1];
-                                const combined_size = elem_end - prev_part.offset;
+                                const combined_size = part_end - prev_part.offset;
                                 if (combined_size > @as(u64, 1) << @min(
                                     min_part_log2_stride,
                                     alignment.toLog2Units(),
                                     @ctz(prev_part.offset),
                                 )) break :combine;
                                 prev_part.size = combined_size;
+                                prev_part.clipped = prev_part.clipped or elem_clipped;
                                 continue;
                             }
                             if (parts_len == Value.max_parts)
                                 return error.PartBudgetExceeded;
-                            parts[parts_len] = .{ .offset = elem_begin, .size = elem_size };
+                            parts[parts_len] = .{ .offset = part_begin, .size = part_end - part_begin, .clipped = elem_clipped };
                             parts_len += 1;
                         }
                         if (parts_len < 2)
@@ -11121,8 +12182,10 @@ pub const Value = struct {
                         vi.setParts(isel, parts_len);
                         for (parts[0..parts_len]) |part| {
                             const subpart_vi = vi.addPart(isel, part.offset - offset, part.size);
-                            if (elem_signedness) |signedness| subpart_vi.setSignedness(isel, signedness);
-                            if (elem_is_vector) subpart_vi.setIsVector(isel);
+                            if (!part.clipped) {
+                                if (elem_signedness) |signedness| subpart_vi.setSignedness(isel, signedness);
+                                if (elem_is_vector) subpart_vi.setIsVector(isel);
+                            }
                         }
                     },
                     .anyframe_type => unreachable,
@@ -11159,15 +12222,21 @@ pub const Value = struct {
                                 offset -= field_begin;
                                 continue :type_key ip.indexToKey(field_ty.toIntern());
                             }
-                            const field_signedness = if (field_ty.isAbiInt(zcu)) field_signedness: {
+                            // Clip the field to the region being split: a region that starts or ends inside a field
+                            // (for instance an ABI register part of an error union) must not get a part that sticks
+                            // out of it. A clipped field is no longer a vector or signed leaf.
+                            const part_begin = @max(field_begin, offset);
+                            const part_end = @min(field_end, offset + size);
+                            const field_clipped = part_begin != field_begin or part_end != field_end;
+                            const field_signedness = if (!field_clipped and field_ty.isAbiInt(zcu)) field_signedness: {
                                 const field_int_info = field_ty.intInfo(zcu);
                                 break :field_signedness if (field_int_info.bits <= 16) field_int_info.signedness else null;
                             } else null;
-                            const field_is_vector = field_size <= 16 and
+                            const field_is_vector = parts_may_be_vector and !field_clipped and field_size <= 16 and
                                 CallAbiIterator.homogeneousAggregateBaseType(zcu, field_ty.toIntern()) != null;
                             if (parts_len > 0) combine: {
                                 const prev_part = &parts[parts_len - 1];
-                                const combined_size = field_end - prev_part.offset;
+                                const combined_size = part_end - prev_part.offset;
                                 if (combined_size > @as(u64, 1) << @min(
                                     min_part_log2_stride,
                                     alignment.toLog2Units(),
@@ -11179,8 +12248,8 @@ pub const Value = struct {
                                 continue;
                             }
                             parts[parts_len] = .{
-                                .offset = field_begin,
-                                .size = field_size,
+                                .offset = part_begin,
+                                .size = part_end - part_begin,
                                 .signedness = field_signedness,
                                 .is_vector = field_is_vector,
                             };
@@ -11262,15 +12331,21 @@ pub const Value = struct {
                                 offset -= field_begin;
                                 continue :type_key ip.indexToKey(field_ty.toIntern());
                             }
-                            const field_signedness = if (field_ty.isAbiInt(zcu)) field_signedness: {
+                            // Clip the field to the region being split: a region that starts or ends inside a field
+                            // (for instance an ABI register part of an error union) must not get a part that sticks
+                            // out of it. A clipped field is no longer a vector or signed leaf.
+                            const part_begin = @max(field_begin, offset);
+                            const part_end = @min(field_end, offset + size);
+                            const field_clipped = part_begin != field_begin or part_end != field_end;
+                            const field_signedness = if (!field_clipped and field_ty.isAbiInt(zcu)) field_signedness: {
                                 const field_int_info = field_ty.intInfo(zcu);
                                 break :field_signedness if (field_int_info.bits <= 16) field_int_info.signedness else null;
                             } else null;
-                            const field_is_vector = field_size <= 16 and
+                            const field_is_vector = parts_may_be_vector and !field_clipped and field_size <= 16 and
                                 CallAbiIterator.homogeneousAggregateBaseType(zcu, field_ty.toIntern()) != null;
                             if (parts_len > 0) combine: {
                                 const prev_part = &parts[parts_len - 1];
-                                const combined_size = field_end - prev_part.offset;
+                                const combined_size = part_end - prev_part.offset;
                                 if (combined_size > @as(u64, 1) << @min(
                                     min_part_log2_stride,
                                     alignment.toLog2Units(),
@@ -11284,8 +12359,8 @@ pub const Value = struct {
                             if (parts_len == Value.max_parts)
                                 return error.PartBudgetExceeded;
                             parts[parts_len] = .{
-                                .offset = field_begin,
-                                .size = field_size,
+                                .offset = part_begin,
+                                .size = part_end - part_begin,
                                 .signedness = field_signedness,
                                 .is_vector = field_is_vector,
                             };
@@ -11325,11 +12400,17 @@ pub const Value = struct {
                                 offset -= field_begin;
                                 continue :type_key ip.indexToKey(field_ty.toIntern());
                             }
-                            const field_is_vector = field_size <= 16 and
+                            // Clip the field to the region being split: a region that starts or ends inside a field
+                            // (for instance an ABI register part of an error union) must not get a part that sticks
+                            // out of it. A clipped field is no longer a vector or signed leaf.
+                            const part_begin = @max(field_begin, offset);
+                            const part_end = @min(field_end, offset + size);
+                            const field_clipped = part_begin != field_begin or part_end != field_end;
+                            const field_is_vector = parts_may_be_vector and !field_clipped and field_size <= 16 and
                                 CallAbiIterator.homogeneousAggregateBaseType(zcu, field_ty.toIntern()) != null;
                             if (parts_len > 0) combine: {
                                 const prev_part = &parts[parts_len - 1];
-                                const combined_size = field_end - prev_part.offset;
+                                const combined_size = part_end - prev_part.offset;
                                 if (combined_size > @as(u64, 1) << @min(
                                     min_part_log2_stride,
                                     alignment.toLog2Units(),
@@ -11341,7 +12422,7 @@ pub const Value = struct {
                             }
                             if (parts_len == Value.max_parts)
                                 return error.PartBudgetExceeded;
-                            parts[parts_len] = .{ .offset = field_begin, .size = field_size, .is_vector = field_is_vector };
+                            parts[parts_len] = .{ .offset = part_begin, .size = part_end - part_begin, .is_vector = field_is_vector };
                             parts_len += 1;
                         }
                         if (parts_len < 2)
@@ -11450,19 +12531,33 @@ pub const Value = struct {
                 }
             }
             it.next_offset = next_offset + size;
-            return .{ .offset = next_part_offset - next_offset, .vi = vi };
+            // `next_part_offset` is 0 here (the loop above only exits once the part starts at the request),
+            // so the offset of this part within the request is the number of bytes already consumed.
+            return .{ .offset = next_offset, .vi = vi };
         }
 
         fn only(it: *FieldPartIterator, isel: *Select) !?Value.Index {
+            return it.tryOnly(isel) catch |err| switch (err) {
+                error.PartStraddle => return isel.fail("Value.FieldPartIterator.only({f}) straddles parts", .{isel.fmtType(it.ty)}),
+                error.OutOfMemory, error.AlreadyReported => |e| return e,
+                error.Canceled => |e| return e,
+            };
+        }
+
+        /// Like `only`, but reports `error.PartStraddle` to the caller instead of a diagnostic so that it
+        /// can serve the region from memory.
+        fn tryOnly(it: *FieldPartIterator, isel: *Select) !?Value.Index {
             const part = it.next(isel) catch |err| switch (err) {
                 error.OutOfMemory, error.AlreadyReported => |e| return e,
                 error.Canceled => |e| return e,
+                error.PartStraddle => |e| return e,
                 error.PartBudgetExceeded => return isel.fail("Value.FieldPartIterator.only({f})", .{isel.fmtType(it.ty)}),
             };
             assert(part.?.offset == 0);
             const second = it.next(isel) catch |err| switch (err) {
                 error.OutOfMemory, error.AlreadyReported => |e| return e,
                 error.Canceled => |e| return e,
+                error.PartStraddle => |e| return e,
                 error.PartBudgetExceeded => return isel.fail("Value.FieldPartIterator.only({f})", .{isel.fmtType(it.ty)}),
             };
             return if (second) |_| null else part.?.vi;
@@ -11512,20 +12607,12 @@ pub const Value = struct {
             const size = mat.vi.size(isel);
             free: while (true) {
                 if (vi.register(isel)) |ra| {
-                    if (ra != mat.ra) break :free try isel.emit(if (vi == mat.vi) if (mat.ra.isVector()) switch (size) {
-                        else => unreachable,
-                        2 => if (isel.target.cpu.has(.aarch64, .fullfp16))
-                            .fmov(mat.ra.h(), .{ .register = ra.h() })
-                        else
-                            .dup(mat.ra.h(), ra.@"h[]"(0)),
-                        4 => .fmov(mat.ra.s(), .{ .register = ra.s() }),
-                        8 => .fmov(mat.ra.d(), .{ .register = ra.d() }),
-                        16 => .orr(mat.ra.@"16b"(), ra.@"16b"(), .{ .register = ra.@"16b"() }),
-                    } else switch (size) {
-                        else => unreachable,
-                        1...4 => .orr(mat.ra.w(), .wzr, .{ .register = ra.w() }),
-                        5...8 => .orr(mat.ra.x(), .xzr, .{ .register = ra.x() }),
-                    } else switch (offset + size) {
+                    // `ra` is where `vi` lives and `mat.ra` is where the caller needs it. The two can be
+                    // of different register classes (an `f64` part passed in x0/x1 as part of a non-HFA
+                    // `error{..}!f64`, or a GPR-classed ABI part consumed as a float): convert with fmov
+                    // instead of naming a GPR alias as a vector register or the reverse.
+                    if (ra != mat.ra and vi == mat.vi) break :free try isel.moveReg(mat.ra, ra, size);
+                    if (ra != mat.ra) break :free try isel.emit(switch (offset + size) {
                         else => unreachable,
                         1...4 => |end_offset| switch (mat.vi.signedness(isel)) {
                             .signed => .sbfm(mat.ra.w(), ra.w(), .{
@@ -11559,6 +12646,20 @@ pub const Value = struct {
                 offset += vi.get(isel).offset_from_parent;
                 switch (vi.parent(isel)) {
                     .unallocated => {
+                        // Values wider than a general register may legitimately live in one vector (Q)
+                        // register (see `emitWideInt`), so only scalar-sized values are converted.
+                        if (size <= 8 and mat.vi.isVector(isel) != mat.ra.isVector()) {
+                            // The producer of `mat.vi` must define it in a register of its own class
+                            // (float arithmetic needs a vector register) but the caller wants it in
+                            // a register of the other class (an ABI register of a non-HFA aggregate).
+                            // Never name `mat.ra` as the producer's register; define `mat.vi` in a
+                            // register of its class and convert at this boundary.
+                            const vi_ra = if (mat.vi.isVector(isel)) try isel.allocVecReg() else try isel.allocIntReg();
+                            try isel.moveReg(mat.ra, vi_ra, size);
+                            mat.vi.get(isel).location_payload.small.register = vi_ra;
+                            isel.live_registers.getPtr(vi_ra).* = mat.vi;
+                            break :free;
+                        }
                         mat.vi.get(isel).location_payload.small.register = mat.ra;
                         live_vi.* = mat.vi;
                         return;
@@ -12578,6 +13679,18 @@ fn lockReg(isel: *Select, ra: Register.Alias) RegLock {
     live_vi.* = .allocating;
     return .{ .ra = ra };
 }
+/// Lock `ra` when it is free; when it is in use (allocating or holding a live value) leave it alone.
+fn lockRegIfFree(isel: *Select, ra: Register.Alias) RegLock {
+    assert(ra != .zr);
+    const live_vi = isel.live_registers.getPtr(ra);
+    switch (live_vi.*) {
+        .free => {
+            live_vi.* = .allocating;
+            return .{ .ra = ra };
+        },
+        _, .allocating => return .empty,
+    }
+}
 fn tryLockReg(isel: *Select, ra: Register.Alias) RegLock {
     assert(ra != .zr);
     const live_vi = isel.live_registers.getPtr(ra);
@@ -12631,6 +13744,50 @@ fn use(isel: *Select, air_ref: Air.Inst.Ref) !Value.Index {
     } else if (vi.size(isel) <= 16 and
         CallAbiIterator.homogeneousAggregateBaseType(zcu, ty.toIntern()) != null) vi.setIsVector(isel);
     return vi;
+}
+
+/// Copy `size` bytes held in `src_ra` into `dst_ra`. Either register may be a general-purpose or a
+/// vector register; moves between the two classes use `fmov` (or `umov` for `f16` without `fullfp16`).
+fn moveReg(isel: *Select, dst_ra: Register.Alias, src_ra: Register.Alias, size: u64) codegen.Error!void {
+    try isel.emit(switch (dst_ra.isVector()) {
+        false => switch (src_ra.isVector()) {
+            false => switch (size) {
+                else => return isel.fail("moveReg of {d} bytes between general registers", .{size}),
+                1...4 => .orr(dst_ra.w(), .wzr, .{ .register = src_ra.w() }),
+                5...8 => .orr(dst_ra.x(), .xzr, .{ .register = src_ra.x() }),
+            },
+            true => switch (size) {
+                else => return isel.fail("moveReg of {d} bytes from a vector to a general register", .{size}),
+                2 => if (isel.target.cpu.has(.aarch64, .fullfp16))
+                    .fmov(dst_ra.w(), .{ .register = src_ra.h() })
+                else
+                    .umov(dst_ra.w(), src_ra.@"h[]"(0)),
+                4 => .fmov(dst_ra.w(), .{ .register = src_ra.s() }),
+                8 => .fmov(dst_ra.x(), .{ .register = src_ra.d() }),
+            },
+        },
+        true => switch (src_ra.isVector()) {
+            false => sz: switch (size) {
+                else => return isel.fail("moveReg of {d} bytes from a general to a vector register", .{size}),
+                2 => if (isel.target.cpu.has(.aarch64, .fullfp16))
+                    .fmov(dst_ra.h(), .{ .register = src_ra.w() })
+                else
+                    continue :sz 4,
+                4 => .fmov(dst_ra.s(), .{ .register = src_ra.w() }),
+                8 => .fmov(dst_ra.d(), .{ .register = src_ra.x() }),
+            },
+            true => switch (size) {
+                else => return isel.fail("moveReg of {d} bytes between vector registers", .{size}),
+                2 => if (isel.target.cpu.has(.aarch64, .fullfp16))
+                    .fmov(dst_ra.h(), .{ .register = src_ra.h() })
+                else
+                    .dup(dst_ra.h(), src_ra.@"h[]"(0)),
+                4 => .fmov(dst_ra.s(), .{ .register = src_ra.s() }),
+                8 => .fmov(dst_ra.d(), .{ .register = src_ra.d() }),
+                16 => .orr(dst_ra.@"16b"(), src_ra.@"16b"(), .{ .register = src_ra.@"16b"() }),
+            },
+        },
+    });
 }
 
 fn fill(isel: *Select, dst_ra: Register.Alias) codegen.Error!bool {
@@ -12999,6 +14156,13 @@ const call = struct {
     fn paramLiveOut(isel: *Select, vi: Value.Index, ra: Register.Alias) !void {
         isel.freeReg(ra);
         try vi.liveOut(isel, ra);
+        const live_vi = isel.live_registers.getPtr(ra);
+        if (live_vi.* == .free) live_vi.* = .allocating;
+    }
+    /// Pass the `size` bytes at `offset` of `vi` in `ra`, loading them from `vi`'s memory image.
+    fn paramRegion(isel: *Select, vi: Value.Index, offset: u64, region_size: u64, signedness: std.lang.Signedness, ra: Register.Alias) !void {
+        isel.freeReg(ra);
+        try vi.liveOutRegion(isel, offset, region_size, signedness, ra);
         const live_vi = isel.live_registers.getPtr(ra);
         if (live_vi.* == .free) live_vi.* = .allocating;
     }

@@ -25,6 +25,13 @@ pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
         // bits. Expand wider scalar byte_swap (e.g. u72/u120 reached via std
         // readPackedInt for f80/f128) into byte-wise shr/trunc/int_cast/shl/or.
         .expand_byte_swap,
+        // Checked multiplication is selected as `mul_with_overflow` plus a panic call:
+        // the backend has no fused signed or wide `mul_safe`.
+        .expand_mul_safe,
+        // `@shlWithOverflow` of scalars is `shl`, `shr` and a comparison.
+        .expand_shl_with_overflow,
+        // There is no lazy table of enum names for this target: `@tagName` is a compare chain.
+        .expand_tag_name,
     });
 }
 
@@ -46,6 +53,7 @@ pub fn generate(
     assert(liveness.* == null);
 
     const mod = zcu.navFileScope(func.owner_nav).mod.?;
+    encoding.current_function = ip.getNav(func.owner_nav).fqn.toSlice(ip);
     var isel: Select = .{
         .pt = pt,
         .target = &mod.resolved_target.result,
