@@ -21,6 +21,25 @@
 
 ---
 
+## 0.6.4 — Native `aarch64-sb0` Backend: Checked Arithmetic, `@tagName`, Wide Integers
+
+Bug-fix release for the native `aarch64-sb0` backend (SB0X and SB0K images). The
+backend now implements `@mulWithOverflow`, `@shlWithOverflow`, checked
+multiplication, `@tagName`, saturating `+|`/`-|`/`<<|`, and integers of
+129..1024 bits, copies oversized by-value element loads through memory, and no
+longer overflows its stack or hangs on part-straddling aggregates. It also fixes
+two silent wrong-code bugs in multi-limb overflow arithmetic and 128-bit
+multiply. Every other target is byte-identical to 0.6.3.
+
+```
+$ sig version
+sig 0.6.4 (zig 0.17.0)
+```
+
+- A database engine of this size (RAMSQL on ZPM) now builds as both SB0X and
+  SB0K images and passes its QEMU loader tests.
+- Atomics, vectors and some 128-bit builtins are still unimplemented on
+  `aarch64-sb0`; see the changelog for the full list of known limits.
 ## 0.6.3 — `sig objdump -d` Disassembles Section-less sBPF Programs
 
 Bug-fix release. `sig objdump -d` now disassembles Solana sBPF shared objects,

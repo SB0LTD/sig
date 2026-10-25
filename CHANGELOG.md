@@ -4,6 +4,51 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.6.4] — Native aarch64-sb0 Backend: Checked Arithmetic, `@tagName`, Wide Integers
+Bug-fix release for the native `aarch64-sb0` backend (SB0X and SB0K images). A
+large database engine (RAMSQL on ZPM) exposed missing lowerings, silent
+wrong-code bugs and a compiler stack overflow. No change to any other target:
+sample programs for aarch64-linux, aarch64-macos, x86_64-linux, x86_64-windows
+and x86_64-macos are byte-identical to 0.6.3, and no x86_64, riscv64, LLVM,
+linker or C-backend file changed.
+### Fixed
+- **Compiler stack overflow / hang / crash on `aarch64-sb0`.** A cycle in
+  `FieldPartIterator.next` / `copyAdvanced` looped or recursed without bound
+  when a request straddled a part (it also underflowed a `u64`). Requests and
+  recursion are now bounded and register-class mix-ups panic with the function
+  name. An `error{..}!f32` payload no longer reaches a vector instruction from a
+  general-purpose register, and 9..16 byte error-union payloads in `x0`/`x1` are
+  no longer miscompiled.
+- **Silent wrong code.** Multi-limb add/sub with overflow locked the overflow
+  register at the start of every 8-byte part and erased a live operand; a
+  128-bit multiply gave both halves of a spilled result the same scratch
+  register, so `u128` division was wrong for divisors above 64 bits.
+- **Oversized by-value element loads** (`slice_elem_val`, `array_elem_val`,
+  `ptr_elem_val`) now copy with `memcpy` like `.load` instead of failing with
+  `load of aggregate too large for register decomposition`. A union wider than a
+  register stored into a field is copied through memory.
+### Added
+- `@mulWithOverflow` and `@shlWithOverflow` (previously `unimplemented
+  mul_with_overflow`), and checked multiplication (`mul_safe`), for integers up
+  to 128 bits, via new `compiler_rt` helpers `__mulobi128` / `__umulobi128`.
+- `@tagName` lowering (previously `unimplemented tag_name`), as a compare chain
+  over the enum fields with the `[:0]const u8` names interned.
+- Integers of 129..1024 bits: arithmetic, bitwise, shifts, comparison, casts,
+  overflow, and 128-bit `rem`/`mod`/`div_floor`, lowered to new width-generic
+  `compiler_rt` big-integer helpers.
+- Saturating `+|`, `-|` below the register width, and `<<|`.
+### Known limits
+- Not implemented (diagnostic, not a crash): atomics, vectors, `@splat` to
+  arrays and vectors, 128-bit saturating add/sub/mul, and some 128-bit builtins
+  (`@min`/`@max`/`@popCount`/`@bitReverse`, `@memset([]u128)`).
+- `@intCast` of integers above 64 bits is still `too big` in ReleaseSafe (the
+  wide-integer probe runs in ReleaseSmall). `aarch64-windows` and
+  `riscv64-linux` do not build with 0.6.3 or 0.6.4.
+- A ReleaseSafe compiler panics in `link/Sb0.sig assembleGlobalAsm` for SB0
+  images; the ReleaseFast compiler used by releases does not.
+- Auto-layout bare `union { i64, [24]u8 }` built field-wise is miscompiled in
+  ReleaseSmall, and an AIR block with two `br` of an aggregate containing a wide
+  element returns a stack address. Both also reproduce with 0.6.3.
 ## [0.6.3] — `sig objdump -d` Disassembles Section-less sBPF Programs
 
 Bug-fix release. `sig objdump -d` disassembled nothing on Solana sBPF shared
