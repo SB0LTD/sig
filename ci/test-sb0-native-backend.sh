@@ -24,6 +24,7 @@ PROBES=(
   "aggregate|test/sb0_aggregate_load_probe.sig|SB0-AGG-PASS"
   "overflow|test/sb0_overflow_probe.sig|SB0-OVF-PASS"
   "enum|test/sb0_enum_codegen_probe.sig|SB0-TAGNAME-PASS"
+  "sat|test/sb0_saturating_probe.sig|SB0-SAT-PASS"
   "wide|test/sb0_wide_int_probe.sig|SB0-WIDE-PASS|ReleaseSmall|90"
 )
 for entry in "${PROBES[@]}"; do
