@@ -1238,6 +1238,45 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                             try lhs_mat.finish(isel);
                         },
                     },
+                    1...31, 33...63 => {
+                        // Widths below the register size: the operands are kept zero- or sign-extended, so the
+                        // exact sum or difference fits the register and is clamped to the type's range.
+                        const res_ra = try res_vi.value.defReg(isel) orelse break :unused;
+                        const lhs_vi = try isel.use(bin_op.lhs);
+                        const rhs_vi = try isel.use(bin_op.rhs);
+                        const lhs_mat = try lhs_vi.matReg(isel);
+                        const rhs_mat = try rhs_vi.matReg(isel);
+                        try isel.narrowSat(air_tag, int_info, res_ra, lhs_mat.ra, rhs_mat.ra);
+                        try rhs_mat.finish(isel);
+                        try lhs_mat.finish(isel);
+                    },
+                    else => return isel.fail("too big {t} {f}", .{ air_tag, isel.fmtType(ty) }),
+                }
+            }
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .shl_sat => |air_tag| {
+            if (isel.live_values.fetchRemove(air.inst_index)) |res_vi| unused: {
+                defer res_vi.value.deref(isel);
+
+                const bin_op = air.data(air.inst_index).bin_op;
+                const ty = isel.air.typeOf(bin_op.lhs, ip);
+                if (!ty.isAbiInt(zcu)) return isel.fail("bad {t} {f}", .{ air_tag, isel.fmtType(ty) });
+                const int_info = ty.intInfo(zcu);
+                switch (int_info.bits) {
+                    0 => unreachable,
+                    // The shift amount of a 1 bit integer has no bits.
+                    1 => return isel.fail("unimplemented {t} {f}", .{ air_tag, isel.fmtType(ty) }),
+                    2...64 => {
+                        const res_ra = try res_vi.value.defReg(isel) orelse break :unused;
+                        const lhs_vi = try isel.use(bin_op.lhs);
+                        const rhs_vi = try isel.use(bin_op.rhs);
+                        const lhs_mat = try lhs_vi.matReg(isel);
+                        const rhs_mat = try rhs_vi.matReg(isel);
+                        try isel.narrowShlSat(int_info, res_ra, lhs_mat.ra, rhs_mat.ra);
+                        try rhs_mat.finish(isel);
+                        try lhs_mat.finish(isel);
+                    },
                     else => return isel.fail("too big {t} {f}", .{ air_tag, isel.fmtType(ty) }),
                 }
             }
@@ -9034,6 +9073,154 @@ fn loadsViaRegisters(isel: *Select, ty: ZigType, size: u64) bool {
         !(ty.zigTypeTag(zcu) == .optional and !ty.optionalReprIsPayload(zcu));
 }
 
+/// Saturating add/sub of an integer of 1...31 or 33...63 bits (word or doubleword register arithmetic).
+/// Emission is in reverse execution order; the program order is
+///   add/sub  sum, a, b
+///   unsigned add:  ubfm t, sum, #0, #bits-1 ; cmp sum, t ; csinv res, sum, zr, eq ; ubfm res, res, #0, #bits-1
+///   unsigned sub:  csel res, sum, zr, cs  (the flags come from subs sum, a, b)
+///   signed:        sbfm t, sum, #0, #bits-1 ; cmp sum, t ; sbfm t, sum, #rb-1, #rb-1 ; eor t, t, #maxInt ; csel res, sum, t, eq
+fn narrowSat(
+    isel: *Select,
+    air_tag: Air.Inst.Tag,
+    int_info: std.lang.Type.Int,
+    res_ra: Register.Alias,
+    lhs_ra: Register.Alias,
+    rhs_ra: Register.Alias,
+) !void {
+    const gs: Register.GeneralSize = if (int_info.bits > 32) .doubleword else .word;
+    const reg_bits: u6 = if (int_info.bits > 32) 63 else 31;
+    const sum_ra = try isel.allocIntReg();
+    defer isel.freeReg(sum_ra);
+    switch (int_info.signedness) {
+        .unsigned => switch (air_tag) {
+            else => unreachable,
+            .add_sat => {
+                const t_ra = try isel.allocIntReg();
+                defer isel.freeReg(t_ra);
+                try isel.emit(.ubfm(res_ra.general(gs), res_ra.general(gs), .{
+                    .N = gs,
+                    .immr = 0,
+                    .imms = @intCast(int_info.bits - 1),
+                }));
+                try isel.emit(.csinv(res_ra.general(gs), sum_ra.general(gs), Register.Alias.zr.general(gs), .eq));
+                try isel.emit(.subs(Register.Alias.zr.general(gs), sum_ra.general(gs), .{ .register = t_ra.general(gs) }));
+                try isel.emit(.ubfm(t_ra.general(gs), sum_ra.general(gs), .{
+                    .N = gs,
+                    .immr = 0,
+                    .imms = @intCast(int_info.bits - 1),
+                }));
+                try isel.emit(.add(sum_ra.general(gs), lhs_ra.general(gs), .{ .register = rhs_ra.general(gs) }));
+            },
+            .sub_sat => {
+                try isel.emit(.csel(res_ra.general(gs), sum_ra.general(gs), Register.Alias.zr.general(gs), .cs));
+                try isel.emit(.subs(sum_ra.general(gs), lhs_ra.general(gs), .{ .register = rhs_ra.general(gs) }));
+            },
+        },
+        .signed => {
+            const t_ra = try isel.allocIntReg();
+            defer isel.freeReg(t_ra);
+            try isel.emit(.csel(res_ra.general(gs), sum_ra.general(gs), t_ra.general(gs), .eq));
+            // The saturated value: the sign of the exact result decides between minInt and maxInt.
+            if (int_info.bits > 1) try isel.emit(.eor(t_ra.general(gs), t_ra.general(gs), .{ .immediate = .{
+                .N = gs,
+                .immr = 0,
+                .imms = @intCast(int_info.bits - 2),
+            } }));
+            try isel.emit(.sbfm(t_ra.general(gs), sum_ra.general(gs), .{
+                .N = gs,
+                .immr = reg_bits,
+                .imms = reg_bits,
+            }));
+            try isel.emit(.subs(Register.Alias.zr.general(gs), sum_ra.general(gs), .{ .register = t_ra.general(gs) }));
+            try isel.emit(.sbfm(t_ra.general(gs), sum_ra.general(gs), .{
+                .N = gs,
+                .immr = 0,
+                .imms = @intCast(int_info.bits - 1),
+            }));
+            try isel.emit(switch (air_tag) {
+                else => unreachable,
+                .add_sat => .add(sum_ra.general(gs), lhs_ra.general(gs), .{ .register = rhs_ra.general(gs) }),
+                .sub_sat => .sub(sum_ra.general(gs), lhs_ra.general(gs), .{ .register = rhs_ra.general(gs) }),
+            });
+        },
+    }
+}
+/// Saturating shift left of an integer of 2...64 bits. The value is shifted to the top of the register
+/// (`k = register bits - bits`), shifted left by the amount, and shifted back: the shift lost no bits
+/// exactly when the round trip gives the shifted-up value again. Emission is in reverse execution order;
+/// the program order is
+///   lsl t, a, #k ; lslv u, t, s ; lsrv/asrv v, u, s ; cmp v, t
+///   unsigned: lsr r, u, #k ; csinv res, r, zr, eq ; (ubfm res, res, #0, #bits-1)
+///   signed:   asr r, u, #k ; asr z, a, #rb-1 ; eor z, z, #maxInt ; csel res, r, z, eq
+fn narrowShlSat(
+    isel: *Select,
+    int_info: std.lang.Type.Int,
+    res_ra: Register.Alias,
+    lhs_ra: Register.Alias,
+    rhs_ra: Register.Alias,
+) !void {
+    const gs: Register.GeneralSize = if (int_info.bits > 32) .doubleword else .word;
+    const reg_bits: u7 = if (int_info.bits > 32) 64 else 32;
+    const bits: u7 = @intCast(int_info.bits);
+    const k: u7 = reg_bits - bits;
+    const top_ra = if (k == 0) lhs_ra else try isel.allocIntReg();
+    defer if (k != 0) isel.freeReg(top_ra);
+    const shifted_ra = try isel.allocIntReg();
+    defer isel.freeReg(shifted_ra);
+    const back_ra = try isel.allocIntReg();
+    defer isel.freeReg(back_ra);
+    switch (int_info.signedness) {
+        .unsigned => {
+            if (k != 0) try isel.emit(.ubfm(res_ra.general(gs), res_ra.general(gs), .{
+                .N = gs,
+                .immr = 0,
+                .imms = @intCast(bits - 1),
+            }));
+            try isel.emit(.csinv(res_ra.general(gs), back_ra.general(gs), Register.Alias.zr.general(gs), .eq));
+            try isel.emit(.ubfm(back_ra.general(gs), shifted_ra.general(gs), .{
+                .N = gs,
+                .immr = @intCast(k),
+                .imms = @intCast(reg_bits - 1),
+            }));
+        },
+        .signed => {
+            const sat_ra = try isel.allocIntReg();
+            defer isel.freeReg(sat_ra);
+            try isel.emit(.csel(res_ra.general(gs), back_ra.general(gs), sat_ra.general(gs), .eq));
+            try isel.emit(.eor(sat_ra.general(gs), sat_ra.general(gs), .{ .immediate = .{
+                .N = gs,
+                .immr = 0,
+                .imms = @intCast(bits - 2),
+            } }));
+            try isel.emit(.sbfm(sat_ra.general(gs), lhs_ra.general(gs), .{
+                .N = gs,
+                .immr = @intCast(reg_bits - 1),
+                .imms = @intCast(reg_bits - 1),
+            }));
+            try isel.emit(.sbfm(back_ra.general(gs), shifted_ra.general(gs), .{
+                .N = gs,
+                .immr = @intCast(k),
+                .imms = @intCast(reg_bits - 1),
+            }));
+        },
+    }
+    // The comparison needs the round trip value, which is computed from the shifted value: emitted after
+    // (that is, executed before) the selection above. `back_ra` holds the selection result, so the round
+    // trip uses `check_ra`.
+    const check_ra = try isel.allocIntReg();
+    defer isel.freeReg(check_ra);
+    try isel.emit(.subs(Register.Alias.zr.general(gs), check_ra.general(gs), .{ .register = top_ra.general(gs) }));
+    try isel.emit(switch (int_info.signedness) {
+        .unsigned => .lsrv(check_ra.general(gs), shifted_ra.general(gs), rhs_ra.general(gs)),
+        .signed => .asrv(check_ra.general(gs), shifted_ra.general(gs), rhs_ra.general(gs)),
+    });
+    try isel.emit(.lslv(shifted_ra.general(gs), top_ra.general(gs), rhs_ra.general(gs)));
+    if (k != 0) try isel.emit(.ubfm(top_ra.general(gs), lhs_ra.general(gs), .{
+        .N = gs,
+        .immr = @intCast(reg_bits - k),
+        .imms = @intCast(bits - 1),
+    }));
+}
 /// The largest integer width with a register part model (`Value.max_parts` 64 bit parts).
 const wide_int_max_bits = 1024;
 
