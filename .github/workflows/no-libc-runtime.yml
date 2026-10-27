@@ -1,7 +1,7 @@
 name: Native no-libc I/O
 on:
   pull_request:
-    paths: ['lib/sig/os.sig', 'lib/sig/io.sig', 'test/standalone/sig_no_libc_io/**', '.github/workflows/no-libc-runtime.yml']
+    paths: ['lib/sig/os.sig', 'lib/sig/io.sig', 'tools/sig_build/main.sig', 'test/standalone/sig_no_libc_io/**', '.github/workflows/no-libc-runtime.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -41,5 +41,16 @@ jobs:
           "$compiler" build-exe -O ReleaseSafe --dep sig \
             -Mroot=test/standalone/sig_no_libc_io/main.sig -Msig=lib/sig/sig.sig \
             -femit-bin="$RUNNER_TEMP/native-io-contract"
+          echo "SIG=$compiler" >> "$GITHUB_ENV"
       - name: Execute real file, EOF, size and clock assertions
         run: python3 test/standalone/sig_no_libc_io/run.py "$RUNNER_TEMP/native-io-contract"
+      - name: Require explicit no-libc on portable cross-target build
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          cd test/standalone/sig_no_libc_io
+          "$SIG" build --Sig-lib-dir "$GITHUB_WORKSPACE/lib" -Dtarget="$ARCH-linux" \
+            -Dlink-libc=false -Doptimize=ReleaseSafe -j1 --prefix "$RUNNER_TEMP/cross-contract"
+          python3 run.py "$RUNNER_TEMP/cross-contract/bin/native-io-contract"
