@@ -3725,7 +3725,9 @@ pub const Build_Context = struct {
             try cmd.appendArg(module_flag[0..total]);
         }
 
-        if (optBool(&build_ctx.options, "link-libc", true) or build_ctx.target.arch_len > 0) try cmd.appendArg("-lc");
+        // An explicit false must also apply to cross targets. Otherwise a
+        // portable baseline target silently re-enables libc/pthread allocation.
+        if (optBool(&build_ctx.options, "link-libc", true)) try cmd.appendArg("-lc");
         if (optBool(&build_ctx.options, "link-libcpp", false)) try cmd.appendArg("-lc++");
 
         var step_cache_path_buf: [PATH_BUF_SIZE]u8 = undefined;
@@ -3859,15 +3861,10 @@ pub const Build_Context = struct {
         comp_ctx.thread_limit = build_ctx.thread_count;
 
         // Linking flags from build options.
-        const link_libc = optBool(&build_ctx.options, "link-libc", false);
+        const link_libc = optBool(&build_ctx.options, "link-libc", build_ctx.target.arch_len > 0);
         const link_libcpp = optBool(&build_ctx.options, "link-libcpp", false);
         comp_ctx.link_libc = link_libc;
         comp_ctx.link_libcpp = link_libcpp;
-
-        // If cross-compiling, always link libc (consistent with engine behavior).
-        if (build_ctx.target.arch_len > 0) {
-            comp_ctx.link_libc = true;
-        }
 
         // Wire modules from the Module_Registry.
         for (build_ctx.modules.entries[0..build_ctx.modules.count]) |mod_entry| {
