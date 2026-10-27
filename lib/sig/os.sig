@@ -1,7 +1,8 @@
 //! OS Primitives — raw syscall/FFI layer for sig's freestanding I/O.
 //!
-//! Zero std dependency. Uses @import("builtin") for platform detection
-//! and extern declarations for OS calls. Provides the foundation for
+//! Uses @import("builtin") for platform detection and native OS calls. Linux
+//! without libc uses the allocation-free standard syscall/vDSO primitives.
+//! Provides the foundation for
 //! sig.io (File, Dir, Mutex, Condition, Clock, Thread).
 //!
 //! Supported platforms:
@@ -11,6 +12,8 @@
 const builtin = @import("builtin");
 const native_os = builtin.os.tag;
 const native_arch = builtin.cpu.arch;
+const linux = @import("std").os.linux;
+const direct_linux = native_os == .linux and !builtin.link_libc;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Common Types
@@ -789,8 +792,27 @@ pub fn wideToUtf8(wide: []const u16, out: []u8) ?usize {
 
 pub const OpenError = error{ FileNotFound, AccessDenied, SystemError };
 
+fn linuxOpen(path: []const u8, flags: linux.O, mode: linux.mode_t) OpenError!fd_t {
+    var path_buf: [4096]u8 = undefined;
+    if (path.len >= path_buf.len) return error.SystemError;
+    @memcpy(path_buf[0..path.len], path);
+    path_buf[path.len] = 0;
+    const path_z: [*:0]const u8 = path_buf[0..path.len :0];
+    while (true) {
+        const result = linux.openat(linux.AT.FDCWD, path_z, flags, mode);
+        switch (linux.errno(result)) {
+            .SUCCESS => return @intCast(result),
+            .INTR => continue,
+            .NOENT, .NOTDIR => return error.FileNotFound,
+            .ACCES, .PERM => return error.AccessDenied,
+            else => return error.SystemError,
+        }
+    }
+}
+
 /// Open a file for reading. Path must be UTF-8 (converted to UTF-16 on Windows).
 pub fn openRead(path: []const u8) OpenError!fd_t {
+    if (direct_linux) return linuxOpen(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
     if (native_os == .windows) {
         var wide_buf: [MAX_PATH_WIDE + 1]u16 = undefined;
         const len = utf8ToWide(path, &wide_buf) orelse return error.SystemError;
@@ -829,6 +851,7 @@ pub fn openRead(path: []const u8) OpenError!fd_t {
 
 /// Create or truncate a file for writing.
 pub fn openWrite(path: []const u8) OpenError!fd_t {
+    if (direct_linux) return linuxOpen(path, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true, .CLOEXEC = true }, 0o777);
     if (native_os == .windows) {
         var wide_buf: [MAX_PATH_WIDE + 1]u16 = undefined;
         const len = utf8ToWide(path, &wide_buf) orelse return error.SystemError;
@@ -868,6 +891,12 @@ pub fn openWrite(path: []const u8) OpenError!fd_t {
 
 /// Read from a file descriptor. Returns number of bytes read, or 0 on EOF/error.
 pub fn readFd(fd: fd_t, buf: [*]u8, count: usize) usize {
+    if (direct_linux) {
+        while (true) {
+            const result = linux.read(fd, buf, count);
+            switch (linux.errno(result)) { .SUCCESS => return result, .INTR => continue, else => return 0 }
+        }
+    }
     if (native_os == .windows) {
         var bytes_read: DWORD = 0;
         const ok = kernel32.ReadFile(fd, buf, @intCast(@min(count, 0x7FFFFFFF)), &bytes_read, null);
@@ -882,6 +911,12 @@ pub fn readFd(fd: fd_t, buf: [*]u8, count: usize) usize {
 
 /// Write to a file descriptor. Returns number of bytes written, or 0 on error.
 pub fn writeFd(fd: fd_t, buf: [*]const u8, count: usize) usize {
+    if (direct_linux) {
+        while (true) {
+            const result = linux.write(fd, buf, count);
+            switch (linux.errno(result)) { .SUCCESS => return result, .INTR => continue, else => return 0 }
+        }
+    }
     if (native_os == .windows) {
         var bytes_written: DWORD = 0;
         const ok = kernel32.WriteFile(fd, buf, @intCast(@min(count, 0x7FFFFFFF)), &bytes_written, null);
@@ -908,6 +943,7 @@ pub fn writeAll(fd: fd_t, data: []const u8) bool {
 
 /// Close a file descriptor.
 pub fn closeFd(fd: fd_t) void {
+    if (direct_linux) { _ = linux.close(fd); return; }
     if (native_os == .windows) {
         _ = kernel32.CloseHandle(fd);
     } else {
@@ -917,6 +953,12 @@ pub fn closeFd(fd: fd_t) void {
 
 /// Get file size. Returns the size in bytes, or 0 on error.
 pub fn fileSize(fd: fd_t) u64 {
+    if (direct_linux) {
+        var stat: linux.Statx = undefined;
+        const result = linux.statx(fd, "", linux.AT.EMPTY_PATH, .{ .SIZE = true }, &stat);
+        if (linux.errno(result) != .SUCCESS or !stat.mask.SIZE) return 0;
+        return stat.size;
+    }
     if (native_os == .windows) {
         var high: DWORD = 0;
         const low = kernel32.GetFileSize(fd, &high);
@@ -1383,6 +1425,11 @@ pub const ConditionImpl = if (native_os == .windows) struct {
 
 /// Returns the current monotonic time in nanoseconds.
 pub fn clockMonotonicNs() i64 {
+    if (direct_linux) {
+        var ts: linux.timespec = undefined;
+        if (linux.errno(linux.clock_gettime(.MONOTONIC, &ts)) != .SUCCESS) return 0;
+        return @as(i64, @intCast(ts.sec)) * 1000000000 + @as(i64, @intCast(ts.nsec));
+    }
     if (native_os == .windows) {
         var counter: LARGE_INTEGER = 0;
         var frequency: LARGE_INTEGER = 0;
@@ -1409,6 +1456,7 @@ pub fn clockMonotonicNs() i64 {
 
 /// Terminate the current process with the given exit code. Does not return.
 pub fn exitProcess(code: u8) noreturn {
+    if (direct_linux) linux.exit_group(code);
     if (native_os == .windows) {
         kernel32.ExitProcess(code);
     } else {

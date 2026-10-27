@@ -2,7 +2,7 @@
 //!
 //! Provides: Io, Dir, File, Mutex, Condition, Clock, Thread.
 //! Built entirely on lib/sig/os.sig (raw syscalls / kernel32 externs).
-//! Zero @import("std") dependency.
+//! Linux without libc uses the allocator-free syscall/vDSO backend in os.sig.
 //!
 //! API contract: matches the exact usage patterns in tools/sig_build/:
 //!   - io: Io (passed as parameter, zero-sized context for sync I/O)
