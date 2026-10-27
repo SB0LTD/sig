@@ -1,0 +1,45 @@
+name: Native no-libc I/O
+on:
+  pull_request:
+    paths: ['lib/sig/os.sig', 'lib/sig/io.sig', 'test/standalone/sig_no_libc_io/**', '.github/workflows/no-libc-runtime.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-no-libc-io-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  contract:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+            sha256: 8dd32622531b5f81dbb12502c78e187141dd42ea3553f4d9e2c09c3e82d64a89
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+            sha256: 5b1d4e2e748a362f1379a3f5a597b9bb9d401505bcb7b506503fa73226d1d001
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile with verified Sig and matching standard library
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+          SHA256: ${{ matrix.sha256 }}
+        run: |
+          set -euo pipefail
+          asset="sig-0.6.4-zig0.17.0.90a898d-$ARCH-linux.tar.xz"
+          curl -fL --retry 3 "https://github.com/SB0LTD/sig/releases/download/sig-0.6.4-zig0.17.0.90a898d/$asset" -o "$RUNNER_TEMP/sig.tar.xz"
+          printf '%s  %s\n' "$SHA256" "$RUNNER_TEMP/sig.tar.xz" | sha256sum --check --strict -
+          mkdir "$RUNNER_TEMP/toolchain"
+          tar -xf "$RUNNER_TEMP/sig.tar.xz" -C "$RUNNER_TEMP/toolchain"
+          compiler="$(find "$RUNNER_TEMP/toolchain" -type f -path '*/bin/sig' -print -quit)"
+          test -n "$compiler"
+          "$compiler" build-exe -O ReleaseSafe --dep sig \
+            -Mroot=test/standalone/sig_no_libc_io/main.sig -Msig=lib/sig/sig.sig \
+            -femit-bin="$RUNNER_TEMP/native-io-contract"
+      - name: Execute real file, EOF, size and clock assertions
+        run: python3 test/standalone/sig_no_libc_io/run.py "$RUNNER_TEMP/native-io-contract"
