@@ -1,0 +1,79 @@
+# Prove `sig build --self-test` on every host OS: the verified Sig release
+# compiles this checkout's pure-Sig build runner, runs a real build.sig step,
+# then the build host rebuilds the runner from the checkout's lib dir and
+# executes the rebuilt runner with `--help` against the same build graph.
+name: Build runner self-test
+on:
+  pull_request:
+    paths: ['tools/sig_build/**', 'ci/fixtures/native-build/**', '.github/workflows/self-test-runner.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: build-runner-self-test-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  self-test:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            asset: sig-0.6.4-zig0.17.0.90a898d-x86_64-linux.tar.xz
+            sha256: 8dd32622531b5f81dbb12502c78e187141dd42ea3553f4d9e2c09c3e82d64a89
+          - runner: macos-latest
+            asset: sig-0.6.4-zig0.17.0.90a898d-aarch64-macos.tar.xz
+            sha256: 75ae868e63b6a90ffd3e282f410b18e5098ea87d02cbdc0fd95224f5e922491f
+          - runner: windows-latest
+            asset: sig-0.6.4-zig0.17.0.90a898d-x86_64-windows.zip
+            sha256: 49fc99ac20af7841a5b686c68a8720515deda9c28dcad0cb9191fa0de30e33a0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install verified Sig release
+        shell: bash
+        env:
+          ASSET: ${{ matrix.asset }}
+          SHA256: ${{ matrix.sha256 }}
+        run: |
+          set -euo pipefail
+          tmp="$RUNNER_TEMP"
+          if command -v cygpath >/dev/null; then tmp="$(cygpath -m "$tmp")"; fi
+          archive="$tmp/$ASSET"
+          curl -fL --retry 3 "https://github.com/SB0LTD/sig/releases/download/sig-0.6.4-zig0.17.0.90a898d/$ASSET" -o "$archive"
+          if command -v sha256sum >/dev/null; then sum=(sha256sum); else sum=(shasum -a 256); fi
+          actual="$("${sum[@]}" "$archive" | awk '{ print $1 }')"
+          test "$actual" = "$SHA256"
+          mkdir "$tmp/toolchain"
+          case "$ASSET" in
+            *.zip) 7z x -bd -o"$tmp/toolchain" "$archive" >/dev/null ;;
+            *) tar -xf "$archive" -C "$tmp/toolchain" ;;
+          esac
+          compiler="$(find "$tmp/toolchain" -type f \( -path '*/bin/sig' -o -name sig.exe \) -print -quit)"
+          test -n "$compiler"
+          "$compiler" version
+          echo "SIG=$compiler" >> "$GITHUB_ENV"
+      - name: Build a real step, then self-test the rebuilt runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$RUNNER_TEMP"
+          workspace="$GITHUB_WORKSPACE"
+          if command -v cygpath >/dev/null; then
+            tmp="$(cygpath -m "$tmp")"
+            workspace="$(cygpath -m "$workspace")"
+          fi
+          project="$tmp/self-test-project"
+          mkdir -p "$project"
+          cp ci/fixtures/native-build/*.sig "$project/"
+          cd "$project"
+          "$SIG" build native-release-proof --self-test \
+            --Sig-lib-dir "$workspace/lib" \
+            --cache-dir "$tmp/self-test-cache" \
+            --global-cache-dir "$tmp/self-test-global-cache" 2>&1 | tee self-test.log
+          grep -qx 'native build.sig executed' native-sig-build.proof
+          grep -q '^rebuild completed successfully' self-test.log
+          grep -q '^Native build file:.*build\.sig' self-test.log
+          grep -q '^  native-release-proof' self-test.log
+          grep -q '^RESULT: PASS' self-test.log
