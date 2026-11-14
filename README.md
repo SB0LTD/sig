@@ -21,6 +21,19 @@
 
 ---
 
+## 0.6.5 — No-libc Runtime I/O and Build-Runner Fixes
+
+Runtime and build-runner release; the compiler and every target's output are
+unchanged from 0.6.4. Programs that link no libc on Linux now get file I/O,
+the monotonic clock and exit from the Sig runtime itself (raw system calls and
+the vDSO), `-Dlink-libc=false` is honoured for cross targets, and
+`sig build <step> --self-test` works in any project.
+
+```
+$ sig version
+sig 0.6.5 (zig 0.17.0)
+```
+
 ## 0.6.4 — Native `aarch64-sb0` Backend: Checked Arithmetic, `@tagName`, Wide Integers
 
 Bug-fix release for the native `aarch64-sb0` backend (SB0X and SB0K images). The
