@@ -4,6 +4,31 @@ All notable changes to Sig are documented here.
 
 Sig follows [Semantic Versioning](https://semver.org/). Release tags encode both the Sig version and the upstream Zig language-base version: `sig-X.Y.Z-zigA.B.C.<sha>`.
 
+## [0.6.5] — No-libc Runtime I/O, Honest `-Dlink-libc=false` Cross Builds, Working `--self-test`
+Runtime and build-runner release. The compiler, code generation, linkers and
+every target's output are unchanged from 0.6.4.
+### Added
+- **No-libc Linux file I/O and clocks in the Sig runtime** (#36). `lib/sig/os.sig`
+  opens, reads, writes and closes files, takes the monotonic clock (through the
+  vDSO) and exits with raw Linux system calls when a program links no libc, so
+  an allocator-free server using the native clone/TLS worker links without
+  libc. Linux libc builds, Windows and macOS keep their current backend. A
+  standalone contract (`test/standalone/sig_no_libc_io`) checks a 4,096-byte
+  round trip, file size, EOF, a missing path, the monotonic clock and native
+  exit, on x86_64 and AArch64 Linux in CI.
+### Fixed
+- **`-Dlink-libc=false` is honoured for cross targets** (#37). The build runner
+  overrode an explicit no-libc choice whenever a cross target was set, so
+  portable allocator-free Linux workers could not be built from another host.
+  The option now holds in the executable and compilation-context paths;
+  defaults are unchanged. The build contract cross-compiles a baseline target
+  and asserts `builtin.link_libc == false` at run time.
+- **`sig build <step> --self-test` works outside the Sig checkout** (#38). The
+  rebuild named the runner's root as a path relative to the user's project and
+  compared against the build host's image instead of the runner. Ported from
+  `release/0.4.0-backfill` without its LLVM 23 hunks (master stays on the
+  validated LLVM 22 toolchain).
+
 ## [0.6.4] — Native aarch64-sb0 Backend: Checked Arithmetic, `@tagName`, Wide Integers
 Bug-fix release for the native `aarch64-sb0` backend (SB0X and SB0K images). A
 large database engine (RAMSQL on ZPM) exposed missing lowerings, silent
