@@ -387,7 +387,7 @@ jobs:
 
   build-macos:
     needs: prepare-release
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 180
     env:
       SIG_VERSION: ${{ needs.prepare-release.outputs.sig_version }}

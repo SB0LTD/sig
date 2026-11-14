@@ -80,7 +80,7 @@ jobs:
           case "$build_scope" in
             all)
               linux_matrix='{"include":[{"target":"native","artifact":"llvm-22-x86_64-linux-native.tar.xz"},{"target":"x86_64-linux-musl","artifact":"llvm-22-x86_64-linux.tar.xz"},{"target":"aarch64-linux-musl","artifact":"llvm-22-aarch64-linux.tar.xz"},{"target":"aarch64-macos-none","artifact":"llvm-22-aarch64-macos.tar.xz"},{"target":"x86_64-windows-gnu","artifact":"llvm-22-x86_64-windows.tar.xz"}]}'
-              native_matrix='{"include":[{"os":"windows-2022","target":"x86_64-windows-native","artifact":"llvm-22-x86_64-windows-native.tar.zst"},{"os":"macos-14","target":"aarch64-macos-native","artifact":"llvm-22-aarch64-macos-native.tar.zst"}]}'
+              native_matrix='{"include":[{"os":"windows-2022","target":"x86_64-windows-native","artifact":"llvm-22-x86_64-windows-native.tar.zst"},{"os":"macos-15","target":"aarch64-macos-native","artifact":"llvm-22-aarch64-macos-native.tar.zst"}]}'
               ;;
             linux-native)
               selected_archive=llvm-22-x86_64-linux-native.tar.xz
@@ -110,7 +110,7 @@ jobs:
             native-macos)
               selected_archive=llvm-22-aarch64-macos-native.tar.zst
               linux_matrix='{"include":[]}'
-              native_matrix='{"include":[{"os":"macos-14","target":"aarch64-macos-native","artifact":"llvm-22-aarch64-macos-native.tar.zst"}]}'
+              native_matrix='{"include":[{"os":"macos-15","target":"aarch64-macos-native","artifact":"llvm-22-aarch64-macos-native.tar.zst"}]}'
               ;;
             native-windows)
               selected_archive=llvm-22-x86_64-windows-native.tar.zst
