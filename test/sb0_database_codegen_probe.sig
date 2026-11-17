@@ -36,6 +36,10 @@ const Floats = struct { first: f64, second: f64, third: f64 };
 const FloatEnvelope = struct { floats: Floats, identity: u64 };
 var optional: ?Text = null;
 var reader_input: [2]u8 = undefined;
+var cache_count: u64 = 0;
+var cache_latch: u8 = 0;
+var signed_counter: i16 = 0;
+var narrow_counter: u32 = 0;
 const Reader = struct {
     bytes: []const u8,
     at: usize = 0,
@@ -126,7 +130,53 @@ noinline fn readKind(bytes: []const u8) !u8 {
     if (kind == 'P') return 2;
     return error.ProtocolViolation;
 }
+
+noinline fn takeLatch(latch: *u8) bool {
+    return @cmpxchgStrong(u8, latch, 0, 1, .acquire, .monotonic) == null;
+}
+
+noinline fn counterAdd(count: *u64, value: u64) u64 {
+    return @atomicRmw(u64, count, .Add, value, .monotonic);
+}
+
+noinline fn acquireWithoutUsingValue(counter: *const u32) void {
+    _ = @atomicLoad(u32, counter, .acquire);
+}
+
+noinline fn exchangeSigned(counter: *i16, expected: i16, replacement: i16) ?i16 {
+    return @cmpxchgStrong(i16, counter, expected, replacement, .acq_rel, .acquire);
+}
+
+noinline fn probeAtomics(seed: u64) !void {
+    @atomicStore(u64, &cache_count, seed, .release);
+    try check(@atomicLoad(u64, &cache_count, .acquire) == seed);
+    try check(counterAdd(&cache_count, 2) == seed);
+    // The increment must survive when its result is dead.
+    _ = @atomicRmw(u64, &cache_count, .Add, 1, .monotonic);
+    try check(@atomicLoad(u64, &cache_count, .monotonic) == seed + 3);
+
+    @atomicStore(u8, &cache_latch, 0, .release);
+    try check(takeLatch(&cache_latch));
+    try check(!takeLatch(&cache_latch));
+    try check(@cmpxchgWeak(u8, &cache_latch, 2, 3, .monotonic, .monotonic).? == 1);
+    @atomicStore(u8, &cache_latch, 0, .release);
+    try check(takeLatch(&cache_latch));
+
+    @atomicStore(i16, &signed_counter, -7, .seq_cst);
+    try check(exchangeSigned(&signed_counter, -5, -11).? == -7);
+    try check(exchangeSigned(&signed_counter, -7, -13) == null);
+    try check(@atomicLoad(i16, &signed_counter, .seq_cst) == -13);
+    try check(@atomicRmw(i16, &signed_counter, .Add, 4, .acq_rel) == -13);
+    try check(@atomicLoad(i16, &signed_counter, .acquire) == -9);
+
+    @atomicStore(u32, &narrow_counter, 0xffffffff, .monotonic);
+    acquireWithoutUsingValue(&narrow_counter);
+    try check(@atomicRmw(u32, &narrow_counter, .Add, 1, .monotonic) == 0xffffffff);
+    try check(@atomicLoad(u32, &narrow_counter, .monotonic) == 0);
+}
+
 noinline fn probe(seed: u64) !void {
+    try probeAtomics(seed);
     reader_input[0] = if (seed & 1 == 0) 'S' else 'P';
     reader_input[1] = 0;
     try check(try readKind(&reader_input) == @as(u8, if (seed & 1 == 0) 1 else 2));

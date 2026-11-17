@@ -3104,6 +3104,7 @@ pub const Instruction = packed union {
     /// C4.1.88 Loads and Stores
     pub const LoadStore = packed union {
         group: @This().Group,
+        atomic_single: AtomicSingle,
         register_literal: RegisterLiteral,
         memory: Memory,
         no_allocate_pair_offset: NoAllocatePairOffset,
@@ -3129,6 +3130,20 @@ pub const Instruction = packed union {
             op1: bool,
             decoded27: u1 = 0b1,
             op0: u4,
+        };
+
+        /// Baseline Armv8-A single-register exclusive and ordered accesses.
+        pub const AtomicSingle = packed struct {
+            Rt: Register.Encoded,
+            Rn: Register.Encoded,
+            fixed10: u5 = 0b11111,
+            ordered: bool,
+            Rs: Register.Encoded,
+            fixed21: u1 = 0,
+            load: bool,
+            nonexclusive: bool,
+            fixed24: u6 = 0b001000,
+            size: Size,
         };
 
         /// Load register (literal)
@@ -5668,6 +5683,7 @@ pub const Instruction = packed union {
 
         pub const Decoded = union(enum) {
             unallocated,
+            atomic_single: AtomicSingle,
             register_literal: RegisterLiteral,
             memory: Memory,
             no_allocate_pair_offset: NoAllocatePairOffset,
@@ -5684,6 +5700,14 @@ pub const Instruction = packed union {
         pub fn decode(inst: @This()) @This().Decoded {
             return switch (inst.group.op0) {
                 else => .unallocated,
+                0b0000, 0b0100, 0b1000, 0b1100 => atomic: {
+                    const fields = inst.atomic_single;
+                    if (fields.fixed24 != 0b001000 or fields.fixed21 != 0 or fields.fixed10 != 0b11111 or
+                        (fields.nonexclusive and !fields.ordered) or
+                        ((fields.load or fields.nonexclusive) and fields.Rs != Register.Alias.zr.encode(.{})))
+                        break :atomic .unallocated;
+                    break :atomic .{ .atomic_single = fields };
+                },
                 0b0010, 0b0110, 0b1010, 0b1110 => switch (inst.group.op2) {
                     0b00 => .{ .no_allocate_pair_offset = inst.no_allocate_pair_offset },
                     0b01 => .{ .register_pair_post_indexed = inst.register_pair_post_indexed },
@@ -11404,6 +11428,32 @@ pub const Instruction = packed union {
             0b0101, 0b1101 => .{ .data_processing_register = inst.data_processing_register },
             0b0111, 0b1111 => .{ .data_processing_vector = inst.data_processing_vector },
         };
+    }
+
+    pub fn loadAtomicSingle(width: LoadStore.Size, destination: Register, address: Register, ordered: bool, exclusive: bool) Instruction {
+        assert(ordered or exclusive);
+        return .{ .load_store = .{ .atomic_single = .{
+            .Rt = destination.alias.encode(.{}),
+            .Rn = address.alias.encode(.{ .sp = true }),
+            .ordered = ordered,
+            .Rs = Register.Alias.zr.encode(.{}),
+            .load = true,
+            .nonexclusive = !exclusive,
+            .size = width,
+        } } };
+    }
+
+    pub fn storeAtomicSingle(width: LoadStore.Size, source: Register, address: Register, ordered: bool, status: ?Register) Instruction {
+        assert(ordered or status != null);
+        return .{ .load_store = .{ .atomic_single = .{
+            .Rt = source.alias.encode(.{}),
+            .Rn = address.alias.encode(.{ .sp = true }),
+            .ordered = ordered,
+            .Rs = if (status) |reg| reg.alias.encode(.{}) else Register.Alias.zr.encode(.{}),
+            .load = false,
+            .nonexclusive = status == null,
+            .size = width,
+        } } };
     }
 
     /// C7.2.1 ABS

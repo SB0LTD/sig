@@ -789,6 +789,7 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
             const pl_op = air_data[@backingInt(air_inst_index)].pl_op;
             const extra = isel.air.extraData(Air.AtomicRmw, pl_op.payload).data;
 
+            try isel.analyzeUse(pl_op.operand);
             try isel.analyzeUse(extra.operand);
             try isel.def_order.putNoClobber(gpa, air_inst_index, {});
 
@@ -7795,7 +7796,14 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
             const atomic_load = air.data(air.inst_index).atomic_load;
             const ptr_ty = isel.air.typeOf(atomic_load.ptr, ip);
             const ptr_info = ptr_ty.ptrInfo(zcu);
-            if (atomic_load.order != .unordered) return isel.fail("ordered atomic load", .{});
+            if (atomic_load.order == .acquire or atomic_load.order == .seq_cst) {
+                try isel.orderedAtomicLoad(air.inst_index, atomic_load.ptr);
+                if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+                break :air_tag;
+            }
+            assert(atomic_load.order == .unordered or atomic_load.order == .monotonic);
+            // Newly supported monotonic loads must lower to one aligned access.
+            if (atomic_load.order == .monotonic) _ = try isel.atomicInteger(atomic_load.ptr);
             if (ptr_info.packed_offset.host_size > 0) return isel.fail("packed atomic load", .{});
 
             if (isel.live_values.fetchRemove(air.inst_index)) |dst_vi| {
@@ -7845,6 +7853,24 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) codegen.Error!void 
                 if (ptr_mat) |mat| try mat.finish(isel);
             } else if (ptr_info.flags.is_volatile) return isel.fail("volatile atomic load", .{});
 
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .atomic_store_monotonic, .atomic_store_release, .atomic_store_seq_cst => |tag| {
+            const store = air.data(air.inst_index).bin_op;
+            try isel.atomicIntStore(store.lhs, store.rhs, tag == .atomic_store_release or tag == .atomic_store_seq_cst);
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .atomic_rmw => {
+            const pl_op = air.data(air.inst_index).pl_op;
+            const rmw = isel.air.extraData(Air.AtomicRmw, pl_op.payload).data;
+            if (rmw.op() != .Add) return isel.fail("unimplemented integer atomic RMW operation {t}", .{rmw.op()});
+            try isel.atomicIntAdd(air.inst_index, pl_op.operand, rmw.operand, rmw.ordering());
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .cmpxchg_strong, .cmpxchg_weak => |tag| {
+            const ty_pl = air.data(air.inst_index).ty_pl;
+            const cmpxchg = isel.air.extraData(Air.Cmpxchg, ty_pl.payload).data;
+            try isel.atomicIntCmpxchg(air.inst_index, ty_pl.ty, cmpxchg, tag == .cmpxchg_strong);
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
         .error_name => {
@@ -9028,6 +9054,164 @@ fn block(
         assert(block_entry.key == air_inst_index);
         if (isel.live_values.fetchRemove(air_inst_index)) |result_vi| result_vi.value.deref(isel);
     }
+}
+
+const AtomicInteger = struct {
+    size: codegen.aarch64.encoding.Instruction.LoadStore.Size,
+    signedness: std.lang.Signedness,
+
+    fn bytes(operand: AtomicInteger) u64 {
+        return @as(u64, 1) << @as(u2, @intCast(@backingInt(operand.size)));
+    }
+
+    fn register(operand: AtomicInteger, ra: Register.Alias) Register {
+        return if (operand.size == .doubleword) ra.x() else ra.w();
+    }
+
+    // Byte and halfword exclusive/ordered loads zero-extend their result.
+    fn extendSigned(operand: AtomicInteger, isel: *Select, ra: Register.Alias) !void {
+        if (operand.signedness == .signed and operand.bytes() < 4) try isel.emit(.sbfm(ra.w(), ra.w(), .{
+            .N = .word,
+            .immr = 0,
+            .imms = @intCast(operand.bytes() * 8 - 1),
+        }));
+    }
+};
+
+fn atomicInteger(isel: *Select, pointer: Air.Inst.Ref) !AtomicInteger {
+    const zcu = isel.pt.zcu;
+    const ptr_ty = isel.air.typeOf(pointer, &zcu.intern_pool);
+    const ptr_info = ptr_ty.ptrInfo(zcu);
+    const ty = ZigType.fromInterned(ptr_info.child);
+    if (!ty.isAbiInt(zcu)) return isel.fail("unsupported atomic integer type {f}", .{isel.fmtType(ty)});
+    const info = ty.intInfo(zcu);
+    const operand: AtomicInteger = .{
+        .size = switch (info.bits) {
+            8 => .byte,
+            16 => .halfword,
+            32 => .word,
+            64 => .doubleword,
+            else => return isel.fail("unsupported atomic integer width {d}", .{info.bits}),
+        },
+        .signedness = info.signedness,
+    };
+    if (ptr_info.packed_offset.host_size != 0 or (ptr_ty.ptrAlignment(zcu).toByteUnits() orelse 0) < operand.bytes())
+        return isel.fail("atomic integer access requires natural alignment", .{});
+    return operand;
+}
+
+fn atomicAcquire(order: std.lang.AtomicOrder) bool {
+    return order == .acquire or order == .acq_rel or order == .seq_cst;
+}
+
+fn atomicRelease(order: std.lang.AtomicOrder) bool {
+    return order == .release or order == .acq_rel or order == .seq_cst;
+}
+
+fn orderedAtomicLoad(isel: *Select, inst: Air.Inst.Index, pointer: Air.Inst.Ref) !void {
+    const operand = try isel.atomicInteger(pointer);
+    const result = isel.live_values.fetchRemove(inst);
+    defer if (result) |value| value.value.deref(isel);
+    const result_ra = if (result) |value| try value.value.defReg(isel) else null;
+    const loaded_ra = result_ra orelse try isel.allocIntReg();
+    const lock: RegLock = if (result_ra != null) isel.tryLockReg(loaded_ra) else .{ .ra = loaded_ra };
+    defer lock.unlock(isel);
+    const address = try (try isel.use(pointer)).matReg(isel);
+    if (result_ra != null) try operand.extendSigned(isel, loaded_ra);
+    // Keep the acquire even with a dead result, using a real destination register.
+    try isel.emit(.loadAtomicSingle(operand.size, operand.register(loaded_ra), address.ra.x(), true, false));
+    try address.finish(isel);
+}
+
+fn atomicIntStore(isel: *Select, pointer: Air.Inst.Ref, value: Air.Inst.Ref, ordered: bool) !void {
+    const operand = try isel.atomicInteger(pointer);
+    const address = try (try isel.use(pointer)).matReg(isel);
+    const source = try (try isel.use(value)).matReg(isel);
+    if (ordered)
+        try isel.emit(.storeAtomicSingle(operand.size, operand.register(source.ra), address.ra.x(), true, null))
+    else
+        try isel.storeReg(source.ra, operand.bytes(), address.ra, 0);
+    try source.finish(isel);
+    try address.finish(isel);
+}
+
+fn atomicIntAdd(isel: *Select, inst: Air.Inst.Index, pointer: Air.Inst.Ref, value: Air.Inst.Ref, order: std.lang.AtomicOrder) !void {
+    const operand = try isel.atomicInteger(pointer);
+    const result = isel.live_values.fetchRemove(inst);
+    defer if (result) |old| old.value.deref(isel);
+    const result_ra = if (result) |old| try old.value.defReg(isel) else null;
+    const loaded_ra = result_ra orelse try isel.allocIntReg();
+    const lock: RegLock = if (result_ra != null) isel.tryLockReg(loaded_ra) else .{ .ra = loaded_ra };
+    defer lock.unlock(isel);
+    const address = try (try isel.use(pointer)).matReg(isel);
+    const increment = try (try isel.use(value)).matReg(isel);
+    const updated_ra = try isel.allocIntReg();
+    defer isel.freeReg(updated_ra);
+    const status_ra = try isel.allocIntReg();
+    defer isel.freeReg(status_ra);
+    const loaded = operand.register(loaded_ra);
+    const updated = operand.register(updated_ra);
+    if (result_ra != null) try operand.extendSigned(isel, loaded_ra);
+    // Select emits backward. The failed store retries the load, add and store.
+    try isel.emit(.cbnz(status_ra.w(), -12));
+    try isel.emit(.storeAtomicSingle(operand.size, updated, address.ra.x(), atomicRelease(order), status_ra.w()));
+    try isel.emit(.add(updated, loaded, .{ .register = operand.register(increment.ra) }));
+    try isel.emit(.loadAtomicSingle(operand.size, loaded, address.ra.x(), atomicAcquire(order), true));
+    try increment.finish(isel);
+    try address.finish(isel);
+}
+
+fn atomicIntCmpxchg(isel: *Select, inst: Air.Inst.Index, optional_ty: ZigType, cmpxchg: Air.Cmpxchg, strong: bool) !void {
+    const operand = try isel.atomicInteger(cmpxchg.ptr);
+    const result = isel.live_values.fetchRemove(inst);
+    defer if (result) |observed| observed.value.deref(isel);
+    const result_ra = if (result) |observed| payload: {
+        var part = observed.value.field(optional_ty, 0, operand.bytes());
+        break :payload try (try part.only(isel)).?.defReg(isel);
+    } else null;
+    const loaded_ra = result_ra orelse try isel.allocIntReg();
+    const loaded_lock: RegLock = if (result_ra != null) isel.tryLockReg(loaded_ra) else .{ .ra = loaded_ra };
+    defer loaded_lock.unlock(isel);
+    const present_ra = if (result) |observed| present: {
+        var part = observed.value.field(optional_ty, operand.bytes(), 1);
+        break :present try (try part.only(isel)).?.defReg(isel);
+    } else null;
+    const present_lock: RegLock = if (present_ra) |ra| isel.tryLockReg(ra) else .empty;
+    defer present_lock.unlock(isel);
+
+    const address = try (try isel.use(cmpxchg.ptr)).matReg(isel);
+    const expected = try (try isel.use(cmpxchg.expected_value)).matReg(isel);
+    const replacement = try (try isel.use(cmpxchg.new_value)).matReg(isel);
+    const status_ra = try isel.allocIntReg();
+    defer isel.freeReg(status_ra);
+    const loaded = operand.register(loaded_ra);
+    const expected_reg = operand.register(expected.ra);
+
+    if (result_ra != null) try operand.extendSigned(isel, loaded_ra);
+    const done = isel.instructions.items.len;
+    if (present_ra) |ra| try isel.emit(.movz(ra.w(), 1, .{ .lsl = .@"0" }));
+    const failure = isel.instructions.items.len;
+    try isel.emit(.clrex(15));
+    const mismatch = isel.instructions.items.len;
+    try isel.emit(.b(@intCast((isel.instructions.items.len + 1 - done) * 4)));
+    if (present_ra) |ra| try isel.emit(.movz(ra.w(), 0, .{ .lsl = .@"0" }));
+    const branch_on_status = isel.instructions.items.len;
+    try isel.emit(.cbnz(status_ra.w(), if (strong) 0 else @intCast((branch_on_status + 1 - failure) * 4)));
+    try isel.emit(.storeAtomicSingle(operand.size, operand.register(replacement.ra), address.ra.x(),
+        atomicRelease(cmpxchg.successOrder()), status_ra.w()));
+    try isel.emit(.@"b."(.ne, @intCast((isel.instructions.items.len + 1 - mismatch) * 4)));
+    try isel.emit(.subs(operand.register(.zr), loaded, switch (operand.size) {
+        .byte => .{ .extended_register = .{ .register = expected_reg, .extend = .{ .uxtb = 0 } } },
+        .halfword => .{ .extended_register = .{ .register = expected_reg, .extend = .{ .uxth = 0 } } },
+        .word, .doubleword => .{ .register = expected_reg },
+    }));
+    try isel.emit(.loadAtomicSingle(operand.size, loaded, address.ra.x(),
+        atomicAcquire(cmpxchg.successOrder()) or atomicAcquire(cmpxchg.failureOrder()), true));
+    if (strong) isel.instructions.items[branch_on_status] = .cbnz(status_ra.w(),
+        -@as(i21, @intCast((isel.instructions.items.len - branch_on_status - 1) * 4)));
+    try replacement.finish(isel);
+    try expected.finish(isel);
+    try address.finish(isel);
 }
 
 fn emit(isel: *Select, instruction: codegen.aarch64.encoding.Instruction) !void {
@@ -10857,6 +11041,10 @@ pub const Value = struct {
                 var field_it = src_vi.field(src_ty, field_offset, dst_size);
                 if (field_it.tryOnly(isel)) |src_field_vi| {
                     if (src_field_vi) |field_vi| {
+                        // A narrow signed payload extracted from an aggregate must
+                        // keep its sign when materialized from caller storage.
+                        if (dst_size <= 2 and dst_vi.signedness(isel) == .signed)
+                            field_vi.setSignedness(isel, .signed);
                         try dst_vi.copy(isel, dst_ty, field_vi);
                         return;
                     }

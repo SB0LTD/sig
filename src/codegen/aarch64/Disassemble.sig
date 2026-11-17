@@ -376,6 +376,27 @@ pub fn printInstruction(dis: Disassemble, inst: aarch64.encoding.Instruction, wr
         },
         .load_store => |load_store| switch (load_store.decode()) {
             .unallocated => break :unallocated,
+            .atomic_single => |atomic| {
+                const op: enum { ldar, ldaxr, ldxr, stlr, stlxr, stxr } = if (atomic.load)
+                    (if (atomic.nonexclusive) .ldar else if (atomic.ordered) .ldaxr else .ldxr)
+                else
+                    (if (atomic.nonexclusive) .stlr else if (atomic.ordered) .stlxr else .stxr);
+                const suffix: []const u8 = switch (atomic.size) {
+                    .byte => if (dis.case == .lower) "b" else "B",
+                    .halfword => if (dis.case == .lower) "h" else "H",
+                    .word, .doubleword => "",
+                };
+                try writer.print("{f}{s}{s}", .{ fmtCase(op, dis.case), suffix, dis.mnemonic_operands_separator });
+                if (!atomic.load and !atomic.nonexclusive) try writer.print("{f}{s}", .{
+                    atomic.Rs.decode(.{}).w().fmtCase(dis.case),
+                    dis.operands_separator,
+                });
+                return writer.print("{f}{s}[{f}]", .{
+                    atomic.Rt.decode(.{}).general(if (atomic.size == .doubleword) .doubleword else .word).fmtCase(dis.case),
+                    dis.operands_separator,
+                    atomic.Rn.decode(.{ .sp = true }).x().fmtCase(dis.case),
+                });
+            },
             .register_literal => {},
             .memory => {},
             .no_allocate_pair_offset => {},
