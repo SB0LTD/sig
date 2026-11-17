@@ -11523,7 +11523,10 @@ pub const Value = struct {
                     _ = subpart_it.next(isel) catch |err| switch (err) {
                         error.OutOfMemory, error.AlreadyReported => |e| return e,
                         error.Canceled => |e| return e,
-                        error.PartBudgetExceeded, error.PartStraddle => return isel.fail("load of aggregate too large for register decomposition", .{}),
+                        error.PartBudgetExceeded, error.PartStraddle => |e| return isel.fail(
+                            "load of {f} cannot decompose its {d}-byte register part at byte {d}: {s}",
+                            .{ isel.fmtType(root_ty), part_size, opts.offset, @errorName(e) },
+                        ),
                     };
                     part_it = vi.parts(isel);
                     assert(part_it.only() == null);
@@ -11616,7 +11619,10 @@ pub const Value = struct {
                     _ = subpart_it.next(isel) catch |err| switch (err) {
                         error.OutOfMemory, error.AlreadyReported => |e| return e,
                         error.Canceled => |e| return e,
-                        error.PartBudgetExceeded, error.PartStraddle => return isel.fail("store of aggregate too large for register decomposition", .{}),
+                        error.PartBudgetExceeded, error.PartStraddle => |e| return isel.fail(
+                            "store of {f} cannot decompose its {d}-byte register part at byte {d}: {s}",
+                            .{ isel.fmtType(root_ty), part_size, opts.offset, @errorName(e) },
+                        ),
                     };
                     part_it = vi.parts(isel);
                     assert(part_it.only() == null);
@@ -13683,9 +13689,9 @@ fn writeKeyToMemory(isel: *Select, constant_key: InternPool.Key, buffer: []u8) e
         .opt => |opt| {
             const child_size: usize = @intCast(ZigType.fromInterned(ip.indexToKey(opt.ty).opt_type).abiSize(zcu));
             switch (opt.val) {
-                .none => if (!ZigType.fromInterned(opt.ty).optionalReprIsPayload(zcu)) {
-                    buffer[child_size] = @intFromBool(false);
-                } else @memset(buffer[0..child_size], 0x00),
+                // Null has no observable payload. Initialize the whole slot so
+                // repeated-byte detection can safely recognize a zero fill.
+                .none => @memset(buffer, 0),
                 else => |child_constant| {
                     if (!try isel.writeToMemory(.fromInterned(child_constant), buffer[0..child_size])) return false;
                     if (!ZigType.fromInterned(opt.ty).optionalReprIsPayload(zcu)) buffer[child_size] = @intFromBool(true);
@@ -14573,11 +14579,14 @@ pub const CallAbiIterator = struct {
                                 break :next_field_begin next_field_begin;
                             } else std.mem.alignForward(u64, size, 8);
                             while (next_field_begin - part_offset >= 8) {
-                                const part_size = field_end - part_offset;
+                                // A single field (such as a slice) can span both
+                                // general-register lanes of a small aggregate.
+                                const part_size = @min(field_end - part_offset, 8);
                                 part_sizes[parts_len] = part_size;
                                 assert(part_offset + part_size <= size);
                                 parts_len += 1;
-                                part_offset = next_field_begin;
+                                part_offset += part_size;
+                                if (part_offset >= field_end) part_offset = next_field_begin;
                             }
                         }
                         assert(parts_len == part_sizes.len);

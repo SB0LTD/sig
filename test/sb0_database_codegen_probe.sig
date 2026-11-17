@@ -34,6 +34,10 @@ const Cell = union(enum) { number: i64, text: Text, empty };
 const Pair = struct { first: Text, second: Text };
 const Floats = struct { first: f64, second: f64, third: f64 };
 const FloatEnvelope = struct { floats: Floats, identity: u64 };
+const RelationSource = union(enum) { table: usize, query: u16 };
+const SourceMap = [4]?RelationSource;
+const CatalogRecord = struct { name: []const u8, oid: u32, typmod: i32 };
+const CatalogCursor = struct { bytes: []const u8 };
 var optional: ?Text = null;
 var reader_input: [2]u8 = undefined;
 var cache_count: u64 = 0;
@@ -131,6 +135,52 @@ noinline fn readKind(bytes: []const u8) !u8 {
     return error.ProtocolViolation;
 }
 
+noinline fn clearSources(sources: []?RelationSource) void {
+    @memset(sources, null);
+}
+
+noinline fn openCatalog(bytes: []const u8, first: usize) CatalogCursor {
+    return .{ .bytes = bytes[first..] };
+}
+
+noinline fn catalogRemaining(cursor: CatalogCursor) usize {
+    return cursor.bytes.len;
+}
+
+noinline fn nextCatalog(cursor: *CatalogCursor) ?CatalogRecord {
+    if (cursor.bytes.len < 2) return null;
+    const length = cursor.bytes[0];
+    if (cursor.bytes.len - 2 < length) return null;
+    const record: CatalogRecord = .{
+        .name = cursor.bytes[2..][0..length],
+        .oid = cursor.bytes[1],
+        .typmod = -1,
+    };
+    cursor.bytes = cursor.bytes[2 + @as(usize, length) ..];
+    return record;
+}
+
+noinline fn probeAggregateLayouts(seed: u64) !void {
+    var sources: SourceMap = @splat(null);
+    sources[0] = .{ .table = @intCast(seed) };
+    sources[1] = .{ .query = @intCast(seed) };
+    sources[2] = .{ .table = @intCast(seed + 1) };
+    sources[3] = .{ .query = @intCast(seed + 2) };
+    clearSources(sources[1..3]);
+    clearSources(sources[0..0]);
+    try check(sources[0].?.table == seed and sources[3].?.query == seed + 2);
+    try check(sources[1] == null and sources[2] == null);
+
+    const bytes = [_]u8{ 0, 2, @truncate(seed), 'i', 'd', 1, 25, 'n' };
+    var cursor = openCatalog(&bytes, 1);
+    try check(catalogRemaining(cursor) == 7);
+    const first = nextCatalog(&cursor) orelse return error.WrongNativeValue;
+    try check(first.name.len == 2 and first.name[0] == 'i' and first.name[1] == 'd' and first.oid == seed and first.typmod == -1);
+    const second = nextCatalog(&cursor) orelse return error.WrongNativeValue;
+    try check(second.name.len == 1 and second.name[0] == 'n' and second.oid == 25 and second.typmod == -1);
+    try check(nextCatalog(&cursor) == null);
+}
+
 noinline fn takeLatch(latch: *u8) bool {
     return @cmpxchgStrong(u8, latch, 0, 1, .acquire, .monotonic) == null;
 }
@@ -177,6 +227,7 @@ noinline fn probeAtomics(seed: u64) !void {
 
 noinline fn probe(seed: u64) !void {
     try probeAtomics(seed);
+    try probeAggregateLayouts(seed);
     reader_input[0] = if (seed & 1 == 0) 'S' else 'P';
     reader_input[1] = 0;
     try check(try readKind(&reader_input) == @as(u8, if (seed & 1 == 0) 1 else 2));
